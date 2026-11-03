@@ -25,7 +25,7 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 // Register the clinic CRUD routes.
 app.MapClinicEndpoints();
 
-// Enable the referral routes after the supporting workflows are ready.
-// app.MapReferralEndpoints();
+// Register the patient routes.
+app.MapPatientEndpoints();
 
 app.Run();
