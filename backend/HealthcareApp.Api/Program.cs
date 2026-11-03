@@ -28,4 +28,7 @@ app.MapClinicEndpoints();
 // Register the patient routes.
 app.MapPatientEndpoints();
 
+// Register the provider routes.
+app.MapProviderEndpoints();
+
 app.Run();
