@@ -8,7 +8,9 @@ public class Referral
 
     public int PatientId { get; set; }
 
-    public int ClinicId { get; set; }
+    public int ClinicalServiceId { get; set; }
+
+    public int? AssignedProviderId { get; set; }
 
     public required string ReferringProviderName { get; set; }
 
