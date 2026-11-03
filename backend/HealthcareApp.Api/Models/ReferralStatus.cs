@@ -1,5 +1,6 @@
 namespace HealthcareApp.Api.Models;
 
+// Keep these numeric values in sync with the database status constraint.
 public enum ReferralStatus
 {
     PendingReview = 1,
