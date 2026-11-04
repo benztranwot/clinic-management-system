@@ -1,0 +1,51 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test backend
+    runs-on: windows-2025
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore packages
+        run: dotnet restore HealthcareApp.slnx
+
+      - name: Build the solution
+        run: dotnet build HealthcareApp.slnx --configuration Release --no-restore
+
+      - name: Start SQL Server LocalDB
+        shell: pwsh
+        run: |
+          # Create the default instance if this runner account has no instance yet.
+          $instances = @(sqllocaldb.exe info)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          if ($instances -contains 'MSSQLLocalDB') {
+            sqllocaldb.exe start MSSQLLocalDB
+          } else {
+            sqllocaldb.exe create MSSQLLocalDB -s
+          }
+
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run API integration tests
+        run: dotnet test HealthcareApp.slnx --configuration Release --no-build --no-restore
