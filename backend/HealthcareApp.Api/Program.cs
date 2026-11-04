@@ -37,4 +37,7 @@ app.MapClinicalServiceEndpoints();
 // Register the provider eligibility routes.
 app.MapProviderServiceEndpoints();
 
+// Register the referral routes.
+app.MapReferralEndpoints();
+
 app.Run();
