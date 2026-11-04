@@ -41,3 +41,6 @@ app.MapProviderServiceEndpoints();
 app.MapReferralEndpoints();
 
 app.Run();
+
+// Expose the API entry point to the integration test project.
+public partial class Program { }
