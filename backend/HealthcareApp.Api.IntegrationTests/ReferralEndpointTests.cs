@@ -103,4 +103,345 @@ public class ReferralEndpointTests
             await db.Database.EnsureDeletedAsync();
         }
     }
+
+    [Fact]
+    public async Task AssignProvider_WithoutServiceEligibility_LeavesReferralUnassigned()
+    {
+        await using var factory = new HealthcareApiFactory();
+        using var client = factory.CreateClient();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+
+        // Verify the target before creating or deleting a database.
+        var connection = db.Database.GetDbConnection();
+        Assert.Equal(@"(localdb)\MSSQLLocalDB", connection.DataSource);
+        Assert.Equal(factory.DatabaseName, connection.Database);
+
+        try
+        {
+            // Apply the real migrations to this test's temporary database.
+            await db.Database.MigrateAsync();
+
+            // Create the clinic and patient needed by the referral.
+            var clinic = new Clinic { Name = "Provider Eligibility Test Clinic" };
+            var patient = new Patient
+            {
+                FirstName = "Taylor",
+                LastName = "Demo",
+                DateOfBirth = new DateOnly(1998, 4, 12),
+            };
+
+            db.Clinics.Add(clinic);
+            db.Patients.Add(patient);
+            await db.SaveChangesAsync();
+
+            // Create a provider and service at the same clinic.
+            var provider = new Provider
+            {
+                ClinicId = clinic.Id,
+                FirstName = "Jordan",
+                LastName = "Demo",
+            };
+
+            var service = new ClinicalService
+            {
+                ClinicId = clinic.Id,
+                Name = "Nutrition consultation",
+            };
+
+            db.Providers.Add(provider);
+            db.ClinicalServices.Add(service);
+            await db.SaveChangesAsync();
+
+            // Leave out the ProviderService link so this provider is ineligible.
+            var referral = new Referral
+            {
+                PatientId = patient.Id,
+                ClinicalServiceId = service.Id,
+                ReferringProviderName = "Dr. Demo",
+                Reason = "Nutrition counseling referral",
+            };
+
+            db.Referrals.Add(referral);
+            await db.SaveChangesAsync();
+
+            // Attempt to assign the provider through the actual API route.
+            using var response = await client.PutAsJsonAsync(
+                $"/api/referrals/{referral.PublicId}/provider",
+                new { providerPublicId = provider.PublicId }
+            );
+
+            // Confirm the API rejected the assignment for the expected reason.
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(
+                "This provider does not offer the requested service.",
+                body.GetProperty("message").GetString()
+            );
+
+            // Query SQL Server again instead of using the tracked referral object.
+            var saved = await db
+                .Referrals.AsNoTracking()
+                .SingleAsync(r => r.PublicId == referral.PublicId);
+
+            Assert.Null(saved.AssignedProviderId);
+            Assert.Equal(ReferralStatus.PendingReview, saved.Status);
+        }
+        finally
+        {
+            // Remove the temporary database even if the test fails.
+            await db.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task UpdateStatus_MissingInformationWithoutNote_LeavesStatusUnchanged(string? note)
+    {
+        await using var factory = new HealthcareApiFactory();
+        using var client = factory.CreateClient();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+
+        // Verify the target before creating or deleting a database.
+        var connection = db.Database.GetDbConnection();
+        Assert.Equal(@"(localdb)\MSSQLLocalDB", connection.DataSource);
+        Assert.Equal(factory.DatabaseName, connection.Database);
+
+        try
+        {
+            // Apply the real migrations to this test's temporary database.
+            await db.Database.MigrateAsync();
+
+            // Create the clinic and patient needed by the referral.
+            var clinic = new Clinic { Name = "Missing Information Test Clinic" };
+            var patient = new Patient
+            {
+                FirstName = "Taylor",
+                LastName = "Demo",
+                DateOfBirth = new DateOnly(1998, 4, 12),
+            };
+
+            db.Clinics.Add(clinic);
+            db.Patients.Add(patient);
+            await db.SaveChangesAsync();
+
+            // Create a service offered by the clinic.
+            var service = new ClinicalService { ClinicId = clinic.Id, Name = "Physical exam" };
+
+            db.ClinicalServices.Add(service);
+            await db.SaveChangesAsync();
+
+            // Start with a pending referral that has no missing information note.
+            var referral = new Referral
+            {
+                PatientId = patient.Id,
+                ClinicalServiceId = service.Id,
+                ReferringProviderName = "Dr. Demo",
+                Reason = "Routine physical exam",
+            };
+
+            db.Referrals.Add(referral);
+            await db.SaveChangesAsync();
+
+            // Attempt to mark the referral as missing information without a valid note.
+            using var response = await client.PutAsJsonAsync(
+                $"/api/referrals/{referral.PublicId}/status",
+                new { status = "MissingInformation", missingInformationNote = note }
+            );
+
+            // Confirm the API explains why it rejected the request.
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(
+                "Enter a missing information note between 1 and 1000 characters.",
+                body.GetProperty("message").GetString()
+            );
+
+            // Read SQL Server again to confirm the rejected request changed nothing.
+            var saved = await db
+                .Referrals.AsNoTracking()
+                .SingleAsync(r => r.PublicId == referral.PublicId);
+
+            Assert.Equal(ReferralStatus.PendingReview, saved.Status);
+            Assert.Null(saved.MissingInformationNote);
+        }
+        finally
+        {
+            // Remove the temporary database even if the test fails.
+            await db.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [Fact]
+    public async Task UpdateStatus_ClosedReferral_CannotBeReopened()
+    {
+        await using var factory = new HealthcareApiFactory();
+        using var client = factory.CreateClient();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+
+        // Verify the target before creating or deleting a database.
+        var connection = db.Database.GetDbConnection();
+        Assert.Equal(@"(localdb)\MSSQLLocalDB", connection.DataSource);
+        Assert.Equal(factory.DatabaseName, connection.Database);
+
+        try
+        {
+            // Apply the real migrations to this test's temporary database.
+            await db.Database.MigrateAsync();
+
+            // Create the clinic and patient needed by the referral.
+            var clinic = new Clinic { Name = "Closed Referral Test Clinic" };
+            var patient = new Patient
+            {
+                FirstName = "Taylor",
+                LastName = "Demo",
+                DateOfBirth = new DateOnly(1998, 4, 12),
+            };
+
+            db.Clinics.Add(clinic);
+            db.Patients.Add(patient);
+            await db.SaveChangesAsync();
+
+            // Create a service offered by the clinic.
+            var service = new ClinicalService { ClinicId = clinic.Id, Name = "Physical exam" };
+
+            db.ClinicalServices.Add(service);
+            await db.SaveChangesAsync();
+
+            // Arrange an existing referral that has already been closed.
+            var referral = new Referral
+            {
+                PatientId = patient.Id,
+                ClinicalServiceId = service.Id,
+                ReferringProviderName = "Dr. Demo",
+                Reason = "Routine physical exam",
+                Status = ReferralStatus.Closed,
+            };
+
+            db.Referrals.Add(referral);
+            await db.SaveChangesAsync();
+
+            // Attempt to reopen the closed referral through the status route.
+            using var response = await client.PutAsJsonAsync(
+                $"/api/referrals/{referral.PublicId}/status",
+                new { status = "PendingReview" }
+            );
+
+            // Confirm the API rejects reopening a closed referral.
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("This referral is closed.", body.GetProperty("message").GetString());
+
+            // Read SQL Server again to verify the referral remains closed.
+            var saved = await db
+                .Referrals.AsNoTracking()
+                .SingleAsync(r => r.PublicId == referral.PublicId);
+
+            Assert.Equal(ReferralStatus.Closed, saved.Status);
+        }
+        finally
+        {
+            // Remove the temporary database even if the test fails.
+            await db.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [Fact]
+    public async Task CreateReferral_AfterPreviousReferralClosed_PreservesBothRecords()
+    {
+        await using var factory = new HealthcareApiFactory();
+        using var client = factory.CreateClient();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+
+        // Verify the target before creating or deleting a database.
+        var connection = db.Database.GetDbConnection();
+        Assert.Equal(@"(localdb)\MSSQLLocalDB", connection.DataSource);
+        Assert.Equal(factory.DatabaseName, connection.Database);
+
+        try
+        {
+            // Apply the real migrations to this test's temporary database.
+            await db.Database.MigrateAsync();
+
+            // Create the clinic and patient needed by the referral.
+            var clinic = new Clinic { Name = "Referral History Test Clinic" };
+            var patient = new Patient
+            {
+                FirstName = "Taylor",
+                LastName = "Demo",
+                DateOfBirth = new DateOnly(1998, 4, 12),
+            };
+
+            db.Clinics.Add(clinic);
+            db.Patients.Add(patient);
+            await db.SaveChangesAsync();
+
+            // Create a service offered by the clinic.
+            var service = new ClinicalService { ClinicId = clinic.Id, Name = "Physical exam" };
+
+            db.ClinicalServices.Add(service);
+            await db.SaveChangesAsync();
+
+            var request = new
+            {
+                patientPublicId = patient.PublicId,
+                clinicalServicePublicId = service.PublicId,
+                referringProviderName = "Dr. Demo",
+                reason = "Routine physical exam",
+            };
+
+            // Create the first referral through the API.
+            using var firstResponse = await client.PostAsJsonAsync("/api/referrals", request);
+
+            Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+            var firstBody = await firstResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var firstPublicId = firstBody.GetProperty("publicId").GetGuid();
+
+            // Close the first referral through the status route.
+            using var closeResponse = await client.PutAsJsonAsync(
+                $"/api/referrals/{firstPublicId}/status",
+                new { status = "Closed" }
+            );
+
+            Assert.Equal(HttpStatusCode.OK, closeResponse.StatusCode);
+
+            // Create another referral for the same patient and service.
+            using var secondResponse = await client.PostAsJsonAsync("/api/referrals", request);
+
+            Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
+
+            var secondBody = await secondResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var secondPublicId = secondBody.GetProperty("publicId").GetGuid();
+
+            Assert.NotEqual(firstPublicId, secondPublicId);
+
+            // Read both records from SQL Server to verify their saved statuses.
+            var saved = await db
+                .Referrals.AsNoTracking()
+                .Where(r => r.PatientId == patient.Id && r.ClinicalServiceId == service.Id)
+                .ToListAsync();
+
+            Assert.Equal(2, saved.Count);
+
+            var original = Assert.Single(saved, r => r.PublicId == firstPublicId);
+            var replacement = Assert.Single(saved, r => r.PublicId == secondPublicId);
+
+            Assert.Equal(ReferralStatus.Closed, original.Status);
+            Assert.Equal(ReferralStatus.PendingReview, replacement.Status);
+        }
+        finally
+        {
+            // Remove the temporary database even if the test fails.
+            await db.Database.EnsureDeletedAsync();
+        }
+    }
 }
