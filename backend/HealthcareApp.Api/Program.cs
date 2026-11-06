@@ -39,7 +39,7 @@ builder
         options.TokenValidationParameters.ValidAlgorithms = ["RS256"];
     });
 
-// Define the permission required to read clinics.
+// Define the permissions required to read and manage clinics.
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(
@@ -48,6 +48,15 @@ builder.Services.AddAuthorization(options =>
         {
             policy.RequireAuthenticatedUser();
             policy.RequireClaim("permissions", "read:clinics");
+        }
+    );
+
+    options.AddPolicy(
+        "ManageClinics",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "manage:clinics");
         }
     );
 });

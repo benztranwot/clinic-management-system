@@ -13,17 +13,20 @@ public static class ClinicEndpoints
         // Require read:clinics permission before listing clinics.
         app.MapGet("/api/clinics", GetClinicsAsync).RequireAuthorization("ReadClinics");
 
-        // Define the POST route for creating a clinic.
-        app.MapPost("/api/clinics", CreateClinicAsync);
+        // Require manage:clinics permission before creating a clinic.
+        app.MapPost("/api/clinics", CreateClinicAsync).RequireAuthorization("ManageClinics");
 
-        // Define the GET route for finding a clinic by its public ID.
-        app.MapGet("/api/clinics/{publicId:guid}", GetClinicByIdAsync);
+        // Require read:clinics permission before viewing a clinic.
+        app.MapGet("/api/clinics/{publicId:guid}", GetClinicByIdAsync)
+            .RequireAuthorization("ReadClinics");
 
-        // Define the PUT route for updating a clinic by its public ID.
-        app.MapPut("/api/clinics/{publicId:guid}", UpdateClinicAsync);
+        // Require manage:clinics permission before updating a clinic.
+        app.MapPut("/api/clinics/{publicId:guid}", UpdateClinicAsync)
+            .RequireAuthorization("ManageClinics");
 
-        // Define the DELETE route for removing a clinic by its public ID.
-        app.MapDelete("/api/clinics/{publicId:guid}", DeleteClinicAsync);
+        // Require manage:clinics permission before deleting a clinic.
+        app.MapDelete("/api/clinics/{publicId:guid}", DeleteClinicAsync)
+            .RequireAuthorization("ManageClinics");
     }
 
     private static async Task<IResult> GetClinicsAsync(
