@@ -1,5 +1,6 @@
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Endpoints;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,13 +15,48 @@ builder.Services.AddDbContext<HealthcareDbContext>(options =>
     options.UseSqlServer(connectionString)
 );
 
+// Read the Auth0 settings required to validate incoming access tokens.
+var auth0Authority =
+    builder.Configuration["Auth0:Authority"]
+    ?? throw new InvalidOperationException("Auth0 authority is missing.");
+
+var auth0Audience =
+    builder.Configuration["Auth0:Audience"]
+    ?? throw new InvalidOperationException("Auth0 audience is missing.");
+
+// Validate bearer tokens issued by Auth0 for this API.
+builder
+    .Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = auth0Authority;
+        options.Audience = auth0Audience;
+
+        // Preserve original claim names such as sub.
+        options.MapInboundClaims = false;
+
+        // Accept the signing algorithm selected for our Auth0 API.
+        options.TokenValidationParameters.ValidAlgorithms = ["RS256"];
+    });
+
+// Register the services used to enforce endpoint access requirements.
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
+
+// Authenticate the caller before evaluating authorization requirements.
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Define a simple response at the root URL.
 app.MapGet("/", () => "Hello World!");
 
 // Define a health route that shows the API is responding.
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+
+// Define a protected route for checking access-token authentication.
+app.MapGet("/api/auth/check", () => Results.Ok(new { message = "Authentication succeeded." }))
+    .RequireAuthorization();
 
 // Register the clinic CRUD routes.
 app.MapClinicEndpoints();

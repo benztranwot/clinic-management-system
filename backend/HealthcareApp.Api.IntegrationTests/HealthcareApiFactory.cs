@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace HealthcareApp.Api.IntegrationTests;
 
@@ -22,6 +23,12 @@ public class HealthcareApiFactory : WebApplicationFactory<Program>
                         $@"Server=(localdb)\MSSQLLocalDB;Database={DatabaseName};Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
                 }
             );
+        });
+
+        // Keep framework warnings and errors while reducing routine test output.
+        builder.ConfigureLogging(logging =>
+        {
+            logging.AddFilter("Microsoft", LogLevel.Warning);
         });
 
         return base.CreateHost(builder);

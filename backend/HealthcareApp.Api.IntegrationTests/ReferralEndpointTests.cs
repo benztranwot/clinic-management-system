@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HealthcareApp.Api.IntegrationTests;
@@ -14,8 +16,22 @@ public class ReferralEndpointTests
     public async Task CreateReferral_ConcurrentDuplicates_SaveOnlyOne()
     {
         await using var factory = new HealthcareApiFactory();
-        using var client = factory.CreateClient();
-        await using var scope = factory.Services.CreateAsyncScope();
+
+        // Suppress the save-failure log in this test, which deliberately causes a duplicate insert.
+        await using var configuredFactory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                services.ConfigureDbContext<HealthcareDbContext>(options =>
+                    options.ConfigureWarnings(warnings =>
+                        warnings.Ignore(CoreEventId.SaveChangesFailed)
+                    )
+                );
+            });
+        });
+
+        using var client = configuredFactory.CreateClient();
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
 
         // Verify the target before creating or deleting a database.
