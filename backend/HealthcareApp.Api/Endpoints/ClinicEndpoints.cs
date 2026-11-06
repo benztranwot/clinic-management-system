@@ -10,8 +10,8 @@ public static class ClinicEndpoints
 {
     public static void MapClinicEndpoints(this IEndpointRouteBuilder app)
     {
-        // Define the GET route for listing clinics.
-        app.MapGet("/api/clinics", GetClinicsAsync);
+        // Require read:clinics permission before listing clinics.
+        app.MapGet("/api/clinics", GetClinicsAsync).RequireAuthorization("ReadClinics");
 
         // Define the POST route for creating a clinic.
         app.MapPost("/api/clinics", CreateClinicAsync);
