@@ -4,6 +4,7 @@ import { Link, NavLink, Navigate, Route, Routes } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import ClinicsPage from "./pages/ClinicsPage";
 import ProvidersPage from "./pages/ProvidersPage";
+import ServicesPage from "./pages/ServicesPage";
 import PatientsPage from "./pages/PatientsPage";
 import PatientDetailsPage from "./pages/PatientDetailsPage";
 import "./App.css";
@@ -126,6 +127,7 @@ function App() {
   
             <Route path="/clinics" element={<ClinicsPage />} />
             <Route path="/clinics/:clinicPublicId/providers" element={<ProvidersPage />} />
+            <Route path="/clinics/:clinicPublicId/services" element={<ServicesPage />} />
             <Route path="/patients" element={<PatientsPage />} />
             <Route path="/patients/:publicId" element={<PatientDetailsPage />} />
   
