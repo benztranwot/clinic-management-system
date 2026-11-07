@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Link, Navigate, Route, Routes } from "react-router";
+import { Link, NavLink, Navigate, Route, Routes } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import ClinicsPage from "./pages/ClinicsPage";
+import PatientsPage from "./pages/PatientsPage";
+import PatientDetailsPage from "./pages/PatientDetailsPage";
 import "./App.css";
 
 function App() {
@@ -90,7 +92,7 @@ function App() {
         </section>
       ) : (
         <section>
-          <p>Sign in to view clinics.</p>
+          <p>Sign in to view application records.</p>
           <button type="button" onClick={handleSignIn} disabled={isRedirecting}>
             {isRedirecting ? "Opening sign-in…" : "Sign in"}
           </button>
@@ -99,26 +101,48 @@ function App() {
 
       {/* Show application pages after authentication finishes successfully. */}
       {isAuthenticated && !isRedirecting && (
-        <Routes>
-          <Route path="/" element={<Navigate to="/clinics" replace />} />
-
-          <Route path="/clinics" element={<ClinicsPage />} />
-
-          <Route
-            path="*"
-            element={
-              <section className="mt-8">
-                <h2 className="text-xl font-semibold">Page not found</h2>
-                <Link
-                  to="/clinics"
-                  className="mt-2 inline-block text-blue-700 underline"
-                >
-                  Return to clinics
-                </Link>
-              </section>
-            }
-          />
-        </Routes>
+        <>
+          <nav aria-label="Main navigation" className="mt-6 flex gap-4">
+            <NavLink
+              to="/clinics"
+              className={({ isActive }) =>
+                isActive ? "font-semibold underline" : "text-blue-700"
+              }
+            >
+              Clinics
+            </NavLink>
+            <NavLink
+              to="/patients"
+              className={({ isActive }) =>
+                isActive ? "font-semibold underline" : "text-blue-700"
+              }
+            >
+              Patients
+            </NavLink>
+          </nav>
+          <Routes>
+            <Route path="/" element={<Navigate to="/clinics" replace />} />
+  
+            <Route path="/clinics" element={<ClinicsPage />} />
+            <Route path="/patients" element={<PatientsPage />} />
+            <Route path="/patients/:publicId" element={<PatientDetailsPage />} />
+  
+            <Route
+              path="*"
+              element={
+                <section className="mt-8">
+                  <h2 className="text-xl font-semibold">Page not found</h2>
+                  <Link
+                    to="/clinics"
+                    className="mt-2 inline-block text-blue-700 underline"
+                  >
+                    Return to clinics
+                  </Link>
+                </section>
+              }
+            />
+          </Routes>
+        </>
       )}
 
       {actionError && <p role="alert">{actionError}</p>}
