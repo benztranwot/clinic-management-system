@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { ClinicRequestError, getClinic } from "../api/clinics";
+import ProviderServices from "../components/providers/ProviderServices";
 import {
   createProvider,
   deleteProvider,
@@ -116,6 +117,10 @@ function ProviderDirectory({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [notice, setNotice] = useState("");
+  const isChangingAssignment = useIsMutating({
+    mutationKey: ["provider-services", userId, selectedId],
+    exact: true,
+  }) > 0;
 
   const directoryKey = ["providers", userId, clinicPublicId];
   const directory = useQuery({
@@ -284,6 +289,15 @@ function ProviderDirectory({
                 <dt className="text-sm font-medium">Provider name</dt>
                 <dd>{provider.firstName} {provider.lastName}</dd>
               </dl>
+              {formMode !== "edit" && (
+                <ProviderServices
+                  key={provider.publicId}
+                  userId={userId}
+                  clinicPublicId={clinicPublicId}
+                  providerPublicId={provider.publicId}
+                  disabled={change.isPending}
+                />
+              )}
               {canManage && formMode === "edit" && (
                 <ProviderForm
                   key={provider.publicId}
@@ -297,7 +311,7 @@ function ProviderDirectory({
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={change.isPending}
+                    disabled={change.isPending || isChangingAssignment}
                     onClick={() => {
                       change.reset();
                       setNotice("");
@@ -308,7 +322,7 @@ function ProviderDirectory({
                   </button>
                   <button
                     type="button"
-                    disabled={change.isPending}
+                    disabled={change.isPending || isChangingAssignment}
                     onClick={() => {
                       const name = provider.firstName + " " + provider.lastName;
                       if (window.confirm("Permanently delete " + name + "?")) {
