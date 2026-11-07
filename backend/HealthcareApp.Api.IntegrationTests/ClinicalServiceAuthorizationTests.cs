@@ -1,20 +1,11 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text.Json;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 
 namespace HealthcareApp.Api.IntegrationTests;
 
@@ -44,45 +35,14 @@ public class ClinicalServiceAuthorizationTests
         HttpStatusCode expectedStatus
     )
     {
-        const string issuer = "https://auth.integration.test/";
-        const string audience = "clinic-management-api-tests";
         const string originalName = "Physical exam";
         const string createdName = "Nutrition consultation";
         const string updatedName = "Therapy assessment";
 
-        // Generate a signing key used only by this test.
-        using var rsa = RSA.Create(2048);
-        var signingKey = new RsaSecurityKey(rsa) { KeyId = Guid.NewGuid().ToString("N") };
-        var validationKey = new RsaSecurityKey(rsa.ExportParameters(false))
-        {
-            KeyId = signingKey.KeyId,
-        };
-
+        // Use locally signed tokens while keeping real JWT validation enabled.
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
-
-        // Trust local test metadata while keeping real JWT validation enabled.
-        await using var configuredFactory = factory.WithWebHostBuilder(builder =>
-        {
-            builder.ConfigureTestServices(services =>
-            {
-                services.Configure<JwtBearerOptions>(
-                    JwtBearerDefaults.AuthenticationScheme,
-                    options =>
-                    {
-                        options.Authority = issuer;
-                        options.Audience = audience;
-
-                        var configuration = new OpenIdConnectConfiguration { Issuer = issuer };
-                        configuration.SigningKeys.Add(validationKey);
-
-                        options.ConfigurationManager =
-                            new StaticConfigurationManager<OpenIdConnectConfiguration>(
-                                configuration
-                            );
-                    }
-                );
-            });
-        });
+        await using var configuredFactory = tokens.CreateFactory(factory);
 
         using var client = configuredFactory.CreateClient(
             new WebApplicationFactoryClientOptions { AllowAutoRedirect = false }
@@ -106,38 +66,19 @@ public class ClinicalServiceAuthorizationTests
 
             // Different clinics may offer services with the same name.
             var service = new ClinicalService { ClinicId = clinic.Id, Name = originalName };
-            var otherService = new ClinicalService { ClinicId = otherClinic.Id, Name = originalName };
+            var otherService = new ClinicalService
+            {
+                ClinicId = otherClinic.Id,
+                Name = originalName,
+            };
             db.ClinicalServices.AddRange(service, otherService);
             await db.SaveChangesAsync();
 
             if (sendToken)
             {
-                var now = DateTime.UtcNow;
-
-                // Represent permissions as a JSON array, matching Auth0 tokens.
+                // Give this request exactly the permissions specified by the test case.
                 string[] permissions = permission is null ? [] : [permission];
-                var token = new JsonWebTokenHandler().CreateToken(
-                    new SecurityTokenDescriptor
-                    {
-                        Issuer = issuer,
-                        Audience = audience,
-                        Subject = new ClaimsIdentity([
-                            new Claim("sub", "auth0|integration-test-user"),
-                        ]),
-                        Claims = new Dictionary<string, object> { ["permissions"] = permissions },
-                        IssuedAt = now,
-                        NotBefore = now.AddMinutes(-1),
-                        Expires = now.AddMinutes(5),
-                        SigningCredentials = new SigningCredentials(
-                            signingKey,
-                            SecurityAlgorithms.RsaSha256
-                        ),
-                    }
-                );
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-                    "Bearer",
-                    token
-                );
+                tokens.Authorize(client, permissions);
             }
 
             // List and create use the clinic URL; other operations use the service URL.
@@ -174,9 +115,8 @@ public class ClinicalServiceAuthorizationTests
             {
                 // The clinic list must exclude the service from the other clinic.
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-                var returnedService = operation == "List"
-                    ? Assert.Single(body.EnumerateArray())
-                    : body;
+                var returnedService =
+                    operation == "List" ? Assert.Single(body.EnumerateArray()) : body;
 
                 Assert.Equal(service.PublicId, returnedService.GetProperty("publicId").GetGuid());
                 Assert.Equal(
@@ -187,7 +127,10 @@ public class ClinicalServiceAuthorizationTests
 
             // Inspect fresh database values, including the other clinic's service.
             var savedServices = await db.ClinicalServices.AsNoTracking().ToListAsync();
-            var untouchedService = Assert.Single(savedServices, s => s.PublicId == otherService.PublicId);
+            var untouchedService = Assert.Single(
+                savedServices,
+                s => s.PublicId == otherService.PublicId
+            );
             AssertService(untouchedService, otherClinic.Id, originalName);
 
             if (expectedStatus == HttpStatusCode.Created)
@@ -207,7 +150,10 @@ public class ClinicalServiceAuthorizationTests
 
                 var createdService = Assert.Single(savedServices, s => s.PublicId == createdId);
                 AssertService(createdService, clinic.Id, createdName);
-                var originalService = Assert.Single(savedServices, s => s.PublicId == service.PublicId);
+                var originalService = Assert.Single(
+                    savedServices,
+                    s => s.PublicId == service.PublicId
+                );
                 AssertService(originalService, clinic.Id, originalName);
             }
             else if (expectedStatus == HttpStatusCode.NoContent)
@@ -219,7 +165,10 @@ public class ClinicalServiceAuthorizationTests
             else
             {
                 Assert.Equal(2, savedServices.Count);
-                var originalService = Assert.Single(savedServices, s => s.PublicId == service.PublicId);
+                var originalService = Assert.Single(
+                    savedServices,
+                    s => s.PublicId == service.PublicId
+                );
 
                 // Rejected writes must preserve both the name and clinic membership.
                 AssertService(

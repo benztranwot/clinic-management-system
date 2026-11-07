@@ -1,20 +1,11 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text.Json;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 
 namespace HealthcareApp.Api.IntegrationTests;
 
@@ -44,42 +35,10 @@ public class ProviderAuthorizationTests
         HttpStatusCode expectedStatus
     )
     {
-        const string issuer = "https://auth.integration.test/";
-        const string audience = "clinic-management-api-tests";
-
-        // Generate a signing key used only by this test.
-        using var rsa = RSA.Create(2048);
-        var signingKey = new RsaSecurityKey(rsa) { KeyId = Guid.NewGuid().ToString("N") };
-        var validationKey = new RsaSecurityKey(rsa.ExportParameters(false))
-        {
-            KeyId = signingKey.KeyId,
-        };
-
+        // Use locally signed tokens while keeping real JWT validation enabled.
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
-
-        // Trust local test metadata while keeping real JWT validation enabled.
-        await using var configuredFactory = factory.WithWebHostBuilder(builder =>
-        {
-            builder.ConfigureTestServices(services =>
-            {
-                services.Configure<JwtBearerOptions>(
-                    JwtBearerDefaults.AuthenticationScheme,
-                    options =>
-                    {
-                        options.Authority = issuer;
-                        options.Audience = audience;
-
-                        var configuration = new OpenIdConnectConfiguration { Issuer = issuer };
-                        configuration.SigningKeys.Add(validationKey);
-
-                        options.ConfigurationManager =
-                            new StaticConfigurationManager<OpenIdConnectConfiguration>(
-                                configuration
-                            );
-                    }
-                );
-            });
-        });
+        await using var configuredFactory = tokens.CreateFactory(factory);
 
         using var client = configuredFactory.CreateClient(
             new WebApplicationFactoryClientOptions { AllowAutoRedirect = false }
@@ -118,32 +77,9 @@ public class ProviderAuthorizationTests
 
             if (sendToken)
             {
-                var now = DateTime.UtcNow;
-
-                // Represent permissions as a JSON array, matching Auth0 tokens.
+                // Give this request exactly the permissions specified by the test case.
                 string[] permissions = permission is null ? [] : [permission];
-                var token = new JsonWebTokenHandler().CreateToken(
-                    new SecurityTokenDescriptor
-                    {
-                        Issuer = issuer,
-                        Audience = audience,
-                        Subject = new ClaimsIdentity([
-                            new Claim("sub", "auth0|integration-test-user"),
-                        ]),
-                        Claims = new Dictionary<string, object> { ["permissions"] = permissions },
-                        IssuedAt = now,
-                        NotBefore = now.AddMinutes(-1),
-                        Expires = now.AddMinutes(5),
-                        SigningCredentials = new SigningCredentials(
-                            signingKey,
-                            SecurityAlgorithms.RsaSha256
-                        ),
-                    }
-                );
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-                    "Bearer",
-                    token
-                );
+                tokens.Authorize(client, permissions);
             }
 
             // List and create use the clinic URL; other operations use the provider URL.
@@ -155,11 +91,15 @@ public class ProviderAuthorizationTests
                 "Read" => new HttpRequestMessage(HttpMethod.Get, providerUrl),
                 "Create" => new HttpRequestMessage(HttpMethod.Post, collectionUrl)
                 {
-                    Content = JsonContent.Create(new { firstName = "Morgan", lastName = "Example" }),
+                    Content = JsonContent.Create(
+                        new { firstName = "Morgan", lastName = "Example" }
+                    ),
                 },
                 "Update" => new HttpRequestMessage(HttpMethod.Put, providerUrl)
                 {
-                    Content = JsonContent.Create(new { firstName = "Jordan", lastName = "Updated" }),
+                    Content = JsonContent.Create(
+                        new { firstName = "Jordan", lastName = "Updated" }
+                    ),
                 },
                 "Delete" => new HttpRequestMessage(HttpMethod.Delete, providerUrl),
                 _ => throw new ArgumentOutOfRangeException(nameof(operation)),
@@ -180,9 +120,8 @@ public class ProviderAuthorizationTests
             {
                 // The clinic list must exclude the provider from the other clinic.
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-                var returnedProvider = operation == "List"
-                    ? Assert.Single(body.EnumerateArray())
-                    : body;
+                var returnedProvider =
+                    operation == "List" ? Assert.Single(body.EnumerateArray()) : body;
 
                 Assert.Equal(provider.PublicId, returnedProvider.GetProperty("publicId").GetGuid());
                 Assert.Equal(
@@ -221,7 +160,10 @@ public class ProviderAuthorizationTests
 
                 var createdProvider = Assert.Single(savedProviders, p => p.PublicId == createdId);
                 AssertProvider(createdProvider, clinic.Id, "Morgan", "Example");
-                var originalProvider = Assert.Single(savedProviders, p => p.PublicId == provider.PublicId);
+                var originalProvider = Assert.Single(
+                    savedProviders,
+                    p => p.PublicId == provider.PublicId
+                );
                 AssertProvider(originalProvider, clinic.Id, "Taylor", "Demo");
             }
             else if (expectedStatus == HttpStatusCode.NoContent)
@@ -233,7 +175,10 @@ public class ProviderAuthorizationTests
             else
             {
                 Assert.Equal(2, savedProviders.Count);
-                var originalProvider = Assert.Single(savedProviders, p => p.PublicId == provider.PublicId);
+                var originalProvider = Assert.Single(
+                    savedProviders,
+                    p => p.PublicId == provider.PublicId
+                );
 
                 if (expectedStatus == HttpStatusCode.OK && operation == "Update")
                 {
