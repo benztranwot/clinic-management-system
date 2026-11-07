@@ -97,6 +97,25 @@ builder.Services.AddAuthorization(options =>
             policy.RequireClaim("permissions", "manage:providers");
         }
     );
+    // Require permission to view clinical services.
+    options.AddPolicy(
+        "ReadClinicalServices",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "read:services");
+        }
+    );
+
+    // Require permission to create, update, or delete clinical services.
+    options.AddPolicy(
+        "ManageClinicalServices",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "manage:services");
+        }
+    );
 });
 
 var app = builder.Build();
