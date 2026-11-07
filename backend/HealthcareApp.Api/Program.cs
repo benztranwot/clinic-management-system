@@ -116,6 +116,25 @@ builder.Services.AddAuthorization(options =>
             policy.RequireClaim("permissions", "manage:services");
         }
     );
+    // Require permission to view a provider's service eligibility.
+    options.AddPolicy(
+        "ReadProviderServices",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "read:provider-services");
+        }
+    );
+
+    // Require permission to change a provider's service eligibility.
+    options.AddPolicy(
+        "ManageProviderServices",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "manage:provider-services");
+        }
+    );
 });
 
 var app = builder.Build();
