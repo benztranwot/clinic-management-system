@@ -1,21 +1,33 @@
+import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useQuery } from "@tanstack/react-query";
-import { ClinicRequestError, getClinics } from "../api/clinics";
+import { useIsMutating, useQuery } from "@tanstack/react-query";
+import { ClinicRequestError, getClinics, type Clinic } from "../api/clinics";
+import ClinicForm from "../components/clinics/ClinicForm";
+import DeleteClinicButton from "../components/clinics/DeleteClinicButton";
 
 function ClinicList({ userId }: { userId: string }) {
   const { getAccessTokenSilently } = useAuth0();
+  const [editingClinic, setEditingClinic] = useState<Clinic | null>(null);
+  const [notice, setNotice] = useState("");
+  const isManaging = useIsMutating({ mutationKey: ["manage-clinic", userId] }) > 0;
 
   const query = useQuery({
     // Keep cached clinic data separate for each signed-in user.
     queryKey: ["clinics", userId],
     queryFn: async ({ signal }) => {
-      const accessToken = await getAccessTokenSilently();
+      const token = await getAccessTokenSilently({ detailedResponse: true });
 
-      if (!accessToken) {
+      if (!token?.access_token) {
         throw new Error("Auth0 did not return an access token.");
       }
 
-      return getClinics(accessToken, signal);
+      const clinics = await getClinics(token.access_token, signal);
+
+      return {
+        clinics,
+        canManage:
+          token.scope?.split(/\s+/).includes("manage:clinics") ?? false,
+      };
     },
     staleTime: 30_000,
     retry: false,
@@ -66,18 +78,65 @@ function ClinicList({ userId }: { userId: string }) {
     );
   }
 
-  if (query.data.length === 0) {
-    return <p className="mt-3 text-slate-600">No clinics found.</p>;
-  }
+  const { clinics, canManage } = query.data;
 
   return (
-    <ul className="mt-3 divide-y divide-slate-200" aria-label="Clinics">
-      {query.data.map((clinic) => (
-        <li key={clinic.publicId} className="py-3 font-medium">
-          {clinic.name}
-        </li>
-      ))}
-    </ul>
+    <>
+      {canManage && (
+        <ClinicForm
+          key={editingClinic?.publicId ?? "create"}
+          userId={userId}
+          clinic={editingClinic}
+          onCancel={() => setEditingClinic(null)}
+        />
+      )}
+
+      {notice && (
+        <div className="mt-3 flex items-center gap-3">
+          <p role="status">{notice}</p>
+          <button
+            type="button"
+            aria-label="Dismiss clinic notification"
+            onClick={() => setNotice("")}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {clinics.length === 0 ? (
+        <p className="mt-3 text-slate-600">No clinics found.</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-slate-200" aria-label="Clinics">
+          {clinics.map((clinic) => (
+            <li
+              key={clinic.publicId}
+              className="flex items-center justify-between gap-3 py-3 font-medium"
+            >
+              <span className="min-w-0 break-words">{clinic.name}</span>
+              {canManage && (
+                <div className="flex shrink-0 flex-wrap items-start gap-2">
+                  <button
+                    type="button"
+                    aria-label={`Edit ${clinic.name}`}
+                    disabled={isManaging || editingClinic?.publicId === clinic.publicId}
+                    onClick={() => setEditingClinic(clinic)}
+                  >
+                    Edit
+                  </button>
+                  <DeleteClinicButton
+                    clinic={clinic}
+                    userId={userId}
+                    disabled={isManaging || editingClinic?.publicId === clinic.publicId}
+                    onNotice={setNotice}
+                  />
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
