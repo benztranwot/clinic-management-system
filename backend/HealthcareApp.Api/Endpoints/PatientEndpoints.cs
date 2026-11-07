@@ -10,20 +10,23 @@ public static class PatientEndpoints
 {
     public static void MapPatientEndpoints(this IEndpointRouteBuilder app)
     {
-        // Define the GET route for listing patients.
-        app.MapGet("/api/patients", GetPatientsAsync);
+        // Require read:patients permission before listing patients.
+        app.MapGet("/api/patients", GetPatientsAsync).RequireAuthorization("ReadPatients");
 
-        // Define the POST route for registering a patient.
-        app.MapPost("/api/patients", CreatePatientAsync);
+        // Require manage:patients permission before registering a patient.
+        app.MapPost("/api/patients", CreatePatientAsync).RequireAuthorization("ManagePatients");
 
-        // Define the GET route for finding a patient by their public ID.
-        app.MapGet("/api/patients/{publicId:guid}", GetPatientByIdAsync);
+        // Require read:patients permission before viewing a patient.
+        app.MapGet("/api/patients/{publicId:guid}", GetPatientByIdAsync)
+            .RequireAuthorization("ReadPatients");
 
-        // Define the PUT route for updating a patient by their public ID.
-        app.MapPut("/api/patients/{publicId:guid}", UpdatePatientAsync);
+        // Require manage:patients permission before updating a patient.
+        app.MapPut("/api/patients/{publicId:guid}", UpdatePatientAsync)
+            .RequireAuthorization("ManagePatients");
 
-        // Define the DELETE route for removing a patient by their public ID.
-        app.MapDelete("/api/patients/{publicId:guid}", DeletePatientAsync);
+        // Require manage:patients permission before deleting a patient.
+        app.MapDelete("/api/patients/{publicId:guid}", DeletePatientAsync)
+            .RequireAuthorization("ManagePatients");
     }
 
     private static async Task<IResult> GetPatientsAsync(

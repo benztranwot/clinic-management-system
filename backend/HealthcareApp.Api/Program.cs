@@ -59,6 +59,25 @@ builder.Services.AddAuthorization(options =>
             policy.RequireClaim("permissions", "manage:clinics");
         }
     );
+    // Require permission to view patient records.
+    options.AddPolicy(
+        "ReadPatients",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "read:patients");
+        }
+    );
+
+    // Require permission to create, update, or delete patient records.
+    options.AddPolicy(
+        "ManagePatients",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "manage:patients");
+        }
+    );
 });
 
 var app = builder.Build();
