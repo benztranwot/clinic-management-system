@@ -10,17 +10,20 @@ public static class ProviderServiceEndpoints
 {
     public static void MapProviderServiceEndpoints(this IEndpointRouteBuilder app)
     {
-        // Define the GET route for listing services offered by a provider.
-        app.MapGet("/api/providers/{providerPublicId:guid}/services", GetServicesByProviderAsync);
+        // Require permission to list the services offered by a provider.
+        app.MapGet("/api/providers/{providerPublicId:guid}/services", GetServicesByProviderAsync)
+            .RequireAuthorization("ReadProviderServices");
 
-        // Define the POST route for linking a service to a provider.
-        app.MapPost("/api/providers/{providerPublicId:guid}/services", AddProviderServiceAsync);
+        // Require permission to link a service to a provider.
+        app.MapPost("/api/providers/{providerPublicId:guid}/services", AddProviderServiceAsync)
+            .RequireAuthorization("ManageProviderServices");
 
-        // Define the DELETE route for removing a service link from a provider.
+        // Require permission to remove a provider's service eligibility.
         app.MapDelete(
-            "/api/providers/{providerPublicId:guid}/services/{clinicalServicePublicId:guid}",
-            RemoveProviderServiceAsync
-        );
+                "/api/providers/{providerPublicId:guid}/services/{clinicalServicePublicId:guid}",
+                RemoveProviderServiceAsync
+            )
+            .RequireAuthorization("ManageProviderServices");
     }
 
     private static async Task<IResult> GetServicesByProviderAsync(
