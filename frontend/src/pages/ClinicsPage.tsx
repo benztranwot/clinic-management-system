@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { Link } from "react-router";
 import { useIsMutating, useQuery } from "@tanstack/react-query";
 import { ClinicRequestError, getClinics, type Clinic } from "../api/clinics";
 import ClinicForm from "../components/clinics/ClinicForm";
@@ -113,7 +114,16 @@ function ClinicList({ userId }: { userId: string }) {
               key={clinic.publicId}
               className="flex items-center justify-between gap-3 py-3 font-medium"
             >
-              <span className="min-w-0 break-words">{clinic.name}</span>
+              <div className="min-w-0 break-words">
+                <span className="block">{clinic.name}</span>
+                <Link
+                  to={"/clinics/" + clinic.publicId + "/providers"}
+                  aria-label={"View providers at " + clinic.name}
+                  className="text-sm text-blue-700 underline"
+                >
+                  View providers
+                </Link>
+              </div>
               {canManage && (
                 <div className="flex shrink-0 flex-wrap items-start gap-2">
                   <button

@@ -12,12 +12,25 @@ export class ClinicRequestError extends Error {
   }
 }
 
-// Request the clinic list using the signed-in user's access token.
-export async function getClinics(
+// Request clinic records using the signed-in user's access token.
+export function getClinics(accessToken: string, signal: AbortSignal): Promise<Clinic[]> {
+  return readClinicData("/api/clinics", accessToken, signal);
+}
+
+export function getClinic(
+  accessToken: string,
+  publicId: string,
+  signal: AbortSignal,
+): Promise<Clinic> {
+  return readClinicData("/api/clinics/" + encodeURIComponent(publicId), accessToken, signal);
+}
+
+async function readClinicData<T>(
+  url: string,
   accessToken: string,
   signal: AbortSignal,
-): Promise<Clinic[]> {
-  const response = await fetch("/api/clinics", {
+): Promise<T> {
+  const response = await fetch(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },

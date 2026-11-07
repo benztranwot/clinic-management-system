@@ -27,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
       authorizationParams={{
         redirect_uri: window.location.origin,
         audience,
-        scope: "openid profile email read:clinics manage:clinics read:patients manage:patients",
+        scope: "openid profile email read:clinics manage:clinics read:patients manage:patients read:providers manage:providers",
       }}
     >
       {/* Keep page navigation synchronized with the browser URL. */}
