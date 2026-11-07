@@ -135,6 +135,24 @@ builder.Services.AddAuthorization(options =>
             policy.RequireClaim("permissions", "manage:provider-services");
         }
     );
+    // Require permission to view referrals.
+    options.AddPolicy(
+        "ReadReferrals",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "read:referrals");
+        }
+    );
+    // Require permission to create referrals, assign providers, and change status.
+    options.AddPolicy(
+        "ManageReferrals",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "manage:referrals");
+        }
+    );
 });
 
 var app = builder.Build();
