@@ -39,8 +39,27 @@ builder
         options.TokenValidationParameters.ValidAlgorithms = ["RS256"];
     });
 
-// Register the services used to enforce endpoint access requirements.
-builder.Services.AddAuthorization();
+// Define the permissions required to read and manage clinics.
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(
+        "ReadClinics",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "read:clinics");
+        }
+    );
+
+    options.AddPolicy(
+        "ManageClinics",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "manage:clinics");
+        }
+    );
+});
 
 var app = builder.Build();
 
