@@ -1,21 +1,13 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text.Json;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 
 namespace HealthcareApp.Api.IntegrationTests;
 
@@ -42,42 +34,25 @@ public class ProviderServiceAuthorizationTests
         HttpStatusCode expectedStatus
     )
     {
-        const string issuer = "https://auth.integration.test/";
-        const string audience = "clinic-management-api-tests";
-
-        // Generate a signing key used only by this test.
-        using var rsa = RSA.Create(2048);
-        var signingKey = new RsaSecurityKey(rsa) { KeyId = Guid.NewGuid().ToString("N") };
-        var validationKey = new RsaSecurityKey(rsa.ExportParameters(false))
-        {
-            KeyId = signingKey.KeyId,
-        };
-
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
+
         await using var configuredFactory = factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureTestServices(services =>
             {
-                // Keep real JWT validation, using local metadata instead of Auth0.
-                services.Configure<JwtBearerOptions>(
-                    JwtBearerDefaults.AuthenticationScheme,
-                    options =>
-                    {
-                        options.Authority = issuer;
-                        options.Audience = audience;
-                        var configuration = new OpenIdConnectConfiguration { Issuer = issuer };
-                        configuration.SigningKeys.Add(validationKey);
-                        options.ConfigurationManager =
-                            new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration);
-                    }
-                );
+                // Use the shared token configuration with real JWT validation.
+                tokens.ConfigureServices(services);
 
-                if (operation == "AddDuplicate")
+                if (operation is "AddDuplicate" or "RemoveReferenced")
                 {
-                    // This case deliberately triggers the composite primary-key constraint.
+                    // These cases deliberately trigger database constraint failures.
                     services.ConfigureDbContext<HealthcareDbContext>(options =>
                         options.ConfigureWarnings(warnings =>
-                            warnings.Ignore(CoreEventId.SaveChangesFailed)
+                            warnings.Ignore(
+                                CoreEventId.SaveChangesFailed,
+                                RelationalEventId.CommandError
+                            )
                         )
                     );
                 }
@@ -117,9 +92,21 @@ public class ProviderServiceAuthorizationTests
                 FirstName = "Casey",
                 LastName = "Other",
             };
-            var existingService = new ClinicalService { ClinicId = clinic.Id, Name = "Physical exam" };
-            var additionalService = new ClinicalService { ClinicId = clinic.Id, Name = "Hearing assessment" };
-            var otherClinicService = new ClinicalService { ClinicId = otherClinic.Id, Name = "Physical exam" };
+            var existingService = new ClinicalService
+            {
+                ClinicId = clinic.Id,
+                Name = "Physical exam",
+            };
+            var additionalService = new ClinicalService
+            {
+                ClinicId = clinic.Id,
+                Name = "Hearing assessment",
+            };
+            var otherClinicService = new ClinicalService
+            {
+                ClinicId = otherClinic.Id,
+                Name = "Physical exam",
+            };
 
             db.Providers.AddRange(provider, otherProvider);
             db.ClinicalServices.AddRange(existingService, additionalService, otherClinicService);
@@ -153,37 +140,24 @@ public class ProviderServiceAuthorizationTests
                 db.Patients.Add(patient);
                 await db.SaveChangesAsync();
 
-                db.Referrals.Add(new Referral
-                {
-                    PatientId = patient.Id,
-                    ClinicalServiceId = existingService.Id,
-                    AssignedProviderId = provider.Id,
-                    ReferringProviderName = "Dr. Demo",
-                    Reason = "Eligibility relationship test",
-                });
+                db.Referrals.Add(
+                    new Referral
+                    {
+                        PatientId = patient.Id,
+                        ClinicalServiceId = existingService.Id,
+                        AssignedProviderId = provider.Id,
+                        ReferringProviderName = "Dr. Demo",
+                        Reason = "Eligibility relationship test",
+                    }
+                );
                 await db.SaveChangesAsync();
             }
 
             if (sendToken)
             {
-                var now = DateTime.UtcNow;
+                // Give this request exactly the permissions specified by the test case.
                 string[] permissions = permission is null ? [] : [permission];
-                var token = new JsonWebTokenHandler().CreateToken(
-                    new SecurityTokenDescriptor
-                    {
-                        Issuer = issuer,
-                        Audience = audience,
-                        Subject = new ClaimsIdentity([
-                            new Claim("sub", "auth0|integration-test-user"),
-                        ]),
-                        Claims = new Dictionary<string, object> { ["permissions"] = permissions },
-                        IssuedAt = now,
-                        NotBefore = now.AddMinutes(-1),
-                        Expires = now.AddMinutes(5),
-                        SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256),
-                    }
-                );
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                tokens.Authorize(client, permissions);
             }
 
             var collectionUrl = $"/api/providers/{provider.PublicId}/services";
@@ -198,11 +172,19 @@ public class ProviderServiceAuthorizationTests
             using var request = operation switch
             {
                 "List" => new HttpRequestMessage(HttpMethod.Get, collectionUrl),
-                "Add" or "AddDuplicate" or "AddCrossClinic" => new HttpRequestMessage(HttpMethod.Post, collectionUrl)
+                "Add" or "AddDuplicate" or "AddCrossClinic" => new HttpRequestMessage(
+                    HttpMethod.Post,
+                    collectionUrl
+                )
                 {
-                    Content = JsonContent.Create(new { clinicalServicePublicId = requestedServiceId }),
+                    Content = JsonContent.Create(
+                        new { clinicalServicePublicId = requestedServiceId }
+                    ),
                 },
-                "Remove" or "RemoveReferenced" => new HttpRequestMessage(HttpMethod.Delete, linkUrl),
+                "Remove" or "RemoveReferenced" => new HttpRequestMessage(
+                    HttpMethod.Delete,
+                    linkUrl
+                ),
                 _ => throw new ArgumentOutOfRangeException(nameof(operation)),
             };
 
@@ -219,7 +201,10 @@ public class ProviderServiceAuthorizationTests
                 // Return only this provider's linked service, once.
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
                 var returnedService = Assert.Single(body.EnumerateArray());
-                Assert.Equal(existingService.PublicId, returnedService.GetProperty("publicId").GetGuid());
+                Assert.Equal(
+                    existingService.PublicId,
+                    returnedService.GetProperty("publicId").GetGuid()
+                );
                 Assert.Equal(existingService.Name, returnedService.GetProperty("name").GetString());
             }
 
@@ -227,7 +212,9 @@ public class ProviderServiceAuthorizationTests
             var links = await db.ProviderServices.AsNoTracking().ToListAsync();
             var untouchedLink = Assert.Single(
                 links,
-                link => link.ProviderId == otherProvider.Id && link.ClinicalServiceId == existingService.Id
+                link =>
+                    link.ProviderId == otherProvider.Id
+                    && link.ClinicalServiceId == existingService.Id
             );
             Assert.Equal(clinic.Id, untouchedLink.ClinicId);
 
@@ -239,7 +226,9 @@ public class ProviderServiceAuthorizationTests
                 Assert.Equal(3, links.Count);
                 var addedLink = Assert.Single(
                     links,
-                    link => link.ProviderId == provider.Id && link.ClinicalServiceId == additionalService.Id
+                    link =>
+                        link.ProviderId == provider.Id
+                        && link.ClinicalServiceId == additionalService.Id
                 );
                 Assert.Equal(clinic.Id, addedLink.ClinicId);
             }
@@ -258,7 +247,9 @@ public class ProviderServiceAuthorizationTests
             {
                 var originalLink = Assert.Single(
                     links,
-                    link => link.ProviderId == provider.Id && link.ClinicalServiceId == existingService.Id
+                    link =>
+                        link.ProviderId == provider.Id
+                        && link.ClinicalServiceId == existingService.Id
                 );
                 Assert.Equal(clinic.Id, originalLink.ClinicId);
             }

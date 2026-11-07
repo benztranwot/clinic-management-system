@@ -1,20 +1,11 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text.Json;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 
 namespace HealthcareApp.Api.IntegrationTests;
 
@@ -44,45 +35,14 @@ public class PatientAuthorizationTests
         HttpStatusCode expectedStatus
     )
     {
-        const string issuer = "https://auth.integration.test/";
-        const string audience = "clinic-management-api-tests";
         var originalBirthDate = new DateOnly(1990, 5, 10);
         var createdBirthDate = new DateOnly(1996, 6, 15);
         var updatedBirthDate = new DateOnly(1991, 8, 20);
 
-        // Generate a signing key used only by this test.
-        using var rsa = RSA.Create(2048);
-        var signingKey = new RsaSecurityKey(rsa) { KeyId = Guid.NewGuid().ToString("N") };
-        var validationKey = new RsaSecurityKey(rsa.ExportParameters(false))
-        {
-            KeyId = signingKey.KeyId,
-        };
-
+        // Use locally signed tokens while keeping real JWT validation enabled.
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
-
-        // Trust local test metadata while keeping real JWT validation enabled.
-        await using var configuredFactory = factory.WithWebHostBuilder(builder =>
-        {
-            builder.ConfigureTestServices(services =>
-            {
-                services.Configure<JwtBearerOptions>(
-                    JwtBearerDefaults.AuthenticationScheme,
-                    options =>
-                    {
-                        options.Authority = issuer;
-                        options.Audience = audience;
-
-                        var configuration = new OpenIdConnectConfiguration { Issuer = issuer };
-                        configuration.SigningKeys.Add(validationKey);
-
-                        options.ConfigurationManager =
-                            new StaticConfigurationManager<OpenIdConnectConfiguration>(
-                                configuration
-                            );
-                    }
-                );
-            });
-        });
+        await using var configuredFactory = tokens.CreateFactory(factory);
 
         using var client = configuredFactory.CreateClient(
             new WebApplicationFactoryClientOptions { AllowAutoRedirect = false }
@@ -110,32 +70,9 @@ public class PatientAuthorizationTests
 
             if (sendToken)
             {
-                var now = DateTime.UtcNow;
-
-                // Represent permissions as a JSON array, matching Auth0 tokens.
+                // Give this request exactly the permissions specified by the test case.
                 string[] permissions = permission is null ? [] : [permission];
-                var token = new JsonWebTokenHandler().CreateToken(
-                    new SecurityTokenDescriptor
-                    {
-                        Issuer = issuer,
-                        Audience = audience,
-                        Subject = new ClaimsIdentity([
-                            new Claim("sub", "auth0|integration-test-user"),
-                        ]),
-                        Claims = new Dictionary<string, object> { ["permissions"] = permissions },
-                        IssuedAt = now,
-                        NotBefore = now.AddMinutes(-1),
-                        Expires = now.AddMinutes(5),
-                        SigningCredentials = new SigningCredentials(
-                            signingKey,
-                            SecurityAlgorithms.RsaSha256
-                        ),
-                    }
-                );
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-                    "Bearer",
-                    token
-                );
+                tokens.Authorize(client, permissions);
             }
 
             // Send complete, valid bodies so a denied write tests authorization.
@@ -146,21 +83,25 @@ public class PatientAuthorizationTests
                 "Read" => new HttpRequestMessage(HttpMethod.Get, patientUrl),
                 "Create" => new HttpRequestMessage(HttpMethod.Post, "/api/patients")
                 {
-                    Content = JsonContent.Create(new
-                    {
-                        firstName = "Morgan",
-                        lastName = "Example",
-                        dateOfBirth = createdBirthDate,
-                    }),
+                    Content = JsonContent.Create(
+                        new
+                        {
+                            firstName = "Morgan",
+                            lastName = "Example",
+                            dateOfBirth = createdBirthDate,
+                        }
+                    ),
                 },
                 "Update" => new HttpRequestMessage(HttpMethod.Put, patientUrl)
                 {
-                    Content = JsonContent.Create(new
-                    {
-                        firstName = "Jordan",
-                        lastName = "Updated",
-                        dateOfBirth = updatedBirthDate,
-                    }),
+                    Content = JsonContent.Create(
+                        new
+                        {
+                            firstName = "Jordan",
+                            lastName = "Updated",
+                            dateOfBirth = updatedBirthDate,
+                        }
+                    ),
                 },
                 "Delete" => new HttpRequestMessage(HttpMethod.Delete, patientUrl),
                 _ => throw new ArgumentOutOfRangeException(nameof(operation)),
@@ -181,9 +122,8 @@ public class PatientAuthorizationTests
             {
                 // The list returns names; detail and update also return birth date.
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-                var returnedPatient = operation == "List"
-                    ? Assert.Single(body.EnumerateArray())
-                    : body;
+                var returnedPatient =
+                    operation == "List" ? Assert.Single(body.EnumerateArray()) : body;
 
                 Assert.Equal(patient.PublicId, returnedPatient.GetProperty("publicId").GetGuid());
                 Assert.Equal(
@@ -216,7 +156,10 @@ public class PatientAuthorizationTests
                 Assert.NotEqual(patient.PublicId, createdId);
                 Assert.Equal("Morgan", body.GetProperty("firstName").GetString());
                 Assert.Equal("Example", body.GetProperty("lastName").GetString());
-                Assert.Equal(createdBirthDate, body.GetProperty("dateOfBirth").Deserialize<DateOnly>());
+                Assert.Equal(
+                    createdBirthDate,
+                    body.GetProperty("dateOfBirth").Deserialize<DateOnly>()
+                );
                 Assert.Equal(
                     $"/api/patients/{createdId}",
                     response.Headers.Location?.OriginalString
@@ -225,7 +168,10 @@ public class PatientAuthorizationTests
 
                 var createdPatient = Assert.Single(savedPatients, p => p.PublicId == createdId);
                 AssertDemographics(createdPatient, "Morgan", "Example", createdBirthDate);
-                var originalPatient = Assert.Single(savedPatients, p => p.PublicId == patient.PublicId);
+                var originalPatient = Assert.Single(
+                    savedPatients,
+                    p => p.PublicId == patient.PublicId
+                );
                 AssertDemographics(originalPatient, "Taylor", "Demo", originalBirthDate);
             }
             else if (expectedStatus == HttpStatusCode.NoContent)

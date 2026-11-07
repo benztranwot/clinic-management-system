@@ -1,9 +1,26 @@
+using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Endpoints;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Register a standard error response and include a request identifier.
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+
+        // Keep internal exception details out of server-error responses.
+        if (context.ProblemDetails.Status >= StatusCodes.Status500InternalServerError)
+        {
+            context.ProblemDetails.Title = "An unexpected error occurred.";
+            context.ProblemDetails.Detail = null;
+        }
+    };
+});
 
 // Read the database connection string and stop startup if it is missing.
 var connectionString =
@@ -39,123 +56,25 @@ builder
         options.TokenValidationParameters.ValidAlgorithms = ["RS256"];
     });
 
-// Define the permissions required to access API resources.
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy(
-        "ReadClinics",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "read:clinics");
-        }
-    );
-
-    options.AddPolicy(
-        "ManageClinics",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "manage:clinics");
-        }
-    );
-    // Require permission to view patient records.
-    options.AddPolicy(
-        "ReadPatients",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "read:patients");
-        }
-    );
-
-    // Require permission to create, update, or delete patient records.
-    options.AddPolicy(
-        "ManagePatients",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "manage:patients");
-        }
-    );
-    // Require permission to view providers.
-    options.AddPolicy(
-        "ReadProviders",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "read:providers");
-        }
-    );
-
-    // Require permission to create, update, or delete providers.
-    options.AddPolicy(
-        "ManageProviders",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "manage:providers");
-        }
-    );
-    // Require permission to view clinical services.
-    options.AddPolicy(
-        "ReadClinicalServices",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "read:services");
-        }
-    );
-
-    // Require permission to create, update, or delete clinical services.
-    options.AddPolicy(
-        "ManageClinicalServices",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "manage:services");
-        }
-    );
-    // Require permission to view a provider's service eligibility.
-    options.AddPolicy(
-        "ReadProviderServices",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "read:provider-services");
-        }
-    );
-
-    // Require permission to change a provider's service eligibility.
-    options.AddPolicy(
-        "ManageProviderServices",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "manage:provider-services");
-        }
-    );
-    // Require permission to view referrals.
-    options.AddPolicy(
-        "ReadReferrals",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "read:referrals");
-        }
-    );
-    // Require permission to create referrals, assign providers, and change status.
-    options.AddPolicy(
-        "ManageReferrals",
-        policy =>
-        {
-            policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", "manage:referrals");
-        }
-    );
-});
+// Register the application's permission-based authorization policies.
+builder.Services.AddApiAuthorization();
 
 var app = builder.Build();
+
+// Handle unexpected failures from the request pipeline.
+app.UseExceptionHandler(
+    new ExceptionHandlerOptions
+    {
+        // Preserve client-error status codes for malformed requests.
+        StatusCodeSelector = exception =>
+            exception is BadHttpRequestException badRequest
+                ? badRequest.StatusCode
+                : StatusCodes.Status500InternalServerError,
+
+        // Keep diagnostics for unexpected failures.
+        SuppressDiagnosticsCallback = context => context.Exception is BadHttpRequestException,
+    }
+);
 
 // Authenticate the caller before evaluating authorization requirements.
 app.UseAuthentication();

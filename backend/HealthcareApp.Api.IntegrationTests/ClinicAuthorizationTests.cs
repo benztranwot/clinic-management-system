@@ -1,20 +1,11 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text.Json;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 
 namespace HealthcareApp.Api.IntegrationTests;
 
@@ -44,45 +35,14 @@ public class ClinicAuthorizationTests
         HttpStatusCode expectedStatus
     )
     {
-        const string issuer = "https://auth.integration.test/";
-        const string audience = "clinic-management-api-tests";
         const string originalName = "Authorization Test Clinic";
         const string createdName = "Created Authorization Clinic";
         const string updatedName = "Updated Authorization Clinic";
 
-        // Generate a signing key used only by this test.
-        using var rsa = RSA.Create(2048);
-        var signingKey = new RsaSecurityKey(rsa) { KeyId = Guid.NewGuid().ToString("N") };
-        var validationKey = new RsaSecurityKey(rsa.ExportParameters(false))
-        {
-            KeyId = signingKey.KeyId,
-        };
-
+        // Use locally signed tokens while keeping real JWT validation enabled.
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
-
-        // Trust local test metadata while keeping real JWT validation enabled.
-        await using var configuredFactory = factory.WithWebHostBuilder(builder =>
-        {
-            builder.ConfigureTestServices(services =>
-            {
-                services.Configure<JwtBearerOptions>(
-                    JwtBearerDefaults.AuthenticationScheme,
-                    options =>
-                    {
-                        options.Authority = issuer;
-                        options.Audience = audience;
-
-                        var configuration = new OpenIdConnectConfiguration { Issuer = issuer };
-                        configuration.SigningKeys.Add(validationKey);
-
-                        options.ConfigurationManager =
-                            new StaticConfigurationManager<OpenIdConnectConfiguration>(
-                                configuration
-                            );
-                    }
-                );
-            });
-        });
+        await using var configuredFactory = tokens.CreateFactory(factory);
 
         using var client = configuredFactory.CreateClient(
             new WebApplicationFactoryClientOptions { AllowAutoRedirect = false }
@@ -105,32 +65,9 @@ public class ClinicAuthorizationTests
 
             if (sendToken)
             {
-                var now = DateTime.UtcNow;
-
-                // Represent permissions as a JSON array, matching Auth0 tokens.
+                // Give this request exactly the permissions specified by the test case.
                 string[] permissions = permission is null ? [] : [permission];
-                var token = new JsonWebTokenHandler().CreateToken(
-                    new SecurityTokenDescriptor
-                    {
-                        Issuer = issuer,
-                        Audience = audience,
-                        Subject = new ClaimsIdentity([
-                            new Claim("sub", "auth0|integration-test-user"),
-                        ]),
-                        Claims = new Dictionary<string, object> { ["permissions"] = permissions },
-                        IssuedAt = now,
-                        NotBefore = now.AddMinutes(-1),
-                        Expires = now.AddMinutes(5),
-                        SigningCredentials = new SigningCredentials(
-                            signingKey,
-                            SecurityAlgorithms.RsaSha256
-                        ),
-                    }
-                );
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-                    "Bearer",
-                    token
-                );
+                tokens.Authorize(client, permissions);
             }
 
             // Send valid requests so denied writes fail because of authorization.
@@ -166,9 +103,8 @@ public class ClinicAuthorizationTests
             {
                 // Verify the response identifies the correct clinic and name.
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-                var returnedClinic = operation == "List"
-                    ? Assert.Single(body.EnumerateArray())
-                    : body;
+                var returnedClinic =
+                    operation == "List" ? Assert.Single(body.EnumerateArray()) : body;
 
                 Assert.Equal(clinic.PublicId, returnedClinic.GetProperty("publicId").GetGuid());
                 Assert.Equal(
@@ -196,7 +132,10 @@ public class ClinicAuthorizationTests
 
                 var createdClinic = Assert.Single(savedClinics, c => c.PublicId == createdId);
                 Assert.Equal(createdName, createdClinic.Name);
-                var originalClinic = Assert.Single(savedClinics, c => c.PublicId == clinic.PublicId);
+                var originalClinic = Assert.Single(
+                    savedClinics,
+                    c => c.PublicId == clinic.PublicId
+                );
                 Assert.Equal(originalName, originalClinic.Name);
             }
             else if (expectedStatus == HttpStatusCode.NoContent)
