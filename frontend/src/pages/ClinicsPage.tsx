@@ -116,13 +116,22 @@ function ClinicList({ userId }: { userId: string }) {
             >
               <div className="min-w-0 break-words">
                 <span className="block">{clinic.name}</span>
-                <Link
-                  to={"/clinics/" + clinic.publicId + "/providers"}
-                  aria-label={"View providers at " + clinic.name}
-                  className="text-sm text-blue-700 underline"
-                >
-                  View providers
-                </Link>
+                <div className="flex flex-wrap gap-x-3">
+                  <Link
+                    to={"/clinics/" + clinic.publicId + "/providers"}
+                    aria-label={"View providers at " + clinic.name}
+                    className="text-sm text-blue-700 underline"
+                  >
+                    View providers
+                  </Link>
+                  <Link
+                    to={"/clinics/" + clinic.publicId + "/services"}
+                    aria-label={"View services at " + clinic.name}
+                    className="text-sm text-blue-700 underline"
+                  >
+                    View services
+                  </Link>
+                </div>
               </div>
               {canManage && (
                 <div className="flex shrink-0 flex-wrap items-start gap-2">
