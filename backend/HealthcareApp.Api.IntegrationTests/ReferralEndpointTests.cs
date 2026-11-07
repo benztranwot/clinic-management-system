@@ -15,6 +15,7 @@ public class ReferralEndpointTests
     [Fact]
     public async Task CreateReferral_ConcurrentDuplicates_SaveOnlyOne()
     {
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
 
         // Suppress the save-failure log in this test, which deliberately causes a duplicate insert.
@@ -22,6 +23,7 @@ public class ReferralEndpointTests
         {
             builder.ConfigureTestServices(services =>
             {
+                tokens.ConfigureServices(services);
                 services.ConfigureDbContext<HealthcareDbContext>(options =>
                     options.ConfigureWarnings(warnings =>
                         warnings.Ignore(CoreEventId.SaveChangesFailed)
@@ -31,6 +33,7 @@ public class ReferralEndpointTests
         });
 
         using var client = configuredFactory.CreateClient();
+        tokens.Authorize(client, "read:referrals", "manage:referrals");
         await using var scope = configuredFactory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
 
@@ -123,9 +126,12 @@ public class ReferralEndpointTests
     [Fact]
     public async Task AssignProvider_WithoutServiceEligibility_LeavesReferralUnassigned()
     {
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
-        using var client = factory.CreateClient();
-        await using var scope = factory.Services.CreateAsyncScope();
+        await using var configuredFactory = tokens.CreateFactory(factory);
+        using var client = configuredFactory.CreateClient();
+        tokens.Authorize(client, "read:referrals", "manage:referrals");
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
 
         // Verify the target before creating or deleting a database.
@@ -217,9 +223,12 @@ public class ReferralEndpointTests
     [InlineData("   ")]
     public async Task UpdateStatus_MissingInformationWithoutNote_LeavesStatusUnchanged(string? note)
     {
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
-        using var client = factory.CreateClient();
-        await using var scope = factory.Services.CreateAsyncScope();
+        await using var configuredFactory = tokens.CreateFactory(factory);
+        using var client = configuredFactory.CreateClient();
+        tokens.Authorize(client, "read:referrals", "manage:referrals");
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
 
         // Verify the target before creating or deleting a database.
@@ -296,9 +305,12 @@ public class ReferralEndpointTests
     [Fact]
     public async Task UpdateStatus_ClosedReferral_CannotBeReopened()
     {
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
-        using var client = factory.CreateClient();
-        await using var scope = factory.Services.CreateAsyncScope();
+        await using var configuredFactory = tokens.CreateFactory(factory);
+        using var client = configuredFactory.CreateClient();
+        tokens.Authorize(client, "read:referrals", "manage:referrals");
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
 
         // Verify the target before creating or deleting a database.
@@ -372,9 +384,12 @@ public class ReferralEndpointTests
     [Fact]
     public async Task CreateReferral_AfterPreviousReferralClosed_PreservesBothRecords()
     {
+        using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
-        using var client = factory.CreateClient();
-        await using var scope = factory.Services.CreateAsyncScope();
+        await using var configuredFactory = tokens.CreateFactory(factory);
+        using var client = configuredFactory.CreateClient();
+        tokens.Authorize(client, "read:referrals", "manage:referrals");
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
 
         // Verify the target before creating or deleting a database.

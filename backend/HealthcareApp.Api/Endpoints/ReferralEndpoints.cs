@@ -10,20 +10,23 @@ public static class ReferralEndpoints
 {
     public static void MapReferralEndpoints(this IEndpointRouteBuilder app)
     {
-        // Define the GET route for listing referrals.
-        app.MapGet("/api/referrals", GetReferralsAsync);
+        // Require permission to list referrals.
+        app.MapGet("/api/referrals", GetReferralsAsync).RequireAuthorization("ReadReferrals");
 
-        // Define the POST route for creating a referral.
-        app.MapPost("/api/referrals", CreateReferralAsync);
+        // Require permission to create a referral.
+        app.MapPost("/api/referrals", CreateReferralAsync).RequireAuthorization("ManageReferrals");
 
-        // Define the GET route for finding a referral by its public ID.
-        app.MapGet("/api/referrals/{publicId:guid}", GetReferralByIdAsync);
+        // Require permission to view a referral.
+        app.MapGet("/api/referrals/{publicId:guid}", GetReferralByIdAsync)
+            .RequireAuthorization("ReadReferrals");
 
-        // Define the PUT route for assigning a provider to a referral.
-        app.MapPut("/api/referrals/{publicId:guid}/provider", AssignReferralProviderAsync);
+        // Require permission to assign a provider.
+        app.MapPut("/api/referrals/{publicId:guid}/provider", AssignReferralProviderAsync)
+            .RequireAuthorization("ManageReferrals");
 
-        // Define the PUT route for changing a referral's status.
-        app.MapPut("/api/referrals/{publicId:guid}/status", UpdateReferralStatusAsync);
+        // Require permission to review or close a referral.
+        app.MapPut("/api/referrals/{publicId:guid}/status", UpdateReferralStatusAsync)
+            .RequireAuthorization("ManageReferrals");
     }
 
     private static async Task<IResult> GetReferralsAsync(
