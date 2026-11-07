@@ -10,20 +10,25 @@ public static class ClinicalServiceEndpoints
 {
     public static void MapClinicalServiceEndpoints(this IEndpointRouteBuilder app)
     {
-        // Define the GET route for listing services at a clinic.
-        app.MapGet("/api/clinics/{clinicPublicId:guid}/services", GetServicesByClinicAsync);
+        // Require read:services permission before listing a clinic's services.
+        app.MapGet("/api/clinics/{clinicPublicId:guid}/services", GetServicesByClinicAsync)
+            .RequireAuthorization("ReadClinicalServices");
 
-        // Define the POST route for adding a service to a clinic.
-        app.MapPost("/api/clinics/{clinicPublicId:guid}/services", CreateServiceAsync);
+        // Require manage:services permission before adding a service.
+        app.MapPost("/api/clinics/{clinicPublicId:guid}/services", CreateServiceAsync)
+            .RequireAuthorization("ManageClinicalServices");
 
-        // Define the GET route for finding a service by its public ID.
-        app.MapGet("/api/services/{publicId:guid}", GetServiceByIdAsync);
+        // Require read:services permission before viewing a service.
+        app.MapGet("/api/services/{publicId:guid}", GetServiceByIdAsync)
+            .RequireAuthorization("ReadClinicalServices");
 
-        // Define the PUT route for renaming a service by its public ID.
-        app.MapPut("/api/services/{publicId:guid}", UpdateServiceAsync);
+        // Require manage:services permission before renaming a service.
+        app.MapPut("/api/services/{publicId:guid}", UpdateServiceAsync)
+            .RequireAuthorization("ManageClinicalServices");
 
-        // Define the DELETE route for removing a service by its public ID.
-        app.MapDelete("/api/services/{publicId:guid}", DeleteServiceAsync);
+        // Require manage:services permission before deleting a service.
+        app.MapDelete("/api/services/{publicId:guid}", DeleteServiceAsync)
+            .RequireAuthorization("ManageClinicalServices");
     }
 
     private static async Task<IResult> GetServicesByClinicAsync(
