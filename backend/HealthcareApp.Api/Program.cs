@@ -39,7 +39,7 @@ builder
         options.TokenValidationParameters.ValidAlgorithms = ["RS256"];
     });
 
-// Define the permissions required to read and manage clinics.
+// Define the permissions required to access API resources.
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(
@@ -76,6 +76,25 @@ builder.Services.AddAuthorization(options =>
         {
             policy.RequireAuthenticatedUser();
             policy.RequireClaim("permissions", "manage:patients");
+        }
+    );
+    // Require permission to view providers.
+    options.AddPolicy(
+        "ReadProviders",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "read:providers");
+        }
+    );
+
+    // Require permission to create, update, or delete providers.
+    options.AddPolicy(
+        "ManageProviders",
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim("permissions", "manage:providers");
         }
     );
 });
