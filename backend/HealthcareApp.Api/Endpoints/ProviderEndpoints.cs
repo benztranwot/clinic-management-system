@@ -10,20 +10,25 @@ public static class ProviderEndpoints
 {
     public static void MapProviderEndpoints(this IEndpointRouteBuilder app)
     {
-        // Define the GET route for listing providers at a clinic.
-        app.MapGet("/api/clinics/{clinicPublicId:guid}/providers", GetProvidersByClinicAsync);
+        // Require read:providers permission before listing a clinic's providers.
+        app.MapGet("/api/clinics/{clinicPublicId:guid}/providers", GetProvidersByClinicAsync)
+            .RequireAuthorization("ReadProviders");
 
-        // Define the POST route for adding a provider to a clinic.
-        app.MapPost("/api/clinics/{clinicPublicId:guid}/providers", CreateProviderAsync);
+        // Require manage:providers permission before adding a provider to a clinic.
+        app.MapPost("/api/clinics/{clinicPublicId:guid}/providers", CreateProviderAsync)
+            .RequireAuthorization("ManageProviders");
 
-        // Define the GET route for finding a provider by their public ID.
-        app.MapGet("/api/providers/{publicId:guid}", GetProviderByIdAsync);
+        // Require read:providers permission before viewing a provider.
+        app.MapGet("/api/providers/{publicId:guid}", GetProviderByIdAsync)
+            .RequireAuthorization("ReadProviders");
 
-        // Define the PUT route for updating a provider by their public ID.
-        app.MapPut("/api/providers/{publicId:guid}", UpdateProviderAsync);
+        // Require manage:providers permission before updating a provider.
+        app.MapPut("/api/providers/{publicId:guid}", UpdateProviderAsync)
+            .RequireAuthorization("ManageProviders");
 
-        // Define the DELETE route for removing a provider by their public ID.
-        app.MapDelete("/api/providers/{publicId:guid}", DeleteProviderAsync);
+        // Require manage:providers permission before deleting a provider.
+        app.MapDelete("/api/providers/{publicId:guid}", DeleteProviderAsync)
+            .RequireAuthorization("ManageProviders");
     }
 
     private static async Task<IResult> GetProvidersByClinicAsync(
