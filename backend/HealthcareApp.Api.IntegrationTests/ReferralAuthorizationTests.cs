@@ -19,6 +19,11 @@ public class ReferralAuthorizationTests
     [InlineData("Read", false, null, HttpStatusCode.Unauthorized)]
     [InlineData("Read", true, null, HttpStatusCode.Forbidden)]
     [InlineData("Read", true, "read:referrals", HttpStatusCode.OK)]
+    [InlineData("Eligible", false, null, HttpStatusCode.Unauthorized)]
+    [InlineData("Eligible", true, "read:providers read:provider-services", HttpStatusCode.Forbidden)]
+    [InlineData("Eligible", true, "read:referrals read:provider-services", HttpStatusCode.Forbidden)]
+    [InlineData("Eligible", true, "read:referrals read:providers", HttpStatusCode.Forbidden)]
+    [InlineData("Eligible", true, "read:referrals read:providers read:provider-services", HttpStatusCode.OK)]
     [InlineData("Create", false, null, HttpStatusCode.Unauthorized)]
     [InlineData("Create", true, "read:referrals", HttpStatusCode.Forbidden)]
     [InlineData("Create", true, "manage:referrals", HttpStatusCode.Created)]
@@ -48,7 +53,7 @@ public class ReferralAuthorizationTests
 
         if (sendToken)
         {
-            string[] permissions = permission is null ? [] : [permission];
+            string[] permissions = permission?.Split(' ', StringSplitOptions.RemoveEmptyEntries) ?? [];
             tokens.Authorize(client, permissions);
         }
 
@@ -101,6 +106,29 @@ public class ReferralAuthorizationTests
             });
             await db.SaveChangesAsync();
 
+            if (operation == "Eligible" && expectedStatus == HttpStatusCode.OK)
+            {
+                // A provider at this clinic is not eligible without the requested service link.
+                db.Providers.Add(new Provider { ClinicId = clinic.Id, FirstName = "Casey", LastName = "Unlinked" });
+                var otherClinic = new Clinic { Name = "Other Referral Clinic" };
+                db.Clinics.Add(otherClinic);
+                await db.SaveChangesAsync();
+
+                // A service with the same name at a different clinic is a distinct service.
+                var sameNameService = new ClinicalService { ClinicId = otherClinic.Id, Name = service.Name };
+                var otherProvider = new Provider { ClinicId = otherClinic.Id, FirstName = "Sam", LastName = "Other" };
+                db.ClinicalServices.Add(sameNameService);
+                db.Providers.Add(otherProvider);
+                await db.SaveChangesAsync();
+                db.ProviderServices.Add(new ProviderService
+                {
+                    ProviderId = otherProvider.Id,
+                    ClinicalServiceId = sameNameService.Id,
+                    ClinicId = otherClinic.Id,
+                });
+                await db.SaveChangesAsync();
+            }
+
             var referral = new Referral
             {
                 PatientId = patient.Id,
@@ -139,6 +167,7 @@ public class ReferralAuthorizationTests
             {
                 "List" => new HttpRequestMessage(HttpMethod.Get, "/api/referrals"),
                 "Read" => new HttpRequestMessage(HttpMethod.Get, referralUrl),
+                "Eligible" => new HttpRequestMessage(HttpMethod.Get, $"{referralUrl}/eligible-providers"),
                 "Create" => new HttpRequestMessage(HttpMethod.Post, "/api/referrals")
                 {
                     // Use another patient so the existing referral is not a duplicate.
@@ -174,7 +203,13 @@ public class ReferralAuthorizationTests
                 Assert.Contains(response.Headers.WwwAuthenticate, c => c.Scheme == "Bearer");
             }
 
-            if (expectedStatus == HttpStatusCode.OK)
+            if (expectedStatus == HttpStatusCode.OK && operation == "Eligible")
+            {
+                var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+                var eligible = Assert.Single(body.EnumerateArray());
+                Assert.Equal(provider.PublicId, eligible.GetProperty("publicId").GetGuid());
+            }
+            else if (expectedStatus == HttpStatusCode.OK)
             {
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
                 var returnedReferral = operation == "List"
@@ -187,12 +222,15 @@ public class ReferralAuthorizationTests
                     Assert.Equal("Taylor", returnedReferral.GetProperty("patientFirstName").GetString());
                     Assert.Equal("Demo", returnedReferral.GetProperty("patientLastName").GetString());
                     Assert.Equal(service.Name, returnedReferral.GetProperty("serviceName").GetString());
+                    Assert.Equal(clinic.Name, returnedReferral.GetProperty("clinicName").GetString());
                     Assert.Equal("PendingReview", returnedReferral.GetProperty("status").GetString());
                 }
                 else if (operation == "Read")
                 {
                     Assert.Equal(patient.PublicId, body.GetProperty("patientPublicId").GetGuid());
                     Assert.Equal(service.PublicId, body.GetProperty("clinicalServicePublicId").GetGuid());
+                    Assert.Equal(clinic.PublicId, body.GetProperty("clinicPublicId").GetGuid());
+                    Assert.Equal(clinic.Name, body.GetProperty("clinicName").GetString());
                     Assert.Equal("Dr. Demo", body.GetProperty("referringProviderName").GetString());
                     Assert.Equal("Original referral reason", body.GetProperty("reason").GetString());
                     Assert.Equal("PendingReview", body.GetProperty("status").GetString());

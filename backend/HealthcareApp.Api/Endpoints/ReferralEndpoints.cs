@@ -43,6 +43,7 @@ public static class ReferralEndpoints
             from referral in db.Referrals
             join patient in db.Patients on referral.PatientId equals patient.Id
             join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
+            join clinic in db.Clinics on service.ClinicId equals clinic.Id
             orderby referral.CreatedAtUtc descending
             select new
             {
@@ -50,6 +51,7 @@ public static class ReferralEndpoints
                 PatientFirstName = patient.FirstName,
                 PatientLastName = patient.LastName,
                 ServiceName = service.Name,
+                ClinicName = clinic.Name,
                 referral.Status,
                 referral.CreatedAtUtc,
             }
@@ -63,6 +65,7 @@ public static class ReferralEndpoints
                 referral.PatientFirstName,
                 referral.PatientLastName,
                 referral.ServiceName,
+                referral.ClinicName,
                 Status = referral.Status.ToString(),
                 referral.CreatedAtUtc,
             })
@@ -181,6 +184,7 @@ public static class ReferralEndpoints
             from r in db.Referrals
             join patient in db.Patients on r.PatientId equals patient.Id
             join service in db.ClinicalServices on r.ClinicalServiceId equals service.Id
+            join clinic in db.Clinics on service.ClinicId equals clinic.Id
             where r.PublicId == publicId
             select new
             {
@@ -189,7 +193,9 @@ public static class ReferralEndpoints
                 PatientFirstName = patient.FirstName,
                 PatientLastName = patient.LastName,
                 ClinicalServicePublicId = service.PublicId,
+                ClinicPublicId = clinic.PublicId,
                 ServiceName = service.Name,
+                ClinicName = clinic.Name,
 
                 // Look up the assigned provider's public ID, if there is one.
                 AssignedProviderPublicId = db
@@ -220,7 +226,9 @@ public static class ReferralEndpoints
                 referral.PatientFirstName,
                 referral.PatientLastName,
                 referral.ClinicalServicePublicId,
+                referral.ClinicPublicId,
                 referral.ServiceName,
+                referral.ClinicName,
                 referral.AssignedProviderPublicId,
                 referral.ReferringProviderName,
                 referral.Reason,

@@ -60,6 +60,7 @@ function ReferralList({ userId }: { userId: string }) {
               <Link to={"/referrals/" + referral.publicId} className="font-medium text-blue-700 underline">
                 {referral.patientFirstName} {referral.patientLastName} · {referral.serviceName}
               </Link>
+              <p className="text-sm text-slate-600">{referral.clinicName}</p>
               <p className="text-sm">
                 {referralStatusLabels[referral.status]} ·{" "}
                 <time dateTime={referral.createdAtUtc}>{new Date(referral.createdAtUtc).toLocaleString()}</time>
