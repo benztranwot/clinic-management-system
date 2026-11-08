@@ -20,6 +20,10 @@ public static class ReferralEndpoints
         app.MapGet("/api/referrals/{publicId:guid}", GetReferralByIdAsync)
             .RequireAuthorization("ReadReferrals");
 
+        // List providers who offer the exact service on this referral.
+        app.MapGet("/api/referrals/{publicId:guid}/eligible-providers", GetEligibleProvidersAsync)
+            .RequireAuthorization("ReadReferrals", "ReadProviders", "ReadProviderServices");
+
         // Require permission to assign a provider.
         app.MapPut("/api/referrals/{publicId:guid}/provider", AssignReferralProviderAsync)
             .RequireAuthorization("ManageReferrals");
@@ -182,7 +186,10 @@ public static class ReferralEndpoints
             {
                 r.PublicId,
                 PatientPublicId = patient.PublicId,
+                PatientFirstName = patient.FirstName,
+                PatientLastName = patient.LastName,
                 ClinicalServicePublicId = service.PublicId,
+                ServiceName = service.Name,
 
                 // Look up the assigned provider's public ID, if there is one.
                 AssignedProviderPublicId = db
@@ -210,7 +217,10 @@ public static class ReferralEndpoints
             {
                 referral.PublicId,
                 referral.PatientPublicId,
+                referral.PatientFirstName,
+                referral.PatientLastName,
                 referral.ClinicalServicePublicId,
+                referral.ServiceName,
                 referral.AssignedProviderPublicId,
                 referral.ReferringProviderName,
                 referral.Reason,
@@ -219,6 +229,33 @@ public static class ReferralEndpoints
                 referral.CreatedAtUtc,
             }
         );
+    }
+
+    private static async Task<IResult> GetEligibleProvidersAsync(
+        Guid publicId,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
+        var clinicalServiceId = await db.Referrals
+            .Where(referral => referral.PublicId == publicId)
+            .Select(referral => (int?)referral.ClinicalServiceId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (clinicalServiceId is null)
+        {
+            return Results.NotFound();
+        }
+
+        var providers = await (
+            from link in db.ProviderServices
+            join provider in db.Providers on link.ProviderId equals provider.Id
+            where link.ClinicalServiceId == clinicalServiceId.Value
+            orderby provider.LastName, provider.FirstName
+            select new { provider.PublicId, provider.FirstName, provider.LastName }
+        ).ToListAsync(cancellationToken);
+
+        return Results.Ok(providers);
     }
 
     private static async Task<IResult> AssignReferralProviderAsync(

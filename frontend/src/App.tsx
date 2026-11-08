@@ -7,6 +7,8 @@ import ProvidersPage from "./pages/ProvidersPage";
 import ServicesPage from "./pages/ServicesPage";
 import PatientsPage from "./pages/PatientsPage";
 import PatientDetailsPage from "./pages/PatientDetailsPage";
+import ReferralsPage from "./pages/ReferralsPage";
+import ReferralDetailsPage from "./pages/ReferralDetailsPage";
 import "./App.css";
 
 function App() {
@@ -104,7 +106,7 @@ function App() {
       {/* Show application pages after authentication finishes successfully. */}
       {isAuthenticated && !isRedirecting && (
         <>
-          <nav aria-label="Main navigation" className="mt-6 flex gap-4">
+          <nav aria-label="Main navigation" className="mt-6 flex flex-wrap gap-4">
             <NavLink
               to="/clinics"
               className={({ isActive }) =>
@@ -121,6 +123,14 @@ function App() {
             >
               Patients
             </NavLink>
+            <NavLink
+              to="/referrals"
+              className={({ isActive }) =>
+                isActive ? "font-semibold underline" : "text-blue-700"
+              }
+            >
+              Referrals
+            </NavLink>
           </nav>
           <Routes>
             <Route path="/" element={<Navigate to="/clinics" replace />} />
@@ -130,6 +140,8 @@ function App() {
             <Route path="/clinics/:clinicPublicId/services" element={<ServicesPage />} />
             <Route path="/patients" element={<PatientsPage />} />
             <Route path="/patients/:publicId" element={<PatientDetailsPage />} />
+            <Route path="/referrals" element={<ReferralsPage />} />
+            <Route path="/referrals/:publicId" element={<ReferralDetailsPage />} />
   
             <Route
               path="*"
