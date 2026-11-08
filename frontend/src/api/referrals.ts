@@ -17,6 +17,7 @@ export type ReferralSummary = {
   patientFirstName: string;
   patientLastName: string;
   serviceName: string;
+  clinicName: string;
   status: ReferralStatus;
   createdAtUtc: string;
 };
@@ -24,6 +25,7 @@ export type ReferralSummary = {
 export type ReferralDetails = ReferralSummary & {
   patientPublicId: string;
   clinicalServicePublicId: string;
+  clinicPublicId: string;
   assignedProviderPublicId: string | null;
   referringProviderName: string;
   reason: string;

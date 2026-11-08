@@ -151,6 +151,7 @@ function ReferralRecord({
     <div className="mt-4 space-y-4">
       <h3 className="font-semibold">{referral.patientFirstName} {referral.patientLastName}</h3>
       <dl className="space-y-3">
+        <div><dt className="font-medium">Receiving clinic</dt><dd>{referral.clinicName}</dd></div>
         <div><dt className="font-medium">Clinical service</dt><dd>{referral.serviceName}</dd></div>
         <div><dt className="font-medium">Status</dt><dd>{referralStatusLabels[referral.status]}</dd></div>
         <div><dt className="font-medium">Assigned provider</dt><dd>{assignedName}</dd></div>
@@ -179,11 +180,20 @@ function ReferralRecord({
             )}
             {eligible.isSuccess && (
               providerOptions.length === 0 ? (
-                <p>
-                  {referral.assignedProviderPublicId
-                    ? "No other eligible providers are available."
-                    : "No providers offer this service yet. Assign the service from a provider’s detail view."}
-                </p>
+                referral.assignedProviderPublicId ? (
+                  <p>No other eligible providers are available.</p>
+                ) : (
+                  <div className="space-y-2 rounded-md bg-slate-50 p-3">
+                    <p>No providers at {referral.clinicName} offer {referral.serviceName} yet.</p>
+                    <p>Open a provider and assign this service under Assigned services, then return here.</p>
+                    <Link
+                      to={"/clinics/" + referral.clinicPublicId + "/providers"}
+                      className="inline-block font-medium text-blue-700 underline"
+                    >
+                      View providers at {referral.clinicName}
+                    </Link>
+                  </div>
+                )
               ) : (
                 <form
                   className="space-y-2"
