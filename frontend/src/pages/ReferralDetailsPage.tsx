@@ -92,6 +92,12 @@ function ReferralRecord({
     },
   });
 
+  function clearChangeError(action: ReferralChange["action"]) {
+    if (change.isError && change.variables?.action === action) {
+      change.reset();
+    }
+  }
+
   function submitChange(request: ReferralChange) {
     if (change.isPending || !canChange) return;
 
@@ -193,7 +199,10 @@ function ReferralRecord({
                     <select
                       className={fieldClass}
                       value={selectedProvider?.publicId ?? ""}
-                      onChange={(event) => setProviderId(event.target.value)}
+                      onChange={(event) => {
+                        setProviderId(event.target.value);
+                        clearChangeError("assign");
+                      }}
                       disabled={change.isPending}
                       required
                     >
@@ -224,6 +233,7 @@ function ReferralRecord({
                   onChange={(event) => {
                     setStatus(event.target.value as ReferralStatus | "");
                     setValidationError("");
+                    clearChangeError("status");
                   }}
                   required
                 >
@@ -243,7 +253,10 @@ function ReferralRecord({
                     className={fieldClass}
                     defaultValue={referral.missingInformationNote ?? ""}
                     maxLength={1000}
-                    onChange={() => setValidationError("")}
+                    onChange={() => {
+                      setValidationError("");
+                      clearChangeError("status");
+                    }}
                     rows={3}
                     required
                   />
