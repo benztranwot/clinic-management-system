@@ -9,11 +9,11 @@ import {
   getReferral,
   referralErrorMessage,
   ReferralRequestError,
-  referralStatusLabels,
   updateReferralStatus,
   type ReferralDetails,
   type ReferralStatus,
 } from "../api/referrals";
+import ReferralStatusBadge from "../components/referrals/ReferralStatusBadge";
 
 type ReferralChange =
   | { action: "assign"; providerPublicId: string }
@@ -149,16 +149,18 @@ function ReferralRecord({
 
   return (
     <div className="mt-4 space-y-4">
-      <h3 className="font-semibold">{referral.patientFirstName} {referral.patientLastName}</h3>
-      <dl className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-lg font-semibold">{referral.patientFirstName} {referral.patientLastName}</h3>
+        <ReferralStatusBadge status={referral.status} />
+      </div>
+      <dl className="grid gap-3 sm:grid-cols-2">
         <div><dt className="font-medium">Receiving clinic</dt><dd>{referral.clinicName}</dd></div>
         <div><dt className="font-medium">Clinical service</dt><dd>{referral.serviceName}</dd></div>
-        <div><dt className="font-medium">Status</dt><dd>{referralStatusLabels[referral.status]}</dd></div>
         <div><dt className="font-medium">Assigned provider</dt><dd>{assignedName}</dd></div>
         <div><dt className="font-medium">Referring provider</dt><dd>{referral.referringProviderName}</dd></div>
-        <div><dt className="font-medium">Reason</dt><dd className="whitespace-pre-wrap">{referral.reason}</dd></div>
+        <div className="sm:col-span-2"><dt className="font-medium">Reason</dt><dd className="whitespace-pre-wrap">{referral.reason}</dd></div>
         {referral.missingInformationNote && (
-          <div>
+          <div className="sm:col-span-2">
             <dt className="font-medium">Missing information note</dt>
             <dd className="whitespace-pre-wrap">{referral.missingInformationNote}</dd>
           </div>
@@ -173,7 +175,7 @@ function ReferralRecord({
             {eligible.isError && (
               <div className="space-y-2">
                 <p role="alert">{referralErrorMessage(eligible.error, "Unable to load eligible providers.")}</p>
-                <button type="button" disabled={eligible.isFetching} onClick={() => void eligible.refetch()}>
+                <button type="button" data-variant="secondary" disabled={eligible.isFetching} onClick={() => void eligible.refetch()}>
                   Try again
                 </button>
               </div>
@@ -275,9 +277,12 @@ function ReferralRecord({
               {validationError && <p role="alert">{validationError}</p>}
               <button
                 type="submit"
+                data-variant={status === "Closed" ? "danger" : undefined}
                 disabled={!status || (status === "ReadyToSchedule" && !referral.assignedProviderPublicId)}
               >
-                {change.isPending && change.variables.action === "status" ? "Saving…" : "Save status"}
+                {change.isPending && change.variables.action === "status"
+                  ? "Saving…"
+                  : status === "Closed" ? "Close referral" : "Save status"}
               </button>
             </fieldset>
           </form>
@@ -290,7 +295,7 @@ function ReferralRecord({
       {notice && (
         <div className="flex items-center gap-3">
           <p role="status">{notice}</p>
-          <button type="button" aria-label="Dismiss referral message" onClick={() => setNotice("")}>Dismiss</button>
+          <button type="button" data-variant="secondary" aria-label="Dismiss referral message" onClick={() => setNotice("")}>Dismiss</button>
         </div>
       )}
     </div>
@@ -324,7 +329,7 @@ function ReferralDetailsContent({ userId, publicId }: { userId: string; publicId
     return (
       <div className="mt-3 space-y-2">
         <p role="alert">{referralErrorMessage(query.error, "Unable to load this referral.")}</p>
-        <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>Try again</button>
+        <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>Try again</button>
       </div>
     );
   }

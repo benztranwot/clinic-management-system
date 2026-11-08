@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { getReferrals, referralErrorMessage, referralStatusLabels } from "../api/referrals";
+import { getReferrals, referralErrorMessage } from "../api/referrals";
 import ReferralCreateForm from "../components/referrals/ReferralCreateForm";
+import ReferralStatusBadge from "../components/referrals/ReferralStatusBadge";
 
 function ReferralList({ userId }: { userId: string }) {
   const { getAccessTokenSilently } = useAuth0();
@@ -31,7 +32,7 @@ function ReferralList({ userId }: { userId: string }) {
     return (
       <div className="mt-3 space-y-2">
         <p role="alert">{referralErrorMessage(query.error, "Unable to load referrals.")}</p>
-        <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>
+        <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>
           Try again
         </button>
       </div>
@@ -56,15 +57,20 @@ function ReferralList({ userId }: { userId: string }) {
       ) : (
         <ul aria-label="Referrals" className="mt-3 divide-y divide-slate-200">
           {referrals.map((referral) => (
-            <li key={referral.publicId} className="space-y-1 py-3">
-              <Link to={"/referrals/" + referral.publicId} className="font-medium text-blue-700 underline">
-                {referral.patientFirstName} {referral.patientLastName} · {referral.serviceName}
-              </Link>
-              <p className="text-sm text-slate-600">{referral.clinicName}</p>
-              <p className="text-sm">
-                {referralStatusLabels[referral.status]} ·{" "}
-                <time dateTime={referral.createdAtUtc}>{new Date(referral.createdAtUtc).toLocaleString()}</time>
-              </p>
+            <li key={referral.publicId} className="flex flex-wrap items-start justify-between gap-3 py-4">
+              <div className="min-w-0 space-y-1">
+                <Link
+                  to={"/referrals/" + referral.publicId}
+                  className="font-semibold text-blue-700 underline"
+                >
+                  {referral.patientFirstName} {referral.patientLastName}
+                </Link>
+                <p className="text-sm">{referral.serviceName} · {referral.clinicName}</p>
+                <time dateTime={referral.createdAtUtc} className="block text-sm text-slate-600">
+                  {new Date(referral.createdAtUtc).toLocaleString()}
+                </time>
+              </div>
+              <ReferralStatusBadge status={referral.status} />
             </li>
           ))}
         </ul>
