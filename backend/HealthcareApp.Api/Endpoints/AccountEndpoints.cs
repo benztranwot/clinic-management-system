@@ -11,6 +11,9 @@ public static class AccountEndpoints
     {
         // Return only the signed-in user's account and clinic roles.
         app.MapGet("/api/me", GetMeAsync).RequireAuthorization();
+
+        // Patients can list referrals linked to their own patient record.
+        app.MapGet("/api/me/referrals", GetMyReferralsAsync).RequireAuthorization();
     }
 
     private static async Task<IResult> GetMeAsync(
@@ -74,5 +77,60 @@ public static class AccountEndpoints
                 Role = membership.Role.ToString(),
             }),
         });
+    }
+
+    private static async Task<IResult> GetMyReferralsAsync(
+        ClaimsPrincipal user,
+        HttpContext http,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null)
+        {
+            return Results.Challenge();
+        }
+
+        // Use the patient's account link to scope every row in the response.
+        var account = await identity.QueryAccounts(db)
+            .Where(account => account.PatientId != null)
+            .Select(account => new
+            {
+                Referrals = (
+                    from referral in db.Referrals
+                    join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
+                    join clinic in db.Clinics on service.ClinicId equals clinic.Id
+                    where referral.PatientId == account.PatientId
+                    orderby referral.CreatedAtUtc descending, referral.Id descending
+                    select new
+                    {
+                        referral.PublicId,
+                        ServiceName = service.Name,
+                        ClinicName = clinic.Name,
+                        referral.Status,
+                        referral.CreatedAtUtc,
+                    }
+                ).ToList(),
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (account is null)
+        {
+            return Results.Forbid();
+        }
+
+        http.Response.Headers.CacheControl = "no-store";
+
+        return Results.Ok(
+            account.Referrals.Select(referral => new
+            {
+                referral.PublicId,
+                referral.ServiceName,
+                referral.ClinicName,
+                Status = referral.Status.ToString(),
+                referral.CreatedAtUtc,
+            })
+        );
     }
 }
