@@ -89,7 +89,7 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
       {choices.isError && (
         <div className="space-y-2">
           <p role="alert">{referralErrorMessage(choices.error, "Unable to load patients and clinics.")}</p>
-          <button type="button" disabled={choices.isFetching} onClick={() => void choices.refetch()}>
+          <button type="button" data-variant="secondary" disabled={choices.isFetching} onClick={() => void choices.refetch()}>
             Try again
           </button>
         </div>
@@ -138,7 +138,7 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
           {services.isError && (
             <div className="space-y-2">
               <p role="alert">{referralErrorMessage(services.error, "Unable to load clinical services.")}</p>
-              <button type="button" disabled={services.isFetching} onClick={() => void services.refetch()}>
+              <button type="button" data-variant="secondary" disabled={services.isFetching} onClick={() => void services.refetch()}>
                 Retry clinical services
               </button>
             </div>
@@ -162,7 +162,7 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
           </button>
         </fieldset>
       )}
-      <button type="button" disabled={creation.isPending} onClick={onCancel}>Cancel</button>
+      <button type="button" data-variant="secondary" disabled={creation.isPending} onClick={onCancel}>Cancel</button>
       {validationError && <p role="alert">{validationError}</p>}
       {creation.isError && (
         <p role="alert">
