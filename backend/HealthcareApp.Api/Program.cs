@@ -90,6 +90,9 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/api/auth/check", () => Results.Ok(new { message = "Authentication succeeded." }))
     .RequireAuthorization();
 
+// Register the route for the signed-in user's account.
+app.MapAccountEndpoints();
+
 // Register the clinic CRUD routes.
 app.MapClinicEndpoints();
 
