@@ -15,7 +15,7 @@ namespace HealthcareApp.Api.IntegrationTests;
 // Issue locally signed tokens and configure the test host to validate them.
 internal sealed class TestJwtIssuer : IDisposable
 {
-    private const string Issuer = "https://auth.integration.test/";
+    internal const string Issuer = "https://auth.integration.test/";
     private const string Audience = "clinic-management-api-tests";
     private readonly RSA _rsa = RSA.Create(2048);
     private readonly RsaSecurityKey _signingKey;
@@ -56,13 +56,18 @@ internal sealed class TestJwtIssuer : IDisposable
 
     public void Authorize(HttpClient client, params string[] permissions)
     {
+        AuthorizeSubject(client, "auth0|integration-test-user", permissions);
+    }
+
+    public void AuthorizeSubject(HttpClient client, string? subject, params string[] permissions)
+    {
         // The token includes exactly the permissions requested by the test.
         var now = DateTime.UtcNow;
         var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = Issuer,
             Audience = Audience,
-            Subject = new ClaimsIdentity([new Claim("sub", "auth0|integration-test-user")]),
+            Subject = subject is null ? null : new ClaimsIdentity([new Claim("sub", subject)]),
             Claims = new Dictionary<string, object> { ["permissions"] = permissions },
             IssuedAt = now,
             NotBefore = now.AddMinutes(-1),
