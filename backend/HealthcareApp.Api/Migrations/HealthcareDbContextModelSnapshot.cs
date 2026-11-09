@@ -22,6 +22,51 @@ namespace HealthcareApp.Api.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("HealthcareApp.Api.Models.AppAccount", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("IsAdministrator")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Issuer")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.Property<int?>("PatientId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ProviderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PatientId")
+                        .IsUnique()
+                        .HasFilter("[PatientId] IS NOT NULL");
+
+                    b.HasIndex("ProviderId")
+                        .IsUnique()
+                        .HasFilter("[ProviderId] IS NOT NULL");
+
+                    b.HasIndex("Issuer", "Subject")
+                        .IsUnique();
+
+                    b.ToTable("AppAccounts");
+                });
+
             modelBuilder.Entity("HealthcareApp.Api.Models.Clinic", b =>
                 {
                     b.Property<int>("Id")
@@ -44,6 +89,27 @@ namespace HealthcareApp.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("Clinics");
+                });
+
+            modelBuilder.Entity("HealthcareApp.Api.Models.ClinicMembership", b =>
+                {
+                    b.Property<int>("AppAccountId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ClinicId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("int");
+
+                    b.HasKey("AppAccountId", "ClinicId", "Role");
+
+                    b.HasIndex("ClinicId");
+
+                    b.ToTable("ClinicMemberships", t =>
+                        {
+                            t.HasCheckConstraint("CK_ClinicMemberships_Role", "[Role] IN (1, 2)");
+                        });
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.ClinicalService", b =>
@@ -219,6 +285,34 @@ namespace HealthcareApp.Api.Migrations
                         {
                             t.HasCheckConstraint("CK_Referrals_Status", "[Status] IN (1, 2, 3, 4)");
                         });
+                });
+
+            modelBuilder.Entity("HealthcareApp.Api.Models.AppAccount", b =>
+                {
+                    b.HasOne("HealthcareApp.Api.Models.Patient", null)
+                        .WithOne()
+                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "PatientId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("HealthcareApp.Api.Models.Provider", null)
+                        .WithOne()
+                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("HealthcareApp.Api.Models.ClinicMembership", b =>
+                {
+                    b.HasOne("HealthcareApp.Api.Models.AppAccount", null)
+                        .WithMany()
+                        .HasForeignKey("AppAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("HealthcareApp.Api.Models.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.ClinicalService", b =>

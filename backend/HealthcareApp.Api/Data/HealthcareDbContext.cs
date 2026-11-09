@@ -15,6 +15,8 @@ public class HealthcareDbContext : DbContext
     public DbSet<ClinicalService> ClinicalServices => Set<ClinicalService>();
     public DbSet<ProviderService> ProviderServices => Set<ProviderService>();
     public DbSet<Referral> Referrals => Set<Referral>();
+    public DbSet<AppAccount> AppAccounts => Set<AppAccount>();
+    public DbSet<ClinicMembership> ClinicMemberships => Set<ClinicMembership>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -115,6 +117,47 @@ public class HealthcareDbContext : DbContext
             .HasOne<ProviderService>()
             .WithMany()
             .HasForeignKey(r => new { r.AssignedProviderId, r.ClinicalServiceId })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Identify sign-ins by the case-sensitive issuer and subject pair.
+        var account = modelBuilder.Entity<AppAccount>();
+        account.HasIndex(a => new { a.Issuer, a.Subject }).IsUnique();
+        account.Property(a => a.Issuer).HasMaxLength(255).UseCollation("Latin1_General_100_BIN2");
+        account.Property(a => a.Subject).HasMaxLength(255).UseCollation("Latin1_General_100_BIN2");
+
+        // A provider or patient record can belong to at most one account.
+        account
+            .HasOne<Provider>()
+            .WithOne()
+            .HasForeignKey<AppAccount>(a => a.ProviderId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        account
+            .HasOne<Patient>()
+            .WithOne()
+            .HasForeignKey<AppAccount>(a => a.PatientId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // An account can hold multiple staff roles, each granted for a specific clinic.
+        var membership = modelBuilder.Entity<ClinicMembership>();
+        membership.HasKey(m => new { m.AppAccountId, m.ClinicId, m.Role });
+        membership.ToTable(table =>
+            table.HasCheckConstraint(
+                "CK_ClinicMemberships_Role",
+                $"[Role] IN ({(int)ClinicStaffRole.Clinician}, {(int)ClinicStaffRole.FrontDesk})"
+            )
+        );
+
+        membership
+            .HasOne<AppAccount>()
+            .WithMany()
+            .HasForeignKey(m => m.AppAccountId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        membership
+            .HasOne<Clinic>()
+            .WithMany()
+            .HasForeignKey(m => m.ClinicId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }
