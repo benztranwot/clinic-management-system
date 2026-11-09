@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Dtos;
 using HealthcareApp.Api.Models;
@@ -12,6 +14,10 @@ public static class ReferralEndpoints
     {
         // Require permission to list referrals.
         app.MapGet("/api/referrals", GetReferralsAsync).RequireAuthorization("ReadReferrals");
+
+        // Staff can list referrals for a clinic where they have a membership.
+        app.MapGet("/api/clinics/{clinicPublicId:guid}/referrals", GetClinicReferralsAsync)
+            .RequireAuthorization();
 
         // Require permission to create a referral.
         app.MapPost("/api/referrals", CreateReferralAsync).RequireAuthorization("ManageReferrals");
@@ -33,8 +39,55 @@ public static class ReferralEndpoints
             .RequireAuthorization("ManageReferrals");
     }
 
-    private static async Task<IResult> GetReferralsAsync(
+    private static Task<IResult> GetReferralsAsync(
         HealthcareDbContext db,
+        CancellationToken cancellationToken
+    ) => ListReferralsAsync(db, db.Clinics, cancellationToken);
+
+    private static async Task<IResult> GetClinicReferralsAsync(
+        Guid clinicPublicId,
+        ClaimsPrincipal user,
+        HttpContext http,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null)
+        {
+            return Results.Challenge();
+        }
+
+        var accounts = identity.QueryAccounts(db);
+
+        // Grant access to administrators or staff at the receiving clinic.
+        var allowedClinics = db.Clinics.Where(clinic =>
+            clinic.PublicId == clinicPublicId
+            && accounts.Any(account =>
+                account.IsAdministrator
+                || db.ClinicMemberships.Any(membership =>
+                    membership.AppAccountId == account.Id
+                    && membership.ClinicId == clinic.Id
+                    && (membership.Role == ClinicStaffRole.Clinician
+                        || membership.Role == ClinicStaffRole.FrontDesk)
+                )
+            )
+        );
+
+        if (!await allowedClinics.AnyAsync(cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        http.Response.Headers.CacheControl = "no-store";
+
+        // Keep the access filter in the data query as well.
+        return await ListReferralsAsync(db, allowedClinics, cancellationToken);
+    }
+
+    private static async Task<IResult> ListReferralsAsync(
+        HealthcareDbContext db,
+        IQueryable<Clinic> clinics,
         CancellationToken cancellationToken
     )
     {
@@ -43,7 +96,7 @@ public static class ReferralEndpoints
             from referral in db.Referrals
             join patient in db.Patients on referral.PatientId equals patient.Id
             join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
-            join clinic in db.Clinics on service.ClinicId equals clinic.Id
+            join clinic in clinics on service.ClinicId equals clinic.Id
             orderby referral.CreatedAtUtc descending
             select new
             {
