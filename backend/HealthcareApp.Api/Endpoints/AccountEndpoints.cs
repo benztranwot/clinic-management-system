@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,21 +20,17 @@ public static class AccountEndpoints
         CancellationToken cancellationToken
     )
     {
-        var issuer = GetIdentityClaim(user, "iss");
-        var subject = GetIdentityClaim(user, "sub");
+        var identity = AccountIdentity.FromPrincipal(user);
 
-        if (issuer is null || subject is null)
+        if (identity is null)
         {
             return Results.Challenge();
         }
 
         // Load the account and its memberships using the identity from the validated token.
-        var account = await db.AppAccounts
-            .Where(account => account.Issuer == issuer && account.Subject == subject)
+        var account = await identity.QueryAccounts(db)
             .Select(account => new
             {
-                account.Issuer,
-                account.Subject,
                 account.IsAdministrator,
                 ProviderPublicId = db.Providers
                     .Where(provider => provider.Id == account.ProviderId)
@@ -58,8 +55,7 @@ public static class AccountEndpoints
             })
             .SingleOrDefaultAsync(cancellationToken);
 
-        // SQL Server can ignore trailing spaces in equality comparisons.
-        if (account is null || account.Issuer != issuer || account.Subject != subject)
+        if (account is null)
         {
             return Results.Forbid();
         }
@@ -78,19 +74,5 @@ public static class AccountEndpoints
                 Role = membership.Role.ToString(),
             }),
         });
-    }
-
-    private static string? GetIdentityClaim(ClaimsPrincipal user, string claimType)
-    {
-        var claims = user.FindAll(claimType).Take(2).ToArray();
-        if (claims.Length != 1)
-        {
-            return null;
-        }
-
-        var value = claims[0].Value;
-        return !string.IsNullOrWhiteSpace(value) && value.Length <= 255 && value == value.Trim()
-            ? value
-            : null;
     }
 }
