@@ -10,4 +10,9 @@ public class Clinic
     public Guid PublicId { get; set; } = Guid.NewGuid();
 
     public required string Name { get; set; }
+
+    // Scheduling settings are filled in when a clinic is configured for booking.
+    public string? Address { get; set; }
+
+    public string? TimeZoneId { get; set; }
 }
