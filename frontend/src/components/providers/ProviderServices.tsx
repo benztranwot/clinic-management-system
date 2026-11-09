@@ -18,7 +18,8 @@ function assignmentError(error: unknown, action?: AssignmentChange["action"]) {
   if (error instanceof ProviderServiceRequestError || error instanceof ServiceRequestError) {
     switch (error.status) {
       case 400:
-        return "Select a service offered by this clinic.";
+        if (action === "assign") return "Select a service offered by this clinic.";
+        break;
       case 401:
         return "Your sign-in couldn’t be verified. Sign out and sign back in.";
       case 403:
@@ -26,6 +27,7 @@ function assignmentError(error: unknown, action?: AssignmentChange["action"]) {
       case 404:
         return "The provider, service, or assignment is no longer available.";
       case 409:
+        if (!action) break;
         return action === "remove"
           ? "This assignment is used by a referral and cannot be removed."
           : "This service is already assigned or is no longer available.";

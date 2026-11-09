@@ -72,11 +72,15 @@ function referralPath(publicId: string) {
   return "/api/referrals/" + encodeURIComponent(publicId);
 }
 
-async function referralRequest<T>(
+type ReferralRequestOptions =
+  | { signal: AbortSignal }
+  | { method: "POST" | "PUT"; body: object };
+
+async function referralRequest(
   url: string,
   accessToken: string,
-  options: { signal: AbortSignal } | { method: "POST" | "PUT"; body: object },
-): Promise<T> {
+  options: ReferralRequestOptions,
+): Promise<Response> {
   const headers = new Headers({ Authorization: "Bearer " + accessToken });
   const isWrite = "method" in options;
   if (isWrite) headers.set("Content-Type", "application/json");
@@ -98,42 +102,55 @@ async function referralRequest<T>(
     throw new ReferralRequestError(response.status, message);
   }
 
+  return response;
+}
+
+async function readReferralResponse<T>(
+  url: string,
+  accessToken: string,
+  options: ReferralRequestOptions,
+): Promise<T> {
+  const response = await referralRequest(url, accessToken, options);
   return response.json();
 }
 
 export function getReferrals(accessToken: string, signal: AbortSignal) {
-  return referralRequest<ReferralSummary[]>("/api/referrals", accessToken, { signal });
+  return readReferralResponse<ReferralSummary[]>("/api/referrals", accessToken, { signal });
 }
 
 export function getReferral(accessToken: string, publicId: string, signal: AbortSignal) {
-  return referralRequest<ReferralDetails>(referralPath(publicId), accessToken, { signal });
+  return readReferralResponse<ReferralDetails>(referralPath(publicId), accessToken, { signal });
 }
 
 export function getEligibleProviders(accessToken: string, publicId: string, signal: AbortSignal) {
-  return referralRequest<Provider[]>(referralPath(publicId) + "/eligible-providers", accessToken, { signal });
+  return readReferralResponse<Provider[]>(referralPath(publicId) + "/eligible-providers", accessToken, { signal });
 }
 
 export function createReferral(accessToken: string, input: ReferralInput) {
-  return referralRequest<{ publicId: string }>("/api/referrals", accessToken, {
+  return readReferralResponse<{ publicId: string }>("/api/referrals", accessToken, {
     method: "POST",
     body: input,
   });
 }
 
-export function assignReferralProvider(accessToken: string, publicId: string, providerPublicId: string) {
-  return referralRequest<unknown>(referralPath(publicId) + "/provider", accessToken, {
+export async function assignReferralProvider(
+  accessToken: string,
+  publicId: string,
+  providerPublicId: string,
+): Promise<void> {
+  await referralRequest(referralPath(publicId) + "/provider", accessToken, {
     method: "PUT",
     body: { providerPublicId },
   });
 }
 
-export function updateReferralStatus(
+export async function updateReferralStatus(
   accessToken: string,
   publicId: string,
   status: ReferralStatus,
   missingInformationNote: string | null,
-) {
-  return referralRequest<unknown>(referralPath(publicId) + "/status", accessToken, {
+): Promise<void> {
+  await referralRequest(referralPath(publicId) + "/status", accessToken, {
     method: "PUT",
     body: { status, missingInformationNote },
   });
