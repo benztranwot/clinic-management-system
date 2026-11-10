@@ -34,6 +34,21 @@ internal sealed record AccountIdentity(string Issuer, string Subject)
         );
     }
 
+    public IQueryable<Provider> QueryOwnProviders(HealthcareDbContext db)
+    {
+        var accounts = QueryAccounts(db);
+        return db.Providers.Where(provider =>
+            accounts.Any(account =>
+                account.ProviderId == provider.Id
+                && db.ClinicMemberships.Any(membership =>
+                    membership.AppAccountId == account.Id
+                    && membership.ClinicId == provider.ClinicId
+                    && membership.Role == ClinicStaffRole.Clinician
+                )
+            )
+        );
+    }
+
     private static string? GetIdentityClaim(ClaimsPrincipal user, string claimType)
     {
         var claims = user.FindAll(claimType).Take(2).ToArray();

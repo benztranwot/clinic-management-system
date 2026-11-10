@@ -241,6 +241,39 @@ namespace HealthcareApp.Api.Migrations
                     b.ToTable("ProviderServices");
                 });
 
+            modelBuilder.Entity("HealthcareApp.Api.Models.ProviderTimeOff", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("EndUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("ProviderId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("StartUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("ProviderId", "StartUtc");
+
+                    b.ToTable("ProviderTimeOff", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProviderTimeOff_Interval", "[StartUtc] < [EndUtc] AND DATEPART(TZOFFSET, [StartUtc]) = 0 AND DATEPART(TZOFFSET, [EndUtc]) = 0");
+                        });
+                });
+
             modelBuilder.Entity("HealthcareApp.Api.Models.ProviderWeeklyHours", b =>
                 {
                     b.Property<int>("ProviderId")
@@ -384,6 +417,15 @@ namespace HealthcareApp.Api.Migrations
                         .HasForeignKey("ProviderId", "ClinicId")
                         .HasPrincipalKey("Id", "ClinicId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("HealthcareApp.Api.Models.ProviderTimeOff", b =>
+                {
+                    b.HasOne("HealthcareApp.Api.Models.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
