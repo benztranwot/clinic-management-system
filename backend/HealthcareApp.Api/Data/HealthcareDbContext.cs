@@ -15,6 +15,7 @@ public class HealthcareDbContext : DbContext
     public DbSet<ClinicalService> ClinicalServices => Set<ClinicalService>();
     public DbSet<ProviderService> ProviderServices => Set<ProviderService>();
     public DbSet<Referral> Referrals => Set<Referral>();
+    public DbSet<Appointment> Appointments => Set<Appointment>();
     public DbSet<AppAccount> AppAccounts => Set<AppAccount>();
     public DbSet<ClinicMembership> ClinicMemberships => Set<ClinicMembership>();
     public DbSet<ProviderWeeklyHours> ProviderWeeklyHours => Set<ProviderWeeklyHours>();
@@ -163,6 +164,78 @@ public class HealthcareDbContext : DbContext
             .HasOne<ProviderService>()
             .WithMany()
             .HasForeignKey(r => new { r.AssignedProviderId, r.ClinicalServiceId })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Reserve each provider and patient slot while the appointment is confirmed.
+        var appointment = modelBuilder.Entity<Appointment>();
+        appointment.HasIndex(a => a.PublicId).IsUnique();
+        appointment.Property(a => a.RowVersion).IsRowVersion();
+
+        appointment.HasIndex(a => new { a.ProviderId, a.StartUtc })
+            .IsUnique()
+            .HasDatabaseName("UX_Appointments_ConfirmedProviderSlot")
+            .HasFilter($"[Status] = {(int)AppointmentStatus.Confirmed}");
+
+        appointment.HasIndex(a => new { a.PatientId, a.StartUtc })
+            .IsUnique()
+            .HasDatabaseName("UX_Appointments_ConfirmedPatientSlot")
+            .HasFilter($"[Status] = {(int)AppointmentStatus.Confirmed}");
+
+        // Keep cancelled bookings as history and allow a referral to be booked again.
+        appointment.HasIndex(a => a.ReferralId)
+            .IsUnique()
+            .HasDatabaseName("UX_Appointments_NonCancelledReferral")
+            .HasFilter($"[ReferralId] IS NOT NULL AND [Status] <> {(int)AppointmentStatus.Cancelled}");
+
+        appointment.ToTable(table =>
+        {
+            table.HasCheckConstraint(
+                "CK_Appointments_Status",
+                $"[Status] IN ({(int)AppointmentStatus.Confirmed}, {(int)AppointmentStatus.Cancelled}, {(int)AppointmentStatus.Completed})"
+            );
+            table.HasCheckConstraint(
+                "CK_Appointments_UtcSlot",
+                $"""
+                DATEPART(TZOFFSET, [StartUtc]) = 0
+                AND DATEPART(MINUTE, [StartUtc]) % {Appointment.DurationMinutes} = 0
+                AND DATEPART(SECOND, [StartUtc]) = 0
+                AND DATEPART(NANOSECOND, [StartUtc]) = 0
+                """
+            );
+        });
+
+        // Keep historical bookings tied to the original patient, service, and provider.
+        appointment
+            .HasOne<Patient>()
+            .WithMany()
+            .HasForeignKey(a => a.PatientId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        appointment
+            .HasOne<ClinicalService>()
+            .WithMany()
+            .HasForeignKey(a => a.ClinicalServiceId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        appointment
+            .HasOne<Provider>()
+            .WithMany()
+            .HasForeignKey(a => a.ProviderId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // A referred booking must match that referral's patient and service.
+        appointment
+            .HasOne<Referral>()
+            .WithMany()
+            .HasForeignKey(a => new { a.ReferralId, a.PatientId, a.ClinicalServiceId })
+            .HasPrincipalKey(r => new { r.Id, r.PatientId, r.ClinicalServiceId })
+            .HasConstraintName("FK_Appointments_Referrals_MatchingPatientService")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        appointment
+            .HasOne<AppAccount>()
+            .WithMany()
+            .HasForeignKey(a => a.BookedByAppAccountId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // Identify sign-ins by the case-sensitive issuer and subject pair.
