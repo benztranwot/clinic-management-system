@@ -32,22 +32,14 @@ public static class ProviderWeeklyHoursEndpoints
             return Results.Challenge();
         }
 
-        var schedule = await identity.QueryOwnProviders(db)
+        var schedule = await identity.QueryOwnProviders(db).AsNoTracking()
             .Select(provider => new
             {
+                ProviderId = provider.Id,
                 TimeZoneId = db.Clinics.Where(clinic => clinic.Id == provider.ClinicId)
                     .Select(clinic => clinic.TimeZoneId)
                     .FirstOrDefault(),
-                Days = db.ProviderWeeklyHours.Where(hours => hours.ProviderId == provider.Id)
-                    .Select(hours => new
-                    {
-                        hours.DayOfWeek,
-                        hours.StartMinute,
-                        hours.EndMinute,
-                        hours.BreakStartMinute,
-                        hours.BreakEndMinute,
-                    })
-                    .ToList(),
+                Days = db.ProviderWeeklyHours.Where(hours => hours.ProviderId == provider.Id).ToList(),
             })
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -60,16 +52,11 @@ public static class ProviderWeeklyHoursEndpoints
         var savedDays = schedule.Days.ToDictionary(day => day.DayOfWeek);
         var days = Enumerable.Range(0, 7).Select(dayOfWeek =>
         {
-            if (savedDays.TryGetValue(dayOfWeek, out var day))
-            {
-                return new WeeklyHoursDay(
-                    dayOfWeek, day.StartMinute, day.EndMinute, day.BreakStartMinute, day.BreakEndMinute
-                );
-            }
-
-            return dayOfWeek is >= (int)DayOfWeek.Monday and <= (int)DayOfWeek.Friday
-                ? new WeeklyHoursDay(dayOfWeek, 8 * 60, 17 * 60, 12 * 60, 13 * 60)
-                : new WeeklyHoursDay(dayOfWeek, null, null);
+            var day = savedDays.GetValueOrDefault(dayOfWeek)
+                ?? ProviderWeeklyHours.CreateDefault(schedule.ProviderId, dayOfWeek);
+            return new WeeklyHoursDay(
+                dayOfWeek, day.StartMinute, day.EndMinute, day.BreakStartMinute, day.BreakEndMinute
+            );
         });
 
         http.Response.Headers.CacheControl = "no-store";

@@ -58,21 +58,7 @@ public static class ReferralEndpoints
             return Results.Challenge();
         }
 
-        var accounts = identity.QueryAccounts(db);
-
-        // Grant access to administrators or staff at the receiving clinic.
-        var allowedClinics = db.Clinics.Where(clinic =>
-            clinic.PublicId == clinicPublicId
-            && accounts.Any(account =>
-                account.IsAdministrator
-                || db.ClinicMemberships.Any(membership =>
-                    membership.AppAccountId == account.Id
-                    && membership.ClinicId == clinic.Id
-                    && (membership.Role == ClinicStaffRole.Clinician
-                        || membership.Role == ClinicStaffRole.FrontDesk)
-                )
-            )
-        );
+        var allowedClinics = identity.QueryStaffClinics(db).Where(clinic => clinic.PublicId == clinicPublicId);
 
         if (!await allowedClinics.AnyAsync(cancellationToken))
         {

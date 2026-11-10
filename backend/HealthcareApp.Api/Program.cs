@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 // Register a standard error response and include a request identifier.
 builder.Services.AddProblemDetails(options =>
@@ -105,6 +106,7 @@ app.MapProviderEndpoints();
 // Register the provider's weekly scheduling routes.
 app.MapProviderWeeklyHoursEndpoints();
 app.MapProviderTimeOffEndpoints();
+app.MapProviderAvailabilityEndpoints();
 
 // Register the clinical service routes.
 app.MapClinicalServiceEndpoints();
