@@ -92,6 +92,8 @@ public static class ReferralEndpoints
                 ServiceName = service.Name,
                 ClinicName = clinic.Name,
                 referral.Status,
+                HasConfirmedAppointment = db.Appointments.Any(appointment =>
+                    appointment.ReferralId == referral.Id && appointment.Status == AppointmentStatus.Confirmed),
                 referral.CreatedAtUtc,
             }
         ).ToListAsync(cancellationToken);
@@ -106,6 +108,7 @@ public static class ReferralEndpoints
                 referral.ServiceName,
                 referral.ClinicName,
                 Status = referral.Status.ToString(),
+                Stage = GetStage(referral.Status, referral.HasConfirmedAppointment),
                 referral.CreatedAtUtc,
             })
         );
@@ -245,6 +248,8 @@ public static class ReferralEndpoints
                 r.ReferringProviderName,
                 r.Reason,
                 r.Status,
+                HasConfirmedAppointment = db.Appointments.Any(appointment =>
+                    appointment.ReferralId == r.Id && appointment.Status == AppointmentStatus.Confirmed),
                 r.MissingInformationNote,
                 r.CreatedAtUtc,
             }
@@ -272,6 +277,7 @@ public static class ReferralEndpoints
                 referral.ReferringProviderName,
                 referral.Reason,
                 Status = referral.Status.ToString(),
+                Stage = GetStage(referral.Status, referral.HasConfirmedAppointment),
                 referral.MissingInformationNote,
                 referral.CreatedAtUtc,
             }
@@ -317,6 +323,12 @@ public static class ReferralEndpoints
             return Results.BadRequest(new { message = "Select a provider." });
         }
 
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        if (!await TransactionLock.TryAcquireReferralAsync(db, publicId, cancellationToken))
+        {
+            return Results.Conflict(new { message = "The referral is being updated. Try again." });
+        }
+
         // Find the referral and the service it requests.
         var referral = await db
             .Referrals.Where(r => r.PublicId == publicId)
@@ -336,6 +348,14 @@ public static class ReferralEndpoints
         if (referral.Status == ReferralStatus.Closed)
         {
             return Results.Conflict(new { message = "This referral is closed." });
+        }
+
+        if (await db.Appointments.AnyAsync(appointment =>
+                appointment.ReferralId == referral.Id
+                && appointment.Status != AppointmentStatus.Cancelled,
+                cancellationToken))
+        {
+            return Results.Conflict(new { message = "Change the provider through the appointment booking." });
         }
 
         // Find the provider's internal ID using the public ID from the request.
@@ -389,6 +409,7 @@ public static class ReferralEndpoints
             );
         }
 
+        await transaction.CommitAsync(cancellationToken);
         return Results.Ok(new { publicId, AssignedProviderPublicId = request.ProviderPublicId });
     }
 
@@ -432,6 +453,12 @@ public static class ReferralEndpoints
             );
         }
 
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        if (!await TransactionLock.TryAcquireReferralAsync(db, publicId, cancellationToken))
+        {
+            return Results.Conflict(new { message = "The referral is being updated. Try again." });
+        }
+
         // Read the current status and assignment before applying the change.
         var referral = await db
             .Referrals.Where(r => r.PublicId == publicId)
@@ -466,6 +493,14 @@ public static class ReferralEndpoints
             return Results.Conflict(new { message = "This referral is closed." });
         }
 
+        if (await db.Appointments.AnyAsync(appointment =>
+                appointment.ReferralId == referral.Id
+                && appointment.Status == AppointmentStatus.Confirmed,
+                cancellationToken))
+        {
+            return Results.Conflict(new { message = "Resolve the confirmed appointment before changing this referral." });
+        }
+
         if (status == ReferralStatus.ReadyToSchedule && referral.AssignedProviderId is null)
         {
             return Results.Conflict(
@@ -498,6 +533,7 @@ public static class ReferralEndpoints
             );
         }
 
+        await transaction.CommitAsync(cancellationToken);
         return Results.Ok(
             new
             {
@@ -507,4 +543,9 @@ public static class ReferralEndpoints
             }
         );
     }
+
+    private static string GetStage(ReferralStatus status, bool hasConfirmedAppointment) =>
+        status == ReferralStatus.Closed ? "Closed"
+        : hasConfirmedAppointment ? "Scheduled"
+        : "PendingReview";
 }

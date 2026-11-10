@@ -17,10 +17,40 @@ public static class AppointmentEndpoints
         var routes = app.MapGroup("/api/appointments").RequireAuthorization();
         routes.MapPost("", BookDirectAsync);
         routes.MapGet("/{publicId:guid}", GetByIdAsync);
+
+        app.MapPost("/api/referrals/{referralPublicId:guid}/appointments", BookReferredAsync)
+            .RequireAuthorization();
     }
 
-    private static async Task<IResult> BookDirectAsync(
+    private static Task<IResult> BookDirectAsync(
         CreateDirectAppointmentRequest request,
+        ClaimsPrincipal user,
+        HealthcareDbContext db,
+        TimeProvider clock,
+        CancellationToken cancellationToken
+    ) => BookAsync(
+        null, request.PatientPublicId, request.ClinicalServicePublicId,
+        request.ProviderPublicId, request.StartUtc, user, db, clock, cancellationToken
+    );
+
+    private static Task<IResult> BookReferredAsync(
+        Guid referralPublicId,
+        CreateReferredAppointmentRequest request,
+        ClaimsPrincipal user,
+        HealthcareDbContext db,
+        TimeProvider clock,
+        CancellationToken cancellationToken
+    ) => BookAsync(
+        referralPublicId, null, null, request.ProviderPublicId,
+        request.StartUtc, user, db, clock, cancellationToken
+    );
+
+    private static async Task<IResult> BookAsync(
+        Guid? referralPublicId,
+        Guid? patientPublicId,
+        Guid? clinicalServicePublicId,
+        Guid providerPublicId,
+        string? startUtc,
         ClaimsPrincipal user,
         HealthcareDbContext db,
         TimeProvider clock,
@@ -33,40 +63,76 @@ public static class AppointmentEndpoints
             return Results.Challenge();
         }
 
-        if (request.PatientPublicId == Guid.Empty
-            || request.ClinicalServicePublicId == Guid.Empty
-            || request.ProviderPublicId == Guid.Empty)
+        if (providerPublicId == Guid.Empty || referralPublicId == Guid.Empty
+            || (referralPublicId is null
+                && (patientPublicId == Guid.Empty || clinicalServicePublicId == Guid.Empty)))
         {
-            return Results.BadRequest(new { message = "Select a patient, service, and provider." });
+            return Results.BadRequest(new { message = "Select the records required for this booking." });
         }
 
-        if (!UtcTimestamp.TryParse(request.StartUtc, out var start)
+        if (!UtcTimestamp.TryParse(startUtc, out var start)
             || start.Ticks % (Appointment.DurationMinutes * TimeSpan.TicksPerMinute) != 0)
         {
             return Results.BadRequest(new { message = "Choose a UTC start on the 30-minute grid." });
         }
 
+        // For a referred booking, get both IDs from the referral itself.
+        var sources = referralPublicId is not null
+            ? from referral in db.Referrals
+              join patient in db.Patients on referral.PatientId equals patient.Id
+              join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
+              where referral.PublicId == referralPublicId
+              select new
+              {
+                  PatientId = patient.Id,
+                  PatientPublicId = patient.PublicId,
+                  ServiceId = service.Id,
+                  ServicePublicId = service.PublicId,
+                  service.ClinicId,
+                  service.AllowsDirectBooking,
+                  ReferralId = (int?)referral.Id,
+                  ReviewStatus = (ReferralStatus?)referral.Status,
+              }
+            : from patient in db.Patients
+              from service in db.ClinicalServices
+              where patient.PublicId == patientPublicId && service.PublicId == clinicalServicePublicId
+              select new
+              {
+                  PatientId = patient.Id,
+                  PatientPublicId = patient.PublicId,
+                  ServiceId = service.Id,
+                  ServicePublicId = service.PublicId,
+                  service.ClinicId,
+                  service.AllowsDirectBooking,
+                  ReferralId = (int?)null,
+                  ReviewStatus = (ReferralStatus?)null,
+              };
+
         var accounts = identity.QueryAccounts(db);
         var targets =
-            from provider in db.Providers
-            join clinic in db.Clinics on provider.ClinicId equals clinic.Id
-            join service in db.ClinicalServices on clinic.Id equals service.ClinicId
+            from source in sources
+            join clinic in db.Clinics on source.ClinicId equals clinic.Id
+            join provider in db.Providers on clinic.Id equals provider.ClinicId
             from account in accounts
-            where provider.PublicId == request.ProviderPublicId
-                && service.PublicId == request.ClinicalServicePublicId
+            where provider.PublicId == providerPublicId
                 && (account.IsAdministrator || db.ClinicMemberships.Any(membership =>
                     membership.AppAccountId == account.Id
                     && membership.ClinicId == clinic.Id
                     && membership.Role == ClinicStaffRole.FrontDesk))
             select new
             {
+                source.PatientId,
+                source.PatientPublicId,
+                source.ServiceId,
+                source.ServicePublicId,
+                source.ReferralId,
+                source.ReviewStatus,
+                source.AllowsDirectBooking,
                 ProviderId = provider.Id,
-                ServiceId = service.Id,
                 AccountId = account.Id,
                 clinic.TimeZoneId,
-                service.AllowsDirectBooking,
                 Eligible = db.ProviderServices.Any(eligibility =>
-                    eligibility.ProviderId == provider.Id && eligibility.ClinicalServiceId == service.Id
+                    eligibility.ProviderId == provider.Id && eligibility.ClinicalServiceId == source.ServiceId
                 ),
             };
 
@@ -79,16 +145,27 @@ public static class AppointmentEndpoints
 
         try
         {
-            // Retain read locks on the booking policy and eligibility until the write commits.
+            // Retain read locks on eligibility and booking policy until the write commits.
             await using var transaction = await db.Database.BeginTransactionAsync(
                 IsolationLevel.RepeatableRead, cancellationToken
             );
+
+            // Use the same referral lock as the review and assignment routes.
+            if (referralPublicId is Guid referralKey
+                && !await TransactionLock.TryAcquireReferralAsync(db, referralKey, cancellationToken))
+            {
+                return Results.Conflict(new
+                {
+                    code = "referral_busy",
+                    message = "The referral is being updated. Try again.",
+                });
+            }
+
             if (!await ProviderCalendarLock.TryAcquireAsync(db, providerId.Value, cancellationToken))
             {
                 return SlotConflict();
             }
 
-            // Recheck clinic scope, service policy, and provider eligibility under the lock.
             var target = await targets.SingleOrDefaultAsync(
                 item => item.ProviderId == providerId.Value, cancellationToken
             );
@@ -97,7 +174,26 @@ public static class AppointmentEndpoints
                 return Results.NotFound();
             }
 
-            if (!target.AllowsDirectBooking)
+            if (target.ReferralId is int referralId)
+            {
+                if (target.ReviewStatus != ReferralStatus.ReadyToSchedule)
+                {
+                    return Results.Conflict(new
+                    {
+                        code = "referral_not_ready",
+                        message = "Mark this referral ready to schedule before booking.",
+                    });
+                }
+
+                if (await db.Appointments.AnyAsync(appointment =>
+                        appointment.ReferralId == referralId
+                        && appointment.Status != AppointmentStatus.Cancelled,
+                        cancellationToken))
+                {
+                    return ReferralConflict();
+                }
+            }
+            else if (!target.AllowsDirectBooking)
             {
                 return Results.Conflict(new
                 {
@@ -121,15 +217,6 @@ public static class AppointmentEndpoints
                 });
             }
 
-            var patientId = await db.Patients
-                .Where(patient => patient.PublicId == request.PatientPublicId)
-                .Select(patient => (int?)patient.Id)
-                .SingleOrDefaultAsync(cancellationToken);
-            if (patientId is null)
-            {
-                return Results.NotFound();
-            }
-
             var now = clock.GetUtcNow();
             var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(start, timeZone).DateTime);
             if (start <= now || !AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
@@ -146,7 +233,7 @@ public static class AppointmentEndpoints
             }
 
             if (await db.Appointments.AnyAsync(appointment =>
-                    appointment.PatientId == patientId.Value
+                    appointment.PatientId == target.PatientId
                     && appointment.Status == AppointmentStatus.Confirmed
                     && appointment.StartUtc == start,
                     cancellationToken))
@@ -154,11 +241,22 @@ public static class AppointmentEndpoints
                 return PatientConflict();
             }
 
+            if (target.ReferralId is int linkedReferralId)
+            {
+                // Commit the appointment and its provider assignment together.
+                await db.Referrals.Where(referral => referral.Id == linkedReferralId)
+                    .ExecuteUpdateAsync(
+                        update => update.SetProperty(referral => referral.AssignedProviderId, (int?)target.ProviderId),
+                        cancellationToken
+                    );
+            }
+
             var booking = new Appointment
             {
-                PatientId = patientId.Value,
+                PatientId = target.PatientId,
                 ClinicalServiceId = target.ServiceId,
                 ProviderId = target.ProviderId,
+                ReferralId = target.ReferralId,
                 BookedByAppAccountId = target.AccountId,
                 StartUtc = start,
                 CreatedAtUtc = now,
@@ -172,22 +270,27 @@ public static class AppointmentEndpoints
                 new
                 {
                     booking.PublicId,
-                    request.PatientPublicId,
-                    request.ClinicalServicePublicId,
-                    request.ProviderPublicId,
+                    target.PatientPublicId,
+                    ClinicalServicePublicId = target.ServicePublicId,
+                    ProviderPublicId = providerPublicId,
+                    ReferralPublicId = referralPublicId,
                     booking.StartUtc,
                     EndUtc = booking.StartUtc.AddMinutes(Appointment.DurationMinutes),
                     Status = booking.Status.ToString(),
                 }
             );
         }
-        catch (DbUpdateException exception) when (
-            exception.InnerException is SqlException { Number: 2601 or 2627 } sql
-            && sql.Message.Contains("UX_Appointments_ConfirmedPatientSlot", StringComparison.Ordinal))
+        catch (Exception exception) when (IsDuplicateIndex(exception, "UX_Appointments_NonCancelledReferral"))
+        {
+            return ReferralConflict();
+        }
+        catch (Exception exception) when (IsDuplicateIndex(exception, "UX_Appointments_ConfirmedPatientSlot"))
         {
             return PatientConflict();
         }
-        catch (Exception exception) when (IsCalendarConflict(exception))
+        catch (Exception exception) when (
+            IsDuplicateIndex(exception, "UX_Appointments_ConfirmedProviderSlot")
+            || GetSqlException(exception) is { Number: 1205 })
         {
             return SlotConflict();
         }
@@ -220,6 +323,8 @@ public static class AppointmentEndpoints
                 PatientPublicId = patient.PublicId,
                 ClinicalServicePublicId = service.PublicId,
                 ProviderPublicId = provider.PublicId,
+                ReferralPublicId = db.Referrals.Where(referral => referral.Id == appointment.ReferralId)
+                    .Select(referral => (Guid?)referral.PublicId).FirstOrDefault(),
                 appointment.StartUtc,
                 appointment.Status,
             }
@@ -237,19 +342,19 @@ public static class AppointmentEndpoints
             booking.PatientPublicId,
             booking.ClinicalServicePublicId,
             booking.ProviderPublicId,
+            booking.ReferralPublicId,
             booking.StartUtc,
             EndUtc = booking.StartUtc.AddMinutes(Appointment.DurationMinutes),
             Status = booking.Status.ToString(),
         });
     }
 
-    private static bool IsCalendarConflict(Exception exception)
-    {
-        var sql = exception as SqlException ?? exception.InnerException as SqlException;
-        return sql is { Number: 1205 }
-            || (sql is { Number: 2601 or 2627 }
-                && sql.Message.Contains("UX_Appointments_ConfirmedProviderSlot", StringComparison.Ordinal));
-    }
+    private static SqlException? GetSqlException(Exception exception) =>
+        exception as SqlException ?? exception.InnerException as SqlException;
+
+    private static bool IsDuplicateIndex(Exception exception, string index) =>
+        GetSqlException(exception) is { Number: 2601 or 2627 } sql
+        && sql.Message.Contains(index, StringComparison.Ordinal);
 
     private static IResult SlotConflict() => Results.Conflict(new
     {
@@ -261,5 +366,11 @@ public static class AppointmentEndpoints
     {
         code = "patient_already_booked",
         message = "This patient already has an appointment at that time.",
+    });
+
+    private static IResult ReferralConflict() => Results.Conflict(new
+    {
+        code = "referral_already_booked",
+        message = "This referral already has a booking.",
     });
 }
