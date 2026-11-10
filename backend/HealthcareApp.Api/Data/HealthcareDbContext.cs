@@ -17,6 +17,7 @@ public class HealthcareDbContext : DbContext
     public DbSet<Referral> Referrals => Set<Referral>();
     public DbSet<AppAccount> AppAccounts => Set<AppAccount>();
     public DbSet<ClinicMembership> ClinicMemberships => Set<ClinicMembership>();
+    public DbSet<ProviderWeeklyHours> ProviderWeeklyHours => Set<ProviderWeeklyHours>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,6 +48,30 @@ public class HealthcareDbContext : DbContext
             .WithMany()
             .HasForeignKey(p => p.ClinicId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // Store one window per provider and day, or two nulls for a closed day.
+        var weeklyHours = modelBuilder.Entity<ProviderWeeklyHours>();
+        weeklyHours.HasKey(hours => new { hours.ProviderId, hours.DayOfWeek });
+        weeklyHours.ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_ProviderWeeklyHours_Day", "[DayOfWeek] BETWEEN 0 AND 6");
+            table.HasCheckConstraint(
+                "CK_ProviderWeeklyHours_Window",
+                """
+                ([StartMinute] IS NULL AND [EndMinute] IS NULL)
+                OR ([StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL
+                    AND [StartMinute] >= 0 AND [EndMinute] <= 1440
+                    AND [StartMinute] < [EndMinute]
+                    AND [StartMinute] % 30 = 0 AND [EndMinute] % 30 = 0)
+                """
+            );
+        });
+
+        weeklyHours
+            .HasOne<Provider>()
+            .WithMany()
+            .HasForeignKey(hours => hours.ProviderId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Require each service to belong to a clinic and give it a unique name within that clinic.
         var service = modelBuilder.Entity<ClinicalService>();
