@@ -9,8 +9,6 @@ namespace HealthcareApp.Api.Endpoints;
 
 public static class ProviderAvailabilityEndpoints
 {
-    private const int DaysAhead = 30;
-
     public static void MapProviderAvailabilityEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/providers/{providerPublicId:guid}/availability", GetAvailabilityAsync)
@@ -59,8 +57,7 @@ public static class ProviderAvailabilityEndpoints
         }
 
         var now = clock.GetUtcNow();
-        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, timeZone).DateTime);
-        if (localDate < today || localDate > today.AddDays(DaysAhead))
+        if (!AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
         {
             return Results.BadRequest(new { message = "Choose a date from today through 30 days ahead." });
         }

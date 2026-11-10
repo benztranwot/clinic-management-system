@@ -117,6 +117,9 @@ app.MapProviderServiceEndpoints();
 // Register the referral routes.
 app.MapReferralEndpoints();
 
+// Register appointment booking and detail routes.
+app.MapAppointmentEndpoints();
+
 app.Run();
 
 // Expose the API entry point to the integration test project.

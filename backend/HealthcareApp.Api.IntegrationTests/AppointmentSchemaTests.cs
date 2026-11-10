@@ -1,7 +1,9 @@
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HealthcareApp.Api.IntegrationTests;
@@ -14,7 +16,17 @@ public class AppointmentSchemaTests
         var start = new DateTimeOffset(2030, 1, 7, 15, 0, 0, TimeSpan.Zero);
 
         await using var factory = new HealthcareApiFactory();
-        await using var scope = factory.Services.CreateAsyncScope();
+        await using var configuredFactory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                // This test deliberately saves invalid appointments to exercise SQL constraints.
+                services.ConfigureDbContext<HealthcareDbContext>(options =>
+                    options.ConfigureWarnings(warnings => warnings.Ignore(CoreEventId.SaveChangesFailed))
+                );
+            });
+        });
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
 
         var connection = db.Database.GetDbConnection();
