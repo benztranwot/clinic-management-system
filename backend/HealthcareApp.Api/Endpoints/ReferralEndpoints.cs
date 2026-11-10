@@ -32,7 +32,7 @@ public static class ReferralEndpoints
 
         // List receiving providers for the selected service when creating a referral.
         app.MapGet("/api/services/{servicePublicId:guid}/eligible-providers", GetServiceEligibleProvidersAsync)
-            .RequireAuthorization("ManageReferrals");
+            .RequireAuthorization("ManageReferrals", "ReadProviders", "ReadProviderServices");
 
         // Reassign the receiving provider before booking.
         app.MapPut("/api/referrals/{publicId:guid}/provider", AssignReferralProviderAsync)

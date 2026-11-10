@@ -24,6 +24,12 @@ public class ReferralAuthorizationTests
     [InlineData("Eligible", true, "read:referrals read:provider-services", HttpStatusCode.Forbidden)]
     [InlineData("Eligible", true, "read:referrals read:providers", HttpStatusCode.Forbidden)]
     [InlineData("Eligible", true, "read:referrals read:providers read:provider-services", HttpStatusCode.OK)]
+    [InlineData("ServiceEligible", false, null, HttpStatusCode.Unauthorized)]
+    [InlineData("ServiceEligible", true, "read:providers read:provider-services", HttpStatusCode.Forbidden)]
+    [InlineData("ServiceEligible", true, "manage:referrals", HttpStatusCode.Forbidden)]
+    [InlineData("ServiceEligible", true, "manage:referrals read:provider-services", HttpStatusCode.Forbidden)]
+    [InlineData("ServiceEligible", true, "manage:referrals read:providers", HttpStatusCode.Forbidden)]
+    [InlineData("ServiceEligible", true, "manage:referrals read:providers read:provider-services", HttpStatusCode.OK)]
     [InlineData("Create", false, null, HttpStatusCode.Unauthorized)]
     [InlineData("Create", true, "read:referrals", HttpStatusCode.Forbidden)]
     [InlineData("Create", true, "manage:referrals", HttpStatusCode.Created)]
@@ -112,7 +118,7 @@ public class ReferralAuthorizationTests
             });
             await db.SaveChangesAsync();
 
-            if (operation == "Eligible" && expectedStatus == HttpStatusCode.OK)
+            if ((operation is "Eligible" or "ServiceEligible") && expectedStatus == HttpStatusCode.OK)
             {
                 // A provider at this clinic is not eligible without the requested service link.
                 db.Providers.Add(new Provider { ClinicId = clinic.Id, FirstName = "Casey", LastName = "Unlinked" });
@@ -179,6 +185,9 @@ public class ReferralAuthorizationTests
                 "List" => new HttpRequestMessage(HttpMethod.Get, "/api/referrals"),
                 "Read" => new HttpRequestMessage(HttpMethod.Get, referralUrl),
                 "Eligible" => new HttpRequestMessage(HttpMethod.Get, $"{referralUrl}/eligible-providers"),
+                "ServiceEligible" => new HttpRequestMessage(
+                    HttpMethod.Get, $"/api/services/{service.PublicId}/eligible-providers"
+                ),
                 "Create" => new HttpRequestMessage(HttpMethod.Post, "/api/referrals")
                 {
                     // Use another patient so the existing referral is not a duplicate.
@@ -215,7 +224,7 @@ public class ReferralAuthorizationTests
                 Assert.Contains(response.Headers.WwwAuthenticate, c => c.Scheme == "Bearer");
             }
 
-            if (expectedStatus == HttpStatusCode.OK && operation == "Eligible")
+            if (expectedStatus == HttpStatusCode.OK && (operation is "Eligible" or "ServiceEligible"))
             {
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
                 var eligible = Assert.Single(body.EnumerateArray());
