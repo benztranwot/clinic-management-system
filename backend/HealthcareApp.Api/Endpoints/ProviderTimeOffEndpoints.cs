@@ -1,18 +1,15 @@
-using System.Globalization;
 using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Dtos;
 using HealthcareApp.Api.Models;
+using HealthcareApp.Api.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthcareApp.Api.Endpoints;
 
 public static class ProviderTimeOffEndpoints
 {
-    private static readonly string[] UtcFormats =
-        ["yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"];
-
     public static void MapProviderTimeOffEndpoints(this IEndpointRouteBuilder app)
     {
         // The provider comes from the caller's linked account.
@@ -87,8 +84,8 @@ public static class ProviderTimeOffEndpoints
             return Results.Forbid();
         }
 
-        if (!TryParseUtc(request.StartUtc, out var start)
-            || !TryParseUtc(request.EndUtc, out var end)
+        if (!UtcTimestamp.TryParse(request.StartUtc, out var start)
+            || !UtcTimestamp.TryParse(request.EndUtc, out var end)
             || start >= end)
         {
             return Results.BadRequest(new
@@ -175,16 +172,5 @@ public static class ProviderTimeOffEndpoints
 
         await transaction.CommitAsync(cancellationToken);
         return deleted == 0 ? Results.NotFound() : Results.NoContent();
-    }
-
-    private static bool TryParseUtc(string? value, out DateTimeOffset timestamp)
-    {
-        timestamp = default;
-        return value is not null
-            && (value.EndsWith('Z') || value.EndsWith("+00:00", StringComparison.Ordinal))
-            && DateTimeOffset.TryParseExact(
-                value, UtcFormats, CultureInfo.InvariantCulture,
-                DateTimeStyles.AdjustToUniversal, out timestamp
-            );
     }
 }
