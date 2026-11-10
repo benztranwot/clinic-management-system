@@ -53,6 +53,7 @@ public class HealthcareDbContext : DbContext
         service.HasIndex(s => s.PublicId).IsUnique();
         service.HasIndex(s => new { s.ClinicId, s.Name }).IsUnique();
         service.Property(s => s.Name).HasMaxLength(200).IsRequired();
+        service.Property(s => s.AllowsDirectBooking).HasDefaultValue(false);
 
         // Each service belongs to one clinic, and a clinic can offer many services.
         service
