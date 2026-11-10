@@ -51,7 +51,7 @@ public class HealthcareDbContext : DbContext
             .HasForeignKey(p => p.ClinicId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Store one window per provider and day, or two nulls for a closed day.
+        // Store a working window and an optional recurring break for each provider and day.
         var weeklyHours = modelBuilder.Entity<ProviderWeeklyHours>();
         weeklyHours.HasKey(hours => new { hours.ProviderId, hours.DayOfWeek });
         weeklyHours.ToTable(table =>
@@ -65,6 +65,19 @@ public class HealthcareDbContext : DbContext
                     AND [StartMinute] >= 0 AND [EndMinute] <= 1440
                     AND [StartMinute] < [EndMinute]
                     AND [StartMinute] % 30 = 0 AND [EndMinute] % 30 = 0)
+                """
+            );
+            table.HasCheckConstraint(
+                "CK_ProviderWeeklyHours_Break",
+                $"""
+                ([BreakStartMinute] IS NULL AND [BreakEndMinute] IS NULL)
+                OR ([BreakStartMinute] IS NOT NULL AND [BreakEndMinute] IS NOT NULL
+                    AND [StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL
+                    AND [StartMinute] < [BreakStartMinute]
+                    AND [BreakStartMinute] < [BreakEndMinute]
+                    AND [BreakEndMinute] < [EndMinute]
+                    AND [BreakStartMinute] % {Appointment.DurationMinutes} = 0
+                    AND [BreakEndMinute] % {Appointment.DurationMinutes} = 0)
                 """
             );
         });

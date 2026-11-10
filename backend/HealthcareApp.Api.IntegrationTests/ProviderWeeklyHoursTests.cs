@@ -95,7 +95,7 @@ public class ProviderWeeklyHoursTests
 
             // Start with one working day. Mark all other days as closed.
             var days = Enumerable.Range(0, 7)
-                .Select(day => day == 1 ? new WeeklyHoursDay(day, 600, 960) : new WeeklyHoursDay(day, null, null))
+                .Select(day => day == 1 ? new WeeklyHoursDay(day, 600, 960, 720, 780) : new WeeklyHoursDay(day, null, null))
                 .ToArray();
             var request = new UpdateProviderWeeklyHoursRequest(days);
 
@@ -107,8 +107,10 @@ public class ProviderWeeklyHoursTests
             var before = await client.GetFromJsonAsync<JsonElement>(HoursUrl);
             Assert.Equal("America/Chicago", before.GetProperty("timeZoneId").GetString());
             Assert.Equal(7, before.GetProperty("days").GetArrayLength());
-            Assert.Equal(540, GetDay(before, 1).GetProperty("startMinute").GetInt32());
+            Assert.Equal(480, GetDay(before, 1).GetProperty("startMinute").GetInt32());
             Assert.Equal(1020, GetDay(before, 1).GetProperty("endMinute").GetInt32());
+            Assert.Equal(720, GetDay(before, 1).GetProperty("breakStartMinute").GetInt32());
+            Assert.Equal(780, GetDay(before, 1).GetProperty("breakEndMinute").GetInt32());
             Assert.Equal(JsonValueKind.Null, GetDay(before, 0).GetProperty("startMinute").ValueKind);
 
             var invalid = days.ToArray();
@@ -118,6 +120,19 @@ public class ProviderWeeklyHoursTests
                 new UpdateProviderWeeklyHoursRequest(invalid)
             );
             Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+            invalid[1] = days[1] with { BreakStartMinute = 735 };
+            using var offGridBreak = await client.PutAsJsonAsync(
+                HoursUrl,
+                new UpdateProviderWeeklyHoursRequest(invalid)
+            );
+            Assert.Equal(HttpStatusCode.BadRequest, offGridBreak.StatusCode);
+
+            invalid[1] = days[1] with { BreakEndMinute = null };
+            using var incompleteBreak = await client.PutAsJsonAsync(
+                HoursUrl,
+                new UpdateProviderWeeklyHoursRequest(invalid)
+            );
+            Assert.Equal(HttpStatusCode.BadRequest, incompleteBreak.StatusCode);
             Assert.Empty(await db.ProviderWeeklyHours.ToListAsync());
 
             using var updated = await client.PutAsJsonAsync(
@@ -129,6 +144,8 @@ public class ProviderWeeklyHoursTests
             var after = await client.GetFromJsonAsync<JsonElement>(HoursUrl);
             Assert.Equal(600, GetDay(after, 1).GetProperty("startMinute").GetInt32());
             Assert.Equal(960, GetDay(after, 1).GetProperty("endMinute").GetInt32());
+            Assert.Equal(720, GetDay(after, 1).GetProperty("breakStartMinute").GetInt32());
+            Assert.Equal(780, GetDay(after, 1).GetProperty("breakEndMinute").GetInt32());
             Assert.Equal(JsonValueKind.Null, GetDay(after, 2).GetProperty("startMinute").ValueKind);
 
             // A second full save replaces the previous week.
@@ -137,6 +154,7 @@ public class ProviderWeeklyHoursTests
             Assert.Equal(HttpStatusCode.NoContent, replaced.StatusCode);
             var afterReplacement = await client.GetFromJsonAsync<JsonElement>(HoursUrl);
             Assert.Equal(630, GetDay(afterReplacement, 1).GetProperty("startMinute").GetInt32());
+            Assert.Equal(JsonValueKind.Null, GetDay(afterReplacement, 1).GetProperty("breakStartMinute").ValueKind);
 
             var stored = await db.ProviderWeeklyHours.AsNoTracking().ToListAsync();
             Assert.Equal(7, stored.Count);
@@ -144,7 +162,7 @@ public class ProviderWeeklyHoursTests
 
             tokens.AuthorizeSubject(client, otherSubject);
             var other = await client.GetFromJsonAsync<JsonElement>(HoursUrl);
-            Assert.Equal(540, GetDay(other, 1).GetProperty("startMinute").GetInt32());
+            Assert.Equal(480, GetDay(other, 1).GetProperty("startMinute").GetInt32());
         }
         finally
         {

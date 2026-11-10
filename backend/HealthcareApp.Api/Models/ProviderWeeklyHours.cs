@@ -11,4 +11,8 @@ public class ProviderWeeklyHours
     // Minutes since local midnight. Null in both fields marks a closed day.
     public int? StartMinute { get; set; }
     public int? EndMinute { get; set; }
+
+    // An optional recurring break inside the working window.
+    public int? BreakStartMinute { get; set; }
+    public int? BreakEndMinute { get; set; }
 }
