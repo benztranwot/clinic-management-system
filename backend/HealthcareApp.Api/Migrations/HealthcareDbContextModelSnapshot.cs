@@ -357,6 +357,12 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("DayOfWeek")
                         .HasColumnType("int");
 
+                    b.Property<int?>("BreakEndMinute")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("BreakStartMinute")
+                        .HasColumnType("int");
+
                     b.Property<int?>("EndMinute")
                         .HasColumnType("int");
 
@@ -367,6 +373,8 @@ namespace HealthcareApp.Api.Migrations
 
                     b.ToTable("ProviderWeeklyHours", t =>
                         {
+                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Break", "([BreakStartMinute] IS NULL AND [BreakEndMinute] IS NULL)\r\nOR ([BreakStartMinute] IS NOT NULL AND [BreakEndMinute] IS NOT NULL\r\n    AND [StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\r\n    AND [StartMinute] < [BreakStartMinute]\r\n    AND [BreakStartMinute] < [BreakEndMinute]\r\n    AND [BreakEndMinute] < [EndMinute]\r\n    AND [BreakStartMinute] % 30 = 0\r\n    AND [BreakEndMinute] % 30 = 0)");
+
                             t.HasCheckConstraint("CK_ProviderWeeklyHours_Day", "[DayOfWeek] BETWEEN 0 AND 6");
 
                             t.HasCheckConstraint("CK_ProviderWeeklyHours_Window", "([StartMinute] IS NULL AND [EndMinute] IS NULL)\r\nOR ([StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\r\n    AND [StartMinute] >= 0 AND [EndMinute] <= 1440\r\n    AND [StartMinute] < [EndMinute]\r\n    AND [StartMinute] % 30 = 0 AND [EndMinute] % 30 = 0)");

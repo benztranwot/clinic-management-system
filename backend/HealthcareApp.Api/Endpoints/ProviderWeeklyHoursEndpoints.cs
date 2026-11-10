@@ -10,7 +10,7 @@ namespace HealthcareApp.Api.Endpoints;
 public static class ProviderWeeklyHoursEndpoints
 {
     private const int MinutesPerDay = 24 * 60;
-    private const int SlotMinutes = 30;
+    private const int SlotMinutes = Appointment.DurationMinutes;
 
     public static void MapProviderWeeklyHoursEndpoints(this IEndpointRouteBuilder app)
     {
@@ -39,7 +39,14 @@ public static class ProviderWeeklyHoursEndpoints
                     .Select(clinic => clinic.TimeZoneId)
                     .FirstOrDefault(),
                 Days = db.ProviderWeeklyHours.Where(hours => hours.ProviderId == provider.Id)
-                    .Select(hours => new { hours.DayOfWeek, hours.StartMinute, hours.EndMinute })
+                    .Select(hours => new
+                    {
+                        hours.DayOfWeek,
+                        hours.StartMinute,
+                        hours.EndMinute,
+                        hours.BreakStartMinute,
+                        hours.BreakEndMinute,
+                    })
                     .ToList(),
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -55,11 +62,13 @@ public static class ProviderWeeklyHoursEndpoints
         {
             if (savedDays.TryGetValue(dayOfWeek, out var day))
             {
-                return new WeeklyHoursDay(dayOfWeek, day.StartMinute, day.EndMinute);
+                return new WeeklyHoursDay(
+                    dayOfWeek, day.StartMinute, day.EndMinute, day.BreakStartMinute, day.BreakEndMinute
+                );
             }
 
             return dayOfWeek is >= (int)DayOfWeek.Monday and <= (int)DayOfWeek.Friday
-                ? new WeeklyHoursDay(dayOfWeek, 9 * 60, 17 * 60)
+                ? new WeeklyHoursDay(dayOfWeek, 8 * 60, 17 * 60, 12 * 60, 13 * 60)
                 : new WeeklyHoursDay(dayOfWeek, null, null);
         });
 
@@ -111,12 +120,22 @@ public static class ProviderWeeklyHoursEndpoints
                 });
             }
 
+            if (!IsValidBreak(day))
+            {
+                return Results.BadRequest(new
+                {
+                    message = "Use a 30-minute-aligned break inside the working window, or leave both break times blank.",
+                });
+            }
+
             schedule.Add(new ProviderWeeklyHours
             {
                 ProviderId = providerId.Value,
                 DayOfWeek = dayOfWeek,
                 StartMinute = day.StartMinute,
                 EndMinute = day.EndMinute,
+                BreakStartMinute = day.BreakStartMinute,
+                BreakEndMinute = day.BreakEndMinute,
             });
         }
 
@@ -145,5 +164,15 @@ public static class ProviderWeeklyHoursEndpoints
         return (start is null && end is null)
             || (start is >= 0 && end is <= MinutesPerDay && start < end
                 && start % SlotMinutes == 0 && end % SlotMinutes == 0);
+    }
+
+    private static bool IsValidBreak(WeeklyHoursDay day)
+    {
+        return (day.BreakStartMinute is null && day.BreakEndMinute is null)
+            || (day.StartMinute < day.BreakStartMinute
+                && day.BreakStartMinute < day.BreakEndMinute
+                && day.BreakEndMinute < day.EndMinute
+                && day.BreakStartMinute % SlotMinutes == 0
+                && day.BreakEndMinute % SlotMinutes == 0);
     }
 }
