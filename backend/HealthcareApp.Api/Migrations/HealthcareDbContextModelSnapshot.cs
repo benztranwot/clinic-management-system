@@ -241,6 +241,30 @@ namespace HealthcareApp.Api.Migrations
                     b.ToTable("ProviderServices");
                 });
 
+            modelBuilder.Entity("HealthcareApp.Api.Models.ProviderWeeklyHours", b =>
+                {
+                    b.Property<int>("ProviderId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DayOfWeek")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("EndMinute")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("StartMinute")
+                        .HasColumnType("int");
+
+                    b.HasKey("ProviderId", "DayOfWeek");
+
+                    b.ToTable("ProviderWeeklyHours", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Day", "[DayOfWeek] BETWEEN 0 AND 6");
+
+                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Window", "([StartMinute] IS NULL AND [EndMinute] IS NULL)\r\nOR ([StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\r\n    AND [StartMinute] >= 0 AND [EndMinute] <= 1440\r\n    AND [StartMinute] < [EndMinute]\r\n    AND [StartMinute] % 30 = 0 AND [EndMinute] % 30 = 0)");
+                        });
+                });
+
             modelBuilder.Entity("HealthcareApp.Api.Models.Referral", b =>
                 {
                     b.Property<int>("Id")
@@ -360,6 +384,15 @@ namespace HealthcareApp.Api.Migrations
                         .HasForeignKey("ProviderId", "ClinicId")
                         .HasPrincipalKey("Id", "ClinicId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("HealthcareApp.Api.Models.ProviderWeeklyHours", b =>
+                {
+                    b.HasOne("HealthcareApp.Api.Models.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
