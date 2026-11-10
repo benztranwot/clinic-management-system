@@ -104,6 +104,7 @@ app.MapProviderEndpoints();
 
 // Register the provider's weekly scheduling routes.
 app.MapProviderWeeklyHoursEndpoints();
+app.MapProviderTimeOffEndpoints();
 
 // Register the clinical service routes.
 app.MapClinicalServiceEndpoints();

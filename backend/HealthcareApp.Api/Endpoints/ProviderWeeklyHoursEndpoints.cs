@@ -32,7 +32,7 @@ public static class ProviderWeeklyHoursEndpoints
             return Results.Challenge();
         }
 
-        var schedule = await OwnProviders(db, identity)
+        var schedule = await identity.QueryOwnProviders(db)
             .Select(provider => new
             {
                 TimeZoneId = db.Clinics.Where(clinic => clinic.Id == provider.ClinicId)
@@ -80,7 +80,7 @@ public static class ProviderWeeklyHoursEndpoints
             return Results.Challenge();
         }
 
-        var providers = OwnProviders(db, identity);
+        var providers = identity.QueryOwnProviders(db);
         var providerId = await providers.Select(provider => (int?)provider.Id)
             .SingleOrDefaultAsync(cancellationToken);
         if (providerId is null)
@@ -138,21 +138,6 @@ public static class ProviderWeeklyHoursEndpoints
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return Results.NoContent();
-    }
-
-    private static IQueryable<Provider> OwnProviders(HealthcareDbContext db, AccountIdentity identity)
-    {
-        var accounts = identity.QueryAccounts(db);
-        return db.Providers.Where(provider =>
-            accounts.Any(account =>
-                account.ProviderId == provider.Id
-                && db.ClinicMemberships.Any(membership =>
-                    membership.AppAccountId == account.Id
-                    && membership.ClinicId == provider.ClinicId
-                    && membership.Role == ClinicStaffRole.Clinician
-                )
-            )
-        );
     }
 
     private static bool IsValidWindow(int? start, int? end)

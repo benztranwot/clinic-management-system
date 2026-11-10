@@ -18,6 +18,7 @@ public class HealthcareDbContext : DbContext
     public DbSet<AppAccount> AppAccounts => Set<AppAccount>();
     public DbSet<ClinicMembership> ClinicMemberships => Set<ClinicMembership>();
     public DbSet<ProviderWeeklyHours> ProviderWeeklyHours => Set<ProviderWeeklyHours>();
+    public DbSet<ProviderTimeOff> ProviderTimeOff => Set<ProviderTimeOff>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -71,6 +72,23 @@ public class HealthcareDbContext : DbContext
             .HasOne<Provider>()
             .WithMany()
             .HasForeignKey(hours => hours.ProviderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Keep time-off intervals in UTC and index each provider's start times.
+        var timeOff = modelBuilder.Entity<ProviderTimeOff>();
+        timeOff.HasIndex(block => block.PublicId).IsUnique();
+        timeOff.HasIndex(block => new { block.ProviderId, block.StartUtc });
+        timeOff.ToTable(table =>
+            table.HasCheckConstraint(
+                "CK_ProviderTimeOff_Interval",
+                "[StartUtc] < [EndUtc] AND DATEPART(TZOFFSET, [StartUtc]) = 0 AND DATEPART(TZOFFSET, [EndUtc]) = 0"
+            )
+        );
+
+        timeOff
+            .HasOne<Provider>()
+            .WithMany()
+            .HasForeignKey(block => block.ProviderId)
             .OnDelete(DeleteBehavior.Cascade);
 
         // Require each service to belong to a clinic and give it a unique name within that clinic.
