@@ -26,6 +26,10 @@ public static class ClinicalServiceEndpoints
         app.MapPut("/api/services/{publicId:guid}", UpdateServiceAsync)
             .RequireAuthorization("ManageClinicalServices");
 
+        // Require manage:services permission before changing how a service can be booked.
+        app.MapPut("/api/services/{publicId:guid}/booking-policy", UpdateBookingPolicyAsync)
+            .RequireAuthorization("ManageClinicalServices");
+
         // Require manage:services permission before deleting a service.
         app.MapDelete("/api/services/{publicId:guid}", DeleteServiceAsync)
             .RequireAuthorization("ManageClinicalServices");
@@ -52,7 +56,7 @@ public static class ClinicalServiceEndpoints
         var services = await db
             .ClinicalServices.Where(service => service.ClinicId == clinic.Id)
             .OrderBy(service => service.Name)
-            .Select(service => new { service.PublicId, service.Name })
+            .Select(service => new { service.PublicId, service.Name, service.AllowsDirectBooking })
             .ToListAsync(cancellationToken);
 
         return Results.Ok(services);
@@ -124,7 +128,7 @@ public static class ClinicalServiceEndpoints
         // Find the service and select the fields returned by the API.
         var service = await db
             .ClinicalServices.Where(s => s.PublicId == publicId)
-            .Select(s => new { s.PublicId, s.Name })
+            .Select(s => new { s.PublicId, s.Name, s.AllowsDirectBooking })
             .SingleOrDefaultAsync(cancellationToken);
 
         // Return 404 when no service matches the public ID.
@@ -179,6 +183,30 @@ public static class ClinicalServiceEndpoints
         }
 
         return Results.Ok(new { service.PublicId, service.Name });
+    }
+
+    private static async Task<IResult> UpdateBookingPolicyAsync(
+        Guid publicId,
+        UpdateClinicalServiceBookingPolicyRequest request,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
+        if (request.AllowsDirectBooking is not bool allowsDirectBooking)
+        {
+            return Results.BadRequest(
+                new { message = "Specify whether this service allows direct booking." }
+            );
+        }
+
+        // Apply the policy to the exact service in the URL.
+        var updatedCount = await db.ClinicalServices.Where(service => service.PublicId == publicId)
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(service => service.AllowsDirectBooking, allowsDirectBooking),
+                cancellationToken
+            );
+
+        return updatedCount == 0 ? Results.NotFound() : Results.NoContent();
     }
 
     // Identify a duplicate name reported by the clinic-and-name unique index.

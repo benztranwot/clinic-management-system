@@ -12,4 +12,7 @@ public class ClinicalService
     public int ClinicId { get; set; }
 
     public required string Name { get; set; }
+
+    // Services require a referral unless direct booking is enabled.
+    public bool AllowsDirectBooking { get; set; }
 }
