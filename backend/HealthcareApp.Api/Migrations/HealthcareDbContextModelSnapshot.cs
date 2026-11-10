@@ -67,6 +67,81 @@ namespace HealthcareApp.Api.Migrations
                     b.ToTable("AppAccounts");
                 });
 
+            modelBuilder.Entity("HealthcareApp.Api.Models.Appointment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BookedByAppAccountId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ClinicalServiceId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProviderId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("ReferralId")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTimeOffset>("StartUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookedByAppAccountId");
+
+                    b.HasIndex("ClinicalServiceId");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("ReferralId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Appointments_NonCancelledReferral")
+                        .HasFilter("[ReferralId] IS NOT NULL AND [Status] <> 2");
+
+                    b.HasIndex("PatientId", "StartUtc")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Appointments_ConfirmedPatientSlot")
+                        .HasFilter("[Status] = 1");
+
+                    b.HasIndex("ProviderId", "StartUtc")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Appointments_ConfirmedProviderSlot")
+                        .HasFilter("[Status] = 1");
+
+                    b.HasIndex("ReferralId", "PatientId", "ClinicalServiceId");
+
+                    b.ToTable("Appointments", t =>
+                        {
+                            t.HasCheckConstraint("CK_Appointments_Status", "[Status] IN (1, 2, 3)");
+
+                            t.HasCheckConstraint("CK_Appointments_UtcSlot", "DATEPART(TZOFFSET, [StartUtc]) = 0\r\nAND DATEPART(MINUTE, [StartUtc]) % 30 = 0\r\nAND DATEPART(SECOND, [StartUtc]) = 0\r\nAND DATEPART(NANOSECOND, [StartUtc]) = 0");
+                        });
+                });
+
             modelBuilder.Entity("HealthcareApp.Api.Models.Clinic", b =>
                 {
                     b.Property<int>("Id")
@@ -368,6 +443,40 @@ namespace HealthcareApp.Api.Migrations
                         .WithOne()
                         .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "ProviderId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("HealthcareApp.Api.Models.Appointment", b =>
+                {
+                    b.HasOne("HealthcareApp.Api.Models.AppAccount", null)
+                        .WithMany()
+                        .HasForeignKey("BookedByAppAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("HealthcareApp.Api.Models.ClinicalService", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicalServiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("HealthcareApp.Api.Models.Patient", null)
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("HealthcareApp.Api.Models.Provider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("HealthcareApp.Api.Models.Referral", null)
+                        .WithMany()
+                        .HasForeignKey("ReferralId", "PatientId", "ClinicalServiceId")
+                        .HasPrincipalKey("Id", "PatientId", "ClinicalServiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_Appointments_Referrals_MatchingPatientService");
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.ClinicMembership", b =>
