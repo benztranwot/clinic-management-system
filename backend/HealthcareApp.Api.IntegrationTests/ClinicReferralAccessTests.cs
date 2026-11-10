@@ -97,10 +97,14 @@ public class ClinicReferralAccessTests
             );
             await db.SaveChangesAsync();
 
+            var provider = await ReferralTestData.AddEligibleProviderAsync(db, service);
+            var otherProvider = await ReferralTestData.AddEligibleProviderAsync(db, otherService);
+
             var referral = new Referral
             {
                 PatientId = patient.Id,
                 ClinicalServiceId = service.Id,
+                AssignedProviderId = provider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "First clinic referral",
             };
@@ -108,6 +112,7 @@ public class ClinicReferralAccessTests
             {
                 PatientId = patient.Id,
                 ClinicalServiceId = otherService.Id,
+                AssignedProviderId = otherProvider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "Second clinic referral",
             };

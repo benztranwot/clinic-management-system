@@ -87,11 +87,14 @@ public class PatientReferralAccessTests
             );
             await db.SaveChangesAsync();
 
+            var provider = await ReferralTestData.AddEligibleProviderAsync(db, service);
+
             // Both patients use the same service at the same clinic.
             var firstReferral = new Referral
             {
                 PatientId = firstPatient.Id,
                 ClinicalServiceId = service.Id,
+                AssignedProviderId = provider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "First patient referral",
             };
@@ -99,6 +102,7 @@ public class PatientReferralAccessTests
             {
                 PatientId = secondPatient.Id,
                 ClinicalServiceId = service.Id,
+                AssignedProviderId = provider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "Second patient referral",
                 Status = ReferralStatus.Closed,

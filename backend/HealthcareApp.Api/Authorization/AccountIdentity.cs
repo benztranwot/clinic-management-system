@@ -50,6 +50,20 @@ internal sealed record AccountIdentity(string Issuer, string Subject)
         );
     }
 
+    public IQueryable<Clinic> QuerySchedulingClinics(HealthcareDbContext db)
+    {
+        var accounts = QueryAccounts(db);
+        return db.Clinics.Where(clinic =>
+            accounts.Any(account =>
+                account.IsAdministrator
+                || db.ClinicMemberships.Any(membership =>
+                    membership.AppAccountId == account.Id
+                    && membership.ClinicId == clinic.Id
+                    && membership.Role == ClinicStaffRole.FrontDesk)
+            )
+        );
+    }
+
     public IQueryable<Provider> QueryOwnProviders(HealthcareDbContext db)
     {
         var accounts = QueryAccounts(db);

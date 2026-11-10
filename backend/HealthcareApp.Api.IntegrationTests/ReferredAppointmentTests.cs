@@ -22,7 +22,7 @@ public class ReferredAppointmentTests
 
         using var response = await client.PostAsJsonAsync(
             $"/api/referrals/{Guid.NewGuid()}/appointments",
-            new CreateReferredAppointmentRequest(Guid.NewGuid(), StartUtc)
+            new CreateReferredAppointmentRequest(StartUtc)
         );
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -32,14 +32,15 @@ public class ReferredAppointmentTests
     public async Task BookReferred_SavesOneBookingAndProtectsItsReferral()
     {
         const string subject = "auth0|referred-booking-front-desk";
-        var now = new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero);
+        const string clinicianSubject = "auth0|referred-booking-clinician";
+        var clock = new TestClock(new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero));
 
         using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
         await using var signedFactory = tokens.CreateFactory(factory);
         await using var configuredFactory = signedFactory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
-                services.AddSingleton<TimeProvider>(new FixedClock(now))
+                services.AddSingleton<TimeProvider>(clock)
             )
         );
         using var client = configuredFactory.CreateClient();
@@ -81,6 +82,19 @@ public class ReferredAppointmentTests
             );
             await db.SaveChangesAsync();
 
+            var clinician = new AppAccount
+            {
+                Issuer = TestJwtIssuer.Issuer,
+                Subject = clinicianSubject,
+                ProviderId = firstProvider.Id,
+            };
+            db.AppAccounts.Add(clinician);
+            await db.SaveChangesAsync();
+            db.ClinicMemberships.Add(new ClinicMembership
+            {
+                AppAccountId = clinician.Id, ClinicId = clinic.Id, Role = ClinicStaffRole.Clinician,
+            });
+
             db.ProviderServices.AddRange(
                 new ProviderService
                 {
@@ -106,10 +120,8 @@ public class ReferredAppointmentTests
 
             var referralUrl = $"/api/referrals/{referral.PublicId}";
             var url = $"{referralUrl}/appointments";
-            var firstRequest = new CreateReferredAppointmentRequest(firstProvider.PublicId, StartUtc);
-            var secondRequest = new CreateReferredAppointmentRequest(
-                secondProvider.PublicId, "2030-01-07T14:30:00Z"
-            );
+            var firstRequest = new CreateReferredAppointmentRequest(StartUtc);
+            var secondRequest = new CreateReferredAppointmentRequest("2030-01-07T14:30:00Z");
 
             tokens.AuthorizeSubject(client, "auth0|unlinked-booker", "manage:referrals");
             using var hidden = await client.PostAsJsonAsync(url, firstRequest);
@@ -119,8 +131,34 @@ public class ReferredAppointmentTests
             using var notReady = await client.PostAsJsonAsync(url, firstRequest);
             await AssertConflictAsync(notReady, "referral_not_ready");
 
-            referral.Status = ReferralStatus.ReadyToSchedule;
-            await db.SaveChangesAsync();
+            using var frontDeskReview = await client.PutAsJsonAsync(
+                $"{referralUrl}/status", new { status = "ReadyToSchedule" }
+            );
+            Assert.Equal(HttpStatusCode.Forbidden, frontDeskReview.StatusCode);
+
+            tokens.AuthorizeSubject(client, clinicianSubject, "read:referrals", "manage:referrals");
+            using var missing = await client.PutAsJsonAsync($"{referralUrl}/status", new
+            {
+                status = "MissingInformation", missingInformationNote = "Please include the assessment.",
+            });
+            Assert.Equal(HttpStatusCode.OK, missing.StatusCode);
+            var pending = await client.GetFromJsonAsync<JsonElement>(referralUrl);
+            Assert.Equal("PendingReview", pending.GetProperty("stage").GetString());
+            Assert.Equal("MissingInformation", pending.GetProperty("status").GetString());
+
+            using var ready = await client.PutAsJsonAsync(
+                $"{referralUrl}/status", new { status = "ReadyToSchedule" }
+            );
+            Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+            var readyDetail = await client.GetFromJsonAsync<JsonElement>(referralUrl);
+            Assert.Equal("ReadyToSchedule", readyDetail.GetProperty("stage").GetString());
+            Assert.Equal(JsonValueKind.Null, readyDetail.GetProperty("missingInformationNote").ValueKind);
+
+            tokens.AuthorizeSubject(client, subject, "read:referrals", "manage:referrals");
+            using var wrongProvider = await client.PostAsJsonAsync(
+                url, new CreateReferredAppointmentRequest(StartUtc, secondProvider.PublicId)
+            );
+            await AssertConflictAsync(wrongProvider, "referral_provider_changed");
 
             // The two slots differ, but only one booking may use this referral.
             var responses = await Task.WhenAll(
@@ -135,7 +173,8 @@ public class ReferredAppointmentTests
             Assert.Equal(referral.PublicId, body.GetProperty("referralPublicId").GetGuid());
             Assert.Equal(patient.PublicId, body.GetProperty("patientPublicId").GetGuid());
             Assert.Equal(service.PublicId, body.GetProperty("clinicalServicePublicId").GetGuid());
-            var winningProvider = body.GetProperty("providerPublicId").GetGuid();
+            var bookedProvider = body.GetProperty("providerPublicId").GetGuid();
+            Assert.Equal(firstProvider.PublicId, bookedProvider);
 
             var appointmentUrl = created.Headers.Location?.OriginalString;
             Assert.NotNull(appointmentUrl);
@@ -145,7 +184,7 @@ public class ReferredAppointmentTests
             var detail = await client.GetFromJsonAsync<JsonElement>(referralUrl);
             Assert.Equal("ReadyToSchedule", detail.GetProperty("status").GetString());
             Assert.Equal("Scheduled", detail.GetProperty("stage").GetString());
-            Assert.Equal(winningProvider, detail.GetProperty("assignedProviderPublicId").GetGuid());
+            Assert.Equal(bookedProvider, detail.GetProperty("assignedProviderPublicId").GetGuid());
 
             var list = await client.GetFromJsonAsync<JsonElement>(
                 $"/api/clinics/{clinic.PublicId}/referrals"
@@ -154,18 +193,46 @@ public class ReferredAppointmentTests
 
             using var assign = await client.PutAsJsonAsync(
                 $"{referralUrl}/provider",
-                new { providerPublicId = winningProvider == firstProvider.PublicId
-                    ? secondProvider.PublicId : firstProvider.PublicId }
+                new { providerPublicId = secondProvider.PublicId }
             );
             Assert.Equal(HttpStatusCode.Conflict, assign.StatusCode);
 
+            tokens.AuthorizeSubject(client, clinicianSubject, "read:referrals", "manage:referrals");
             using var close = await client.PutAsJsonAsync($"{referralUrl}/status", new { status = "Closed" });
             Assert.Equal(HttpStatusCode.Conflict, close.StatusCode);
 
             var saved = Assert.Single(await db.Appointments.AsNoTracking().ToListAsync());
             Assert.Equal(referral.Id, saved.ReferralId);
             Assert.Equal(account.Id, saved.BookedByAppAccountId);
-            Assert.Equal(winningProvider == firstProvider.PublicId ? firstProvider.Id : secondProvider.Id, saved.ProviderId);
+            Assert.Equal(firstProvider.Id, saved.ProviderId);
+
+            using var earlyCompletion = await client.PostAsync($"{appointmentUrl}/complete", null);
+            await AssertConflictAsync(earlyCompletion, "appointment_not_started");
+
+            tokens.AuthorizeSubject(client, subject, "read:referrals", "manage:referrals");
+            using var cancellation = await client.PostAsync($"{appointmentUrl}/cancel", null);
+            Assert.Equal(HttpStatusCode.OK, cancellation.StatusCode);
+            var afterCancellation = await client.GetFromJsonAsync<JsonElement>(referralUrl);
+            Assert.Equal("ReadyToSchedule", afterCancellation.GetProperty("stage").GetString());
+            Assert.Equal(firstProvider.PublicId, afterCancellation.GetProperty("assignedProviderPublicId").GetGuid());
+
+            var originalStart = body.GetProperty("startUtc").GetString();
+            using var rebooked = await client.PostAsJsonAsync(url, new CreateReferredAppointmentRequest(originalStart));
+            Assert.Equal(HttpStatusCode.Created, rebooked.StatusCode);
+            var rebookedUrl = rebooked.Headers.Location?.OriginalString;
+            Assert.NotNull(rebookedUrl);
+
+            clock.UtcNow = body.GetProperty("endUtc").GetDateTimeOffset();
+            tokens.AuthorizeSubject(client, clinicianSubject, "read:referrals", "manage:referrals");
+            using var completion = await client.PostAsync($"{rebookedUrl}/complete", null);
+            Assert.Equal(HttpStatusCode.OK, completion.StatusCode);
+            var afterCompletion = await client.GetFromJsonAsync<JsonElement>(referralUrl);
+            Assert.Equal("Closed", afterCompletion.GetProperty("stage").GetString());
+
+            var history = await db.Appointments.AsNoTracking().ToListAsync();
+            Assert.Equal(2, history.Count);
+            Assert.Contains(history, item => item.Id == saved.Id && item.Status == AppointmentStatus.Cancelled);
+            Assert.Single(history, item => item.Status == AppointmentStatus.Completed);
         }
         finally
         {
@@ -180,8 +247,10 @@ public class ReferredAppointmentTests
         Assert.Equal(code, body.GetProperty("code").GetString());
     }
 
-    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    private sealed class TestClock(DateTimeOffset now) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => now;
+        public DateTimeOffset UtcNow { get; set; } = now;
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 }

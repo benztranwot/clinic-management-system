@@ -30,7 +30,11 @@ public static class ReferralEndpoints
         app.MapGet("/api/referrals/{publicId:guid}/eligible-providers", GetEligibleProvidersAsync)
             .RequireAuthorization("ReadReferrals", "ReadProviders", "ReadProviderServices");
 
-        // Require permission to assign a provider.
+        // List receiving providers for the selected service when creating a referral.
+        app.MapGet("/api/services/{servicePublicId:guid}/eligible-providers", GetServiceEligibleProvidersAsync)
+            .RequireAuthorization("ManageReferrals");
+
+        // Reassign the receiving provider before booking.
         app.MapPut("/api/referrals/{publicId:guid}/provider", AssignReferralProviderAsync)
             .RequireAuthorization("ManageReferrals");
 
@@ -120,13 +124,18 @@ public static class ReferralEndpoints
         CancellationToken cancellationToken
     )
     {
-        // Check that the request includes a patient, a service, and valid text.
+        // Validate the patient, service, receiving provider, and text.
         var referringProviderName = request.ReferringProviderName?.Trim();
         var reason = request.Reason?.Trim();
 
         if (request.PatientPublicId == Guid.Empty || request.ClinicalServicePublicId == Guid.Empty)
         {
             return Results.BadRequest(new { message = "Select a patient and a clinical service." });
+        }
+
+        if (request.AssignedProviderPublicId == Guid.Empty)
+        {
+            return Results.BadRequest(new { message = "Select a receiving provider." });
         }
 
         if (string.IsNullOrEmpty(referringProviderName) || referringProviderName.Length > 200)
@@ -165,11 +174,20 @@ public static class ReferralEndpoints
             return Results.NotFound(new { message = "Clinical service was not found." });
         }
 
-        // Create a pending referral with the provider assignment left empty.
+        var providerId = await FindEligibleProviders(db, service.Id)
+            .Where(provider => provider.PublicId == request.AssignedProviderPublicId)
+            .Select(provider => (int?)provider.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (providerId is null)
+        {
+            return Results.BadRequest(new { message = "This provider does not offer the requested service." });
+        }
         var referral = new Referral
         {
             PatientId = patient.Id,
             ClinicalServiceId = service.Id,
+            AssignedProviderId = providerId.Value,
             ReferringProviderName = referringProviderName,
             Reason = reason,
             Status = ReferralStatus.PendingReview,
@@ -197,9 +215,9 @@ public static class ReferralEndpoints
         catch (DbUpdateException exception)
             when (exception.InnerException is SqlException { Number: 547 })
         {
-            // Handle a patient or service that became unavailable before saving.
+            // Handle a patient, service, or eligibility link that changed before saving.
             return Results.Conflict(
-                new { message = "The patient or service is no longer available for referral." }
+                new { message = "The patient, service, or provider is no longer available for referral." }
             );
         }
 
@@ -210,6 +228,8 @@ public static class ReferralEndpoints
             {
                 referral.PublicId,
                 Status = referral.Status.ToString(),
+                Stage = GetStage(referral.Status, hasConfirmedAppointment: false),
+                AssignedProviderPublicId = request.AssignedProviderPublicId,
                 referral.CreatedAtUtc,
             }
         );
@@ -217,16 +237,22 @@ public static class ReferralEndpoints
 
     private static async Task<IResult> GetReferralByIdAsync(
         Guid publicId,
+        ClaimsPrincipal user,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
     {
+        var identity = AccountIdentity.FromPrincipal(user);
+        var reviewable = QueryReviewableReferrals(db, identity);
+        var schedulingClinics = identity?.QuerySchedulingClinics(db) ?? db.Clinics.Where(_ => false);
+
         // Join the referral to its patient and service to get their public IDs.
         var referral = await (
             from r in db.Referrals
             join patient in db.Patients on r.PatientId equals patient.Id
             join service in db.ClinicalServices on r.ClinicalServiceId equals service.Id
             join clinic in db.Clinics on service.ClinicId equals clinic.Id
+            join provider in db.Providers on r.AssignedProviderId equals provider.Id
             where r.PublicId == publicId
             select new
             {
@@ -239,17 +265,15 @@ public static class ReferralEndpoints
                 ServiceName = service.Name,
                 ClinicName = clinic.Name,
 
-                // Look up the assigned provider's public ID, if there is one.
-                AssignedProviderPublicId = db
-                    .Providers.Where(p => p.Id == r.AssignedProviderId)
-                    .Select(p => (Guid?)p.PublicId)
-                    .FirstOrDefault(),
+                AssignedProviderPublicId = provider.PublicId,
 
                 r.ReferringProviderName,
                 r.Reason,
                 r.Status,
                 HasConfirmedAppointment = db.Appointments.Any(appointment =>
                     appointment.ReferralId == r.Id && appointment.Status == AppointmentStatus.Confirmed),
+                CanReview = reviewable.Any(item => item.Id == r.Id),
+                CanReassign = schedulingClinics.Any(item => item.Id == clinic.Id),
                 r.MissingInformationNote,
                 r.CreatedAtUtc,
             }
@@ -278,6 +302,8 @@ public static class ReferralEndpoints
                 referral.Reason,
                 Status = referral.Status.ToString(),
                 Stage = GetStage(referral.Status, referral.HasConfirmedAppointment),
+                referral.CanReview,
+                referral.CanReassign,
                 referral.MissingInformationNote,
                 referral.CreatedAtUtc,
             }
@@ -300,20 +326,67 @@ public static class ReferralEndpoints
             return Results.NotFound();
         }
 
-        var providers = await (
-            from link in db.ProviderServices
-            join provider in db.Providers on link.ProviderId equals provider.Id
-            where link.ClinicalServiceId == clinicalServiceId.Value
-            orderby provider.LastName, provider.FirstName
-            select new { provider.PublicId, provider.FirstName, provider.LastName }
-        ).ToListAsync(cancellationToken);
+        return await ListEligibleProvidersAsync(db, clinicalServiceId.Value, cancellationToken);
+    }
+
+    private static async Task<IResult> GetServiceEligibleProvidersAsync(
+        Guid servicePublicId,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
+        var serviceId = await db.ClinicalServices
+            .Where(service => service.PublicId == servicePublicId)
+            .Select(service => (int?)service.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return serviceId is int id
+            ? await ListEligibleProvidersAsync(db, id, cancellationToken)
+            : Results.NotFound();
+    }
+
+    private static IQueryable<Provider> FindEligibleProviders(HealthcareDbContext db, int serviceId) =>
+        from link in db.ProviderServices
+        join provider in db.Providers on link.ProviderId equals provider.Id
+        where link.ClinicalServiceId == serviceId
+        select provider;
+
+    private static async Task<IResult> ListEligibleProvidersAsync(
+        HealthcareDbContext db,
+        int serviceId,
+        CancellationToken cancellationToken
+    )
+    {
+        var providers = await FindEligibleProviders(db, serviceId)
+            .OrderBy(provider => provider.LastName)
+            .ThenBy(provider => provider.FirstName)
+            .Select(provider => new { provider.PublicId, provider.FirstName, provider.LastName })
+            .ToListAsync(cancellationToken);
 
         return Results.Ok(providers);
+    }
+
+    private static IQueryable<Referral> QueryReviewableReferrals(
+        HealthcareDbContext db,
+        AccountIdentity? identity
+    )
+    {
+        if (identity is null)
+        {
+            return db.Referrals.Where(_ => false);
+        }
+
+        var administrators = identity.QueryAccounts(db).Where(account => account.IsAdministrator);
+        var ownProviders = identity.QueryOwnProviders(db);
+        return db.Referrals.Where(referral =>
+            administrators.Any() || ownProviders.Any(provider => provider.Id == referral.AssignedProviderId)
+        );
     }
 
     private static async Task<IResult> AssignReferralProviderAsync(
         Guid publicId,
         AssignReferralProviderRequest request,
+        ClaimsPrincipal user,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
@@ -329,20 +402,34 @@ public static class ReferralEndpoints
             return Results.Conflict(new { message = "The referral is being updated. Try again." });
         }
 
-        // Find the referral and the service it requests.
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null)
+        {
+            return Results.Challenge();
+        }
+
+        var schedulingClinics = identity.QuerySchedulingClinics(db);
         var referral = await db
             .Referrals.Where(r => r.PublicId == publicId)
             .Select(r => new
             {
                 r.Id,
                 r.ClinicalServiceId,
+                r.AssignedProviderId,
                 r.Status,
+                CanReassign = db.ClinicalServices.Any(service => service.Id == r.ClinicalServiceId
+                    && schedulingClinics.Any(clinic => clinic.Id == service.ClinicId)),
             })
             .SingleOrDefaultAsync(cancellationToken);
 
         if (referral is null)
         {
             return Results.NotFound(new { message = "Referral was not found." });
+        }
+
+        if (!referral.CanReassign)
+        {
+            return Results.Forbid();
         }
 
         if (referral.Status == ReferralStatus.Closed)
@@ -384,13 +471,21 @@ public static class ReferralEndpoints
             );
         }
 
+        if (provider.Id == referral.AssignedProviderId)
+        {
+            return Results.Ok(new { publicId, AssignedProviderPublicId = request.ProviderPublicId });
+        }
+
         try
         {
-            // Update the assignment only if the referral is still open.
+            // A new receiving provider reviews the referral before it can be booked.
             var updatedCount = await db
                 .Referrals.Where(r => r.Id == referral.Id && r.Status != ReferralStatus.Closed)
                 .ExecuteUpdateAsync(
-                    setters => setters.SetProperty(r => r.AssignedProviderId, (int?)provider.Id),
+                    setters => setters
+                        .SetProperty(r => r.AssignedProviderId, provider.Id)
+                        .SetProperty(r => r.Status, r => r.Status == ReferralStatus.ReadyToSchedule
+                            ? ReferralStatus.PendingReview : r.Status),
                     cancellationToken
                 );
 
@@ -416,6 +511,7 @@ public static class ReferralEndpoints
     private static async Task<IResult> UpdateReferralStatusAsync(
         Guid publicId,
         UpdateReferralStatusRequest request,
+        ClaimsPrincipal user,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
@@ -459,21 +555,28 @@ public static class ReferralEndpoints
             return Results.Conflict(new { message = "The referral is being updated. Try again." });
         }
 
-        // Read the current status and assignment before applying the change.
+        var reviewable = QueryReviewableReferrals(db, AccountIdentity.FromPrincipal(user));
+
+        // Read the current status and assignment while holding the referral lock.
         var referral = await db
             .Referrals.Where(r => r.PublicId == publicId)
             .Select(r => new
             {
                 r.Id,
                 r.Status,
-                r.AssignedProviderId,
                 r.MissingInformationNote,
+                CanReview = reviewable.Any(item => item.Id == r.Id),
             })
             .SingleOrDefaultAsync(cancellationToken);
 
         if (referral is null)
         {
             return Results.NotFound(new { message = "Referral was not found." });
+        }
+
+        if (!referral.CanReview)
+        {
+            return Results.Forbid();
         }
 
         if (referral.Status == ReferralStatus.Closed)
@@ -485,6 +588,7 @@ public static class ReferralEndpoints
                     {
                         publicId,
                         Status = referral.Status.ToString(),
+                        Stage = GetStage(referral.Status, hasConfirmedAppointment: false),
                         referral.MissingInformationNote,
                     }
                 );
@@ -501,23 +605,8 @@ public static class ReferralEndpoints
             return Results.Conflict(new { message = "Resolve the confirmed appointment before changing this referral." });
         }
 
-        if (status == ReferralStatus.ReadyToSchedule && referral.AssignedProviderId is null)
-        {
-            return Results.Conflict(
-                new
-                {
-                    message = "Assign a provider before marking this referral ready to schedule.",
-                }
-            );
-        }
-
-        // Save only if the current status still matches and scheduling still has a provider.
         var updatedCount = await db
-            .Referrals.Where(r =>
-                r.Id == referral.Id
-                && r.Status == referral.Status
-                && (status != ReferralStatus.ReadyToSchedule || r.AssignedProviderId != null)
-            )
+            .Referrals.Where(r => r.Id == referral.Id && r.Status == referral.Status)
             .ExecuteUpdateAsync(
                 setters =>
                     setters
@@ -539,13 +628,15 @@ public static class ReferralEndpoints
             {
                 publicId,
                 Status = status.ToString(),
+                Stage = GetStage(status, hasConfirmedAppointment: false),
                 MissingInformationNote = note,
             }
         );
     }
 
-    private static string GetStage(ReferralStatus status, bool hasConfirmedAppointment) =>
+    internal static string GetStage(ReferralStatus status, bool hasConfirmedAppointment) =>
         status == ReferralStatus.Closed ? "Closed"
         : hasConfirmedAppointment ? "Scheduled"
+        : status == ReferralStatus.ReadyToSchedule ? "ReadyToSchedule"
         : "PendingReview";
 }
