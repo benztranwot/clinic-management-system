@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink } from "react-router";
+import { useReferralAccount } from "./referrals/useReferralAccount";
 
 type Theme = "system" | "light" | "dark";
 const themeKey = "clinic-management-theme";
@@ -35,14 +36,29 @@ function ThemeSelect() {
   );
 }
 
+function SchedulingLinks({ userId }: { userId: string }) {
+  const { data } = useReferralAccount(userId);
+  const account = data?.account;
+  const isClinician = account?.memberships.some(({ role }) => role === "Clinician");
+  const canSchedule = account?.isAdministrator || account?.memberships.some(({ role }) => role === "FrontDesk");
+
+  return (
+    <>
+      {account?.providerPublicId && isClinician && <NavLink to="/my-schedule">My schedule</NavLink>}
+      {canSchedule && <NavLink to="/appointments/needs-attention">Needs attention</NavLink>}
+    </>
+  );
+}
+
 type AppShellProps = {
+  userId?: string;
   accountName?: string;
   signingOut?: boolean;
   onSignOut: () => void;
   children: ReactNode;
 };
 
-export default function AppShell({ accountName, signingOut, onSignOut, children }: AppShellProps) {
+export default function AppShell({ accountName, userId, signingOut, onSignOut, children }: AppShellProps) {
   return (
     <div className={accountName ? "app workspace" : "app"}>
       <a href="#main-content" className="skip-link">Skip to content</a>
@@ -70,6 +86,7 @@ export default function AppShell({ accountName, signingOut, onSignOut, children 
           <NavLink to="/referrals">Referrals</NavLink>
           <NavLink to="/clinics">Clinics</NavLink>
           <NavLink to="/patients">Patients</NavLink>
+          {userId && <SchedulingLinks userId={userId} />}
         </nav>
       )}
       <main id="main-content" tabIndex={-1} className="workspace-main">{children}</main>

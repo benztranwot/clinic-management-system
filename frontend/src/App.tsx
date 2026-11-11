@@ -11,6 +11,8 @@ import ReferralsPage from "./pages/ReferralsPage";
 import ReferralDetailsPage from "./pages/ReferralDetailsPage";
 import AppShell from "./components/AppShell";
 import NewReferralPage from "./pages/NewReferralPage";
+import AppointmentAttentionPage from "./pages/AppointmentAttentionPage";
+import ProviderSchedulePage from "./pages/ProviderSchedulePage";
 import "./App.css";
 
 function App() {
@@ -60,7 +62,12 @@ function App() {
   const accountName = signedIn ? user?.name?.trim() || user?.email?.trim() || "Signed in" : undefined;
 
   return (
-    <AppShell accountName={accountName} signingOut={isRedirecting} onSignOut={() => void handleSignOut()}>
+    <AppShell
+      accountName={accountName}
+      userId={signedIn && !isRedirecting ? user?.sub : undefined}
+      signingOut={isRedirecting}
+      onSignOut={() => void handleSignOut()}
+    >
       {isLoading ? (
         <p role="status">Checking sign-in…</p>
       ) : error ? (
@@ -86,6 +93,8 @@ function App() {
           <Route path="/patients" element={<div className="legacy-directory"><PatientsPage /></div>} />
           <Route path="/patients/:publicId" element={<div className="legacy-directory"><PatientDetailsPage /></div>} />
           <Route path="/referrals" element={<ReferralsPage />} />
+          <Route path="/my-schedule" element={<ProviderSchedulePage />} />
+          <Route path="/appointments/needs-attention" element={<AppointmentAttentionPage />} />
           <Route path="/referrals/new" element={<NewReferralPage />} />
           <Route path="/referrals/:publicId" element={<ReferralDetailsPage />} />
           <Route path="*" element={

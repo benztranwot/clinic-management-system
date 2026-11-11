@@ -107,6 +107,7 @@ app.MapProviderEndpoints();
 app.MapProviderWeeklyHoursEndpoints();
 app.MapProviderTimeOffEndpoints();
 app.MapProviderAvailabilityEndpoints();
+app.MapProviderCalendarEndpoints();
 
 // Register the clinical service routes.
 app.MapClinicalServiceEndpoints();

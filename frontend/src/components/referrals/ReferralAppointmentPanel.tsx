@@ -98,6 +98,7 @@ function ReferralAppointmentPanel({
       queryClient.invalidateQueries({ queryKey: ["referral", userId, referral.publicId] }),
       queryClient.invalidateQueries({ queryKey: ["referrals", userId] }),
       queryClient.invalidateQueries({ queryKey: availabilityKey }),
+      queryClient.invalidateQueries({ queryKey: ["appointment-attention", userId] }),
     ]);
   }
 
