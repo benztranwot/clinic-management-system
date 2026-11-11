@@ -85,7 +85,13 @@ function ReferralQueue({ userId, clinicId, frontDesk }: { userId: string; clinic
               {visible.map((referral) => (
                 <tr key={referral.publicId}>
                   <td>
-                    <Link to={"/referrals/" + referral.publicId} className="workspace-link font-semibold">
+                    <Link
+                      to={{
+                        pathname: "/referrals/" + referral.publicId,
+                        search: clinicId ? new URLSearchParams({ clinic: clinicId }).toString() : "",
+                      }}
+                      className="workspace-link font-semibold"
+                    >
                       {referral.patientFirstName} {referral.patientLastName}
                     </Link>
                   </td>

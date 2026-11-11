@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { getProvider } from "../api/providers";
 import {
   assignReferralProvider,
@@ -82,14 +82,14 @@ function ReferralRecord({
     retry: false,
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: detailKey, exact: true }),
+        queryClient.invalidateQueries({ queryKey: detailKey }),
         queryClient.invalidateQueries({ queryKey: ["referrals", userId] }),
       ]);
     },
     onError: async (error) => {
       if (error instanceof ReferralRequestError && [400, 404, 409].includes(error.status)) {
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: detailKey, exact: true }),
+          queryClient.invalidateQueries({ queryKey: detailKey }),
           queryClient.invalidateQueries({ queryKey: eligibleKey, exact: true }),
         ]);
       }
@@ -301,14 +301,22 @@ function ReferralRecord({
   );
 }
 
-function ReferralDetailsContent({ userId, publicId }: { userId: string; publicId: string }) {
+function ReferralDetailsContent({
+  userId,
+  publicId,
+  clinicPublicId,
+}: {
+  userId: string;
+  publicId: string;
+  clinicPublicId: string | null;
+}) {
   const { getAccessTokenSilently } = useAuth0();
   const query = useQuery({
-    queryKey: ["referral", userId, publicId],
+    queryKey: ["referral", userId, publicId, clinicPublicId],
     queryFn: async ({ signal }) => {
       const token = await getAccessTokenSilently({ detailedResponse: true });
       if (!token?.access_token) throw new Error("Auth0 did not return an access token.");
-      const referral = await getReferral(token.access_token, publicId, signal);
+      const referral = await getReferral(token.access_token, publicId, signal, clinicPublicId);
 
       return {
         referral,
@@ -339,6 +347,8 @@ function ReferralDetailsContent({ userId, publicId }: { userId: string; publicId
 function ReferralDetailsPage() {
   const { user } = useAuth0();
   const { publicId } = useParams<"publicId">();
+  const [searchParams] = useSearchParams();
+  const clinicPublicId = searchParams.get("clinic") || null;
 
   return (
     <section
@@ -348,7 +358,12 @@ function ReferralDetailsPage() {
       <Link to="/referrals" className="text-sm text-action underline">Back to referrals</Link>
       <h1 id="referral-details-heading" className="page-title mt-3">Referral details</h1>
       {user?.sub && publicId ? (
-        <ReferralDetailsContent key={user.sub + ":" + publicId} userId={user.sub} publicId={publicId} />
+        <ReferralDetailsContent
+          key={[user.sub, publicId, clinicPublicId].join(":")}
+          userId={user.sub}
+          publicId={publicId}
+          clinicPublicId={clinicPublicId}
+        />
       ) : (
         <p className="mt-3" role="alert">Unable to open this referral.</p>
       )}

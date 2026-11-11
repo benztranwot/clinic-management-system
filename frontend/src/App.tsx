@@ -57,7 +57,7 @@ function App() {
   }
 
   const signedIn = isAuthenticated && !isLoading && !error;
-  const accountName = signedIn ? user?.name ?? user?.email ?? "Signed in" : undefined;
+  const accountName = signedIn ? user?.name?.trim() || user?.email?.trim() || "Signed in" : undefined;
 
   return (
     <AppShell accountName={accountName} signingOut={isRedirecting} onSignOut={() => void handleSignOut()}>

@@ -158,8 +158,16 @@ export function getReferrals(accessToken: string, signal: AbortSignal) {
   return readReferralResponse<ReferralSummary[]>("/api/referrals", accessToken, { signal });
 }
 
-export function getReferral(accessToken: string, publicId: string, signal: AbortSignal) {
-  return readReferralResponse<ReferralDetails>(referralPath(publicId), accessToken, { signal });
+export function getReferral(
+  accessToken: string,
+  publicId: string,
+  signal: AbortSignal,
+  clinicPublicId: string | null,
+) {
+  const path = clinicPublicId
+    ? "/api/clinics/" + encodeURIComponent(clinicPublicId) + "/referrals/" + encodeURIComponent(publicId)
+    : referralPath(publicId);
+  return readReferralResponse<ReferralDetails>(path, accessToken, { signal });
 }
 
 export function getEligibleProviders(accessToken: string, publicId: string, signal: AbortSignal) {

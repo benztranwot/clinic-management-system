@@ -10,19 +10,22 @@ namespace HealthcareApp.Api.IntegrationTests;
 
 public class ClinicReferralAccessTests
 {
-    [Fact]
-    public async Task ListClinicReferrals_WithoutToken_ReturnsUnauthorized()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClinicReferralRead_WithoutToken_ReturnsUnauthorized(bool detail)
     {
         await using var factory = new HealthcareApiFactory();
         using var client = factory.CreateClient();
 
-        using var response = await client.GetAsync($"/api/clinics/{Guid.NewGuid()}/referrals");
+        var url = $"/api/clinics/{Guid.NewGuid()}/referrals";
+        using var response = await client.GetAsync(detail ? $"{url}/{Guid.NewGuid()}" : url);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task ListClinicReferrals_UsesReceivingClinicAndStaffMembership()
+    public async Task ClinicReferralRead_UsesReceivingClinicAndStaffMembership()
     {
         const string frontDeskSubject = "auth0|front-desk-test";
         const string clinicianSubject = "auth0|clinician-test";
@@ -124,26 +127,51 @@ public class ClinicReferralAccessTests
 
             tokens.AuthorizeSubject(client, frontDeskSubject);
             await AssertSingleReferralAsync(client, clinicUrl, referral.PublicId);
+            await AssertReferralDetailsAsync(client, clinicUrl, referral.PublicId, clinic.PublicId);
+
+            using var globalDetail = await client.GetAsync($"/api/referrals/{referral.PublicId}");
+            Assert.Equal(HttpStatusCode.Forbidden, globalDetail.StatusCode);
+
+            // A referral from another clinic stays hidden when requested through an allowed clinic.
+            using var wrongReferral = await client.GetAsync($"{clinicUrl}/{otherReferral.PublicId}");
+            Assert.Equal(HttpStatusCode.NotFound, wrongReferral.StatusCode);
 
             // A broad token permission does not grant access to the other clinic's list.
             tokens.AuthorizeSubject(client, frontDeskSubject, "read:referrals");
             using var crossClinic = await client.GetAsync(otherClinicUrl);
             Assert.Equal(HttpStatusCode.Forbidden, crossClinic.StatusCode);
+            using var crossClinicDetail = await client.GetAsync($"{otherClinicUrl}/{otherReferral.PublicId}");
+            Assert.Equal(HttpStatusCode.Forbidden, crossClinicDetail.StatusCode);
 
             tokens.AuthorizeSubject(client, clinicianSubject);
             await AssertSingleReferralAsync(client, clinicUrl, referral.PublicId);
+            await AssertReferralDetailsAsync(client, clinicUrl, referral.PublicId, clinic.PublicId);
 
             tokens.AuthorizeSubject(client, patientSubject, "read:referrals");
             using var patientRequest = await client.GetAsync(clinicUrl);
             Assert.Equal(HttpStatusCode.Forbidden, patientRequest.StatusCode);
+            using var patientDetail = await client.GetAsync($"{clinicUrl}/{referral.PublicId}");
+            Assert.Equal(HttpStatusCode.Forbidden, patientDetail.StatusCode);
 
             tokens.AuthorizeSubject(client, administratorSubject);
             await AssertSingleReferralAsync(client, otherClinicUrl, otherReferral.PublicId);
+            await AssertReferralDetailsAsync(client, otherClinicUrl, otherReferral.PublicId, otherClinic.PublicId);
         }
         finally
         {
             await db.Database.EnsureDeletedAsync();
         }
+    }
+
+    private static async Task AssertReferralDetailsAsync(HttpClient client, string clinicUrl, Guid referralId, Guid clinicId)
+    {
+        using var response = await client.GetAsync($"{clinicUrl}/{referralId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(referralId, body.GetProperty("publicId").GetGuid());
+        Assert.Equal(clinicId, body.GetProperty("clinicPublicId").GetGuid());
     }
 
     private static async Task AssertSingleReferralAsync(HttpClient client, string url, Guid publicId)

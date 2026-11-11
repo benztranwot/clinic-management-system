@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -47,22 +47,43 @@ function ReferralAppointmentPanel({
   const headingId = useId();
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
-  const [openedAt] = useState(() => new Date());
+  const [observedTime, setObservedTime] = useState(() => new Date());
   const [date, setDate] = useState("");
-  const [selectedStart, setSelectedStart] = useState("");
+  const [selection, setSelection] = useState<{ startUtc: string; clinicDay: string } | null>(null);
   const [notice, setNotice] = useState("");
 
   const canBook = referral.canSchedule && referral.stage === "ReadyToSchedule";
   const appointment = referral.confirmedAppointment;
   const timeZone = referral.clinicTimeZoneId;
   const providerId = referral.assignedProviderPublicId;
-  const today = timeZone ? dateInTimeZone(openedAt, timeZone) : "";
+  const today = timeZone ? dateInTimeZone(observedTime, timeZone) : "";
   const lastDay = today ? addCalendarDays(today, 30) : "";
   const dateInRange = !!date && date >= today && date <= lastDay;
   const availabilityKey = ["provider-availability", userId, providerId];
 
+  useEffect(() => {
+    if (!canBook || !timeZone) return;
+    const clinicTimeZone = timeZone;
+
+    function refreshClinicDay() {
+      const now = new Date();
+      const currentDay = dateInTimeZone(now, clinicTimeZone);
+      setObservedTime((previous) => dateInTimeZone(previous, clinicTimeZone) === currentDay ? previous : now);
+    }
+
+    // Focus and visibility events catch up after the browser pauses background timers.
+    const timer = window.setInterval(refreshClinicDay, 15_000);
+    window.addEventListener("focus", refreshClinicDay);
+    document.addEventListener("visibilitychange", refreshClinicDay);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshClinicDay);
+      document.removeEventListener("visibilitychange", refreshClinicDay);
+    };
+  }, [canBook, timeZone]);
+
   const availability = useQuery({
-    queryKey: [...availabilityKey, date],
+    queryKey: [...availabilityKey, date, today],
     enabled: canBook && !!timeZone && dateInRange,
     queryFn: async ({ signal }) => {
       const accessToken = await getAccessTokenSilently();
@@ -74,7 +95,7 @@ function ReferralAppointmentPanel({
 
   async function refreshSchedule() {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["referral", userId, referral.publicId], exact: true }),
+      queryClient.invalidateQueries({ queryKey: ["referral", userId, referral.publicId] }),
       queryClient.invalidateQueries({ queryKey: ["referrals", userId] }),
       queryClient.invalidateQueries({ queryKey: availabilityKey }),
     ]);
@@ -95,7 +116,7 @@ function ReferralAppointmentPanel({
     },
     retry: false,
     onSuccess: async (_data, request) => {
-      setSelectedStart("");
+      setSelection(null);
       setNotice({
         book: "Appointment booked.",
         cancel: "Appointment canceled. The referral is ready to schedule again.",
@@ -105,18 +126,26 @@ function ReferralAppointmentPanel({
     },
     onError: async (error) => {
       if (error instanceof ReferralRequestError && [400, 404, 409].includes(error.status)) {
-        setSelectedStart("");
+        setSelection(null);
         await refreshSchedule();
       }
     },
   });
 
   const busy = referralWritePending || change.isPending;
-  const selectedSlot = availability.data?.slots.find((slot) => slot.startUtc === selectedStart);
+  const selectedSlot = dateInRange && selection?.clinicDay === today
+    ? availability.data?.slots.find((slot) => slot.startUtc === selection.startUtc)
+    : undefined;
 
   function book(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || !canBook || !dateInRange || !availability.isSuccess || !selectedSlot) return;
+    if (busy || !canBook || !timeZone || !dateInRange || !availability.isSuccess || !selectedSlot) return;
+
+    const now = new Date();
+    if (dateInTimeZone(now, timeZone) !== today) {
+      setObservedTime(now);
+      return;
+    }
     setNotice("");
     change.mutate({ action: "book", startUtc: selectedSlot.startUtc });
   }
@@ -179,7 +208,7 @@ function ReferralAppointmentPanel({
                 required
                 onChange={(event) => {
                   setDate(event.target.value);
-                  setSelectedStart("");
+                  setSelection(null);
                   setNotice("");
                   change.reset();
                 }}
@@ -205,7 +234,7 @@ function ReferralAppointmentPanel({
                     value={selectedSlot?.startUtc ?? ""}
                     required
                     onChange={(event) => {
-                      setSelectedStart(event.target.value);
+                      setSelection({ startUtc: event.target.value, clinicDay: today });
                       change.reset();
                     }}
                   >
