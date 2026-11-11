@@ -4,7 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { getClinics } from "../../api/clinics";
 import { getPatients } from "../../api/patients";
-import { createReferral, referralErrorMessage, type ReferralInput } from "../../api/referrals";
+import {
+  createReferral,
+  getServiceEligibleProviders,
+  referralErrorMessage,
+  ReferralRequestError,
+  type ReferralInput,
+} from "../../api/referrals";
 import { getServices } from "../../api/services";
 
 function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: () => void }) {
@@ -12,6 +18,7 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [clinicId, setClinicId] = useState("");
+  const [serviceId, setServiceId] = useState("");
   const [validationError, setValidationError] = useState("");
 
   const choices = useQuery({
@@ -39,6 +46,17 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
     retry: false,
   });
 
+  const providers = useQuery({
+    queryKey: ["referral-create-providers", userId, serviceId],
+    enabled: serviceId !== "",
+    queryFn: async ({ signal }) => {
+      const accessToken = await getAccessTokenSilently();
+      if (!accessToken) throw new Error("Auth0 did not return an access token.");
+      return getServiceEligibleProviders(accessToken, serviceId, signal);
+    },
+    retry: false,
+  });
+
   const creation = useMutation({
     mutationFn: async (input: ReferralInput) => {
       const accessToken = await getAccessTokenSilently();
@@ -47,18 +65,19 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
     },
     retry: false,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["referrals", userId], exact: true });
+      await queryClient.invalidateQueries({ queryKey: ["referrals", userId] });
     },
   });
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (creation.isPending || !choices.isSuccess || !services.isSuccess) return;
+    if (creation.isPending || !choices.isSuccess || !services.isSuccess || !providers.isSuccess) return;
 
     const data = new FormData(event.currentTarget);
     const input = {
       patientPublicId: String(data.get("patientPublicId") ?? ""),
-      clinicalServicePublicId: String(data.get("clinicalServicePublicId") ?? ""),
+      clinicalServicePublicId: serviceId,
+      assignedProviderPublicId: String(data.get("assignedProviderPublicId") ?? ""),
       referringProviderName: String(data.get("referringProviderName") ?? "").trim(),
       reason: String(data.get("reason") ?? "").trim(),
     };
@@ -69,22 +88,27 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
       return;
     }
 
+    if (!providers.data.some((provider) => provider.publicId === input.assignedProviderPublicId)) {
+      setValidationError("Select a receiving provider who offers this service.");
+      return;
+    }
+
     creation.mutate(input, {
       onSuccess: ({ publicId }) => void navigate("/referrals/" + publicId),
     });
   }
 
-  const fieldClass = "mt-1 block w-full rounded-md border border-slate-400 px-3 py-2";
+  const providerLookupForbidden = providers.error instanceof ReferralRequestError && providers.error.status === 403;
+  const fieldClass = "mt-1 block w-full rounded-md border border-field-border px-3 py-2";
   return (
     <form
-      className="mt-4 space-y-3 rounded-md border border-slate-200 p-4"
+      className="max-w-2xl space-y-4"
       onSubmit={handleSubmit}
       onChange={() => {
         if (validationError) setValidationError("");
         if (creation.isError) creation.reset();
       }}
     >
-      <h3 className="font-semibold">New referral</h3>
       {choices.isPending && <p role="status">Loading patients and clinics…</p>}
       {choices.isError && (
         <div className="space-y-2">
@@ -111,7 +135,15 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
 
           <label className="block text-sm font-medium">
             Clinic
-            <select className={fieldClass} value={clinicId} onChange={(event) => setClinicId(event.target.value)} required>
+            <select
+              className={fieldClass}
+              value={clinicId}
+              onChange={(event) => {
+                setClinicId(event.target.value);
+                setServiceId("");
+              }}
+              required
+            >
               <option value="">Choose a clinic</option>
               {choices.data.clinics.map((clinic) => (
                 <option key={clinic.publicId} value={clinic.publicId}>{clinic.name}</option>
@@ -122,8 +154,8 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
           <label className="block text-sm font-medium">
             Clinical service
             <select
-              key={clinicId}
-              name="clinicalServicePublicId"
+              value={serviceId}
+              onChange={(event) => setServiceId(event.target.value)}
               className={fieldClass}
               disabled={!clinicId || !services.isSuccess || services.data.length === 0}
               required
@@ -146,6 +178,42 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
           {services.isSuccess && services.data.length === 0 && <p>No services found at this clinic.</p>}
 
           <label className="block text-sm font-medium">
+            Receiving provider
+            <select
+              key={serviceId}
+              name="assignedProviderPublicId"
+              className={fieldClass}
+              disabled={!serviceId || !providers.isSuccess || providers.data.length === 0}
+              required
+            >
+              <option value="">Choose a receiving provider</option>
+              {providers.data?.map((provider) => (
+                <option key={provider.publicId} value={provider.publicId}>
+                  {provider.lastName}, {provider.firstName}
+                </option>
+              ))}
+            </select>
+          </label>
+          {serviceId && providers.isPending && <p role="status">Loading eligible providers…</p>}
+          {providers.isError && (
+            <div className="space-y-2">
+              <p role="alert">
+                {providerLookupForbidden
+                  ? "Your account can’t view eligible providers. Ask an administrator for provider directory access."
+                  : referralErrorMessage(providers.error, "Unable to load eligible providers.")}
+              </p>
+              {!providerLookupForbidden && (
+                <button type="button" data-variant="secondary" disabled={providers.isFetching} onClick={() => void providers.refetch()}>
+                  Retry providers
+                </button>
+              )}
+            </div>
+          )}
+          {providers.isSuccess && providers.data.length === 0 && (
+            <p>No providers at this clinic offer the selected service.</p>
+          )}
+
+          <label className="block text-sm font-medium">
             Referring provider name
             <input name="referringProviderName" className={fieldClass} maxLength={200} required />
           </label>
@@ -156,7 +224,7 @@ function ReferralCreateForm({ userId, onCancel }: { userId: string; onCancel: ()
 
           <button
             type="submit"
-            disabled={choices.data.patients.length === 0 || !services.isSuccess || services.data.length === 0}
+            disabled={choices.data.patients.length === 0 || !providers.isSuccess || providers.data.length === 0}
           >
             {creation.isPending ? "Creating…" : "Create referral"}
           </button>

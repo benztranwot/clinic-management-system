@@ -245,6 +245,7 @@ public static class ReferralEndpoints
         var identity = AccountIdentity.FromPrincipal(user);
         var reviewable = QueryReviewableReferrals(db, identity);
         var schedulingClinics = identity?.QuerySchedulingClinics(db) ?? db.Clinics.Where(_ => false);
+        var staffClinics = identity?.QueryStaffClinics(db) ?? db.Clinics.Where(_ => false);
 
         // Join the referral to its patient and service to get their public IDs.
         var referral = await (
@@ -264,16 +265,21 @@ public static class ReferralEndpoints
                 ClinicPublicId = clinic.PublicId,
                 ServiceName = service.Name,
                 ClinicName = clinic.Name,
+                ClinicTimeZoneId = clinic.TimeZoneId,
 
                 AssignedProviderPublicId = provider.PublicId,
 
                 r.ReferringProviderName,
                 r.Reason,
                 r.Status,
-                HasConfirmedAppointment = db.Appointments.Any(appointment =>
-                    appointment.ReferralId == r.Id && appointment.Status == AppointmentStatus.Confirmed),
+                ConfirmedAppointment = db.Appointments
+                    .Where(appointment =>
+                        appointment.ReferralId == r.Id && appointment.Status == AppointmentStatus.Confirmed)
+                    .Select(appointment => new { appointment.PublicId, appointment.StartUtc })
+                    .FirstOrDefault(),
+                CanSeeAppointment = staffClinics.Any(item => item.Id == clinic.Id),
                 CanReview = reviewable.Any(item => item.Id == r.Id),
-                CanReassign = schedulingClinics.Any(item => item.Id == clinic.Id),
+                CanSchedule = schedulingClinics.Any(item => item.Id == clinic.Id),
                 r.MissingInformationNote,
                 r.CreatedAtUtc,
             }
@@ -297,13 +303,18 @@ public static class ReferralEndpoints
                 referral.ClinicPublicId,
                 referral.ServiceName,
                 referral.ClinicName,
+                referral.ClinicTimeZoneId,
                 referral.AssignedProviderPublicId,
                 referral.ReferringProviderName,
                 referral.Reason,
                 Status = referral.Status.ToString(),
-                Stage = GetStage(referral.Status, referral.HasConfirmedAppointment),
+                Stage = GetStage(referral.Status, referral.ConfirmedAppointment is not null),
                 referral.CanReview,
-                referral.CanReassign,
+                CanReassign = referral.CanSchedule,
+                referral.CanSchedule,
+                ConfirmedAppointment = referral.CanSeeAppointment && referral.ConfirmedAppointment is { } booking
+                    ? new { booking.PublicId, booking.StartUtc, EndUtc = booking.StartUtc.AddMinutes(Appointment.DurationMinutes) }
+                    : null,
                 referral.MissingInformationNote,
                 referral.CreatedAtUtc,
             }

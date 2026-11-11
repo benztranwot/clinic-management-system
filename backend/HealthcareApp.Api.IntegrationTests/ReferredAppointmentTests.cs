@@ -153,6 +153,7 @@ public class ReferredAppointmentTests
             var readyDetail = await client.GetFromJsonAsync<JsonElement>(referralUrl);
             Assert.Equal("ReadyToSchedule", readyDetail.GetProperty("stage").GetString());
             Assert.Equal(JsonValueKind.Null, readyDetail.GetProperty("missingInformationNote").ValueKind);
+            Assert.False(readyDetail.GetProperty("canSchedule").GetBoolean());
 
             tokens.AuthorizeSubject(client, subject, "read:referrals", "manage:referrals");
             using var wrongProvider = await client.PostAsJsonAsync(
@@ -185,6 +186,21 @@ public class ReferredAppointmentTests
             Assert.Equal("ReadyToSchedule", detail.GetProperty("status").GetString());
             Assert.Equal("Scheduled", detail.GetProperty("stage").GetString());
             Assert.Equal(bookedProvider, detail.GetProperty("assignedProviderPublicId").GetGuid());
+            Assert.True(detail.GetProperty("canSchedule").GetBoolean());
+            Assert.Equal("America/Chicago", detail.GetProperty("clinicTimeZoneId").GetString());
+            var confirmed = detail.GetProperty("confirmedAppointment");
+            Assert.Equal(body.GetProperty("publicId").GetGuid(), confirmed.GetProperty("publicId").GetGuid());
+            Assert.Equal(body.GetProperty("startUtc").GetDateTimeOffset(), confirmed.GetProperty("startUtc").GetDateTimeOffset());
+            Assert.Equal(body.GetProperty("endUtc").GetDateTimeOffset(), confirmed.GetProperty("endUtc").GetDateTimeOffset());
+
+            // Broad referral-read permission does not expose a clinic's booked appointment details.
+            tokens.AuthorizeSubject(client, "auth0|unlinked-booker", "read:referrals");
+            var unlinkedDetail = await client.GetFromJsonAsync<JsonElement>(referralUrl);
+            Assert.Equal("Scheduled", unlinkedDetail.GetProperty("stage").GetString());
+            Assert.False(unlinkedDetail.GetProperty("canSchedule").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, unlinkedDetail.GetProperty("confirmedAppointment").ValueKind);
+
+            tokens.AuthorizeSubject(client, subject, "read:referrals", "manage:referrals");
 
             var list = await client.GetFromJsonAsync<JsonElement>(
                 $"/api/clinics/{clinic.PublicId}/referrals"
@@ -214,6 +230,7 @@ public class ReferredAppointmentTests
             Assert.Equal(HttpStatusCode.OK, cancellation.StatusCode);
             var afterCancellation = await client.GetFromJsonAsync<JsonElement>(referralUrl);
             Assert.Equal("ReadyToSchedule", afterCancellation.GetProperty("stage").GetString());
+            Assert.Equal(JsonValueKind.Null, afterCancellation.GetProperty("confirmedAppointment").ValueKind);
             Assert.Equal(firstProvider.PublicId, afterCancellation.GetProperty("assignedProviderPublicId").GetGuid());
 
             var originalStart = body.GetProperty("startUtc").GetString();

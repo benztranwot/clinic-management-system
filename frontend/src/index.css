@@ -1,25 +1,78 @@
 @import "tailwindcss";
 
-/* Apply shared typography and page defaults. */
+@theme inline {
+  --color-panel: var(--card);
+  --color-panel-border: var(--border);
+  --color-field-border: var(--input);
+  --color-subtle: var(--muted-foreground);
+  --color-action: var(--link);
+}
+
+/* Ocean Breeze colors with stronger contrast for controls and text. */
 :root {
-  font-family: system-ui, sans-serif;
+  color-scheme: light;
+  --background: #f0f8ff;
+  --foreground: #28384b;
+  --card: #ffffff;
+  --sidebar: #e0f2fe;
+  --primary: #06734e;
+  --primary-hover: #055c40;
+  --primary-foreground: #ffffff;
+  --accent: #d1fae5;
+  --muted: #f1f6fa;
+  --muted-foreground: #526277;
+  --border: #cbd8e4;
+  --input: #8092a6;
+  --link: #08634d;
+  --alert: #b42318;
+  font-family: "DM Sans", system-ui, sans-serif;
   line-height: 1.5;
-  color: #172b4d;
-  background: #f5f7fb;
+  color: var(--foreground);
+  background: var(--background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
-* {
-  box-sizing: border-box;
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+  --card: #1e293b;
+  --sidebar: #1e293b;
+  --primary: #34d399;
+  --primary-hover: #6ee7b7;
+  --primary-foreground: #0f172a;
+  --accent: #164a40;
+  --muted: #263549;
+  --muted-foreground: #bac8d9;
+  --border: #475569;
+  --input: #8395ac;
+  --link: #6ee7b7;
+  --alert: #fda4af;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --background: #0f172a;
+    --foreground: #e2e8f0;
+    --card: #1e293b;
+    --sidebar: #1e293b;
+    --primary: #34d399;
+    --primary-hover: #6ee7b7;
+    --primary-foreground: #0f172a;
+    --accent: #164a40;
+    --muted: #263549;
+    --muted-foreground: #bac8d9;
+    --border: #475569;
+    --input: #8395ac;
+    --link: #6ee7b7;
+    --alert: #fda4af;
+  }
 }
 
 body {
   margin: 0;
   min-width: 320px;
-}
-
-button {
-  font: inherit;
 }
