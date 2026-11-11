@@ -1,32 +1,15 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { addCalendarDays, dateInTimeZone } from "../appointments/clinicDates";
 import {
   bookReferralAppointment,
   getReferralAvailability,
   referralErrorMessage,
   ReferralRequestError,
-  updateReferralAppointment,
   type AppointmentSlot,
   type ReferralDetails,
 } from "../../api/referrals";
-
-type AppointmentChange =
-  | { action: "book"; startUtc: string }
-  | { action: "cancel" | "complete"; appointmentId: string };
-
-function dateInTimeZone(date: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(date);
-  return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value).join("-");
-}
-
-function addCalendarDays(date: string, days: number) {
-  const utc = new Date(date + "T00:00:00Z");
-  utc.setUTCDate(utc.getUTCDate() + days);
-  return utc.toISOString().slice(0, 10);
-}
 
 function slotLabel(slot: AppointmentSlot, timeZone: string) {
   const format = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
@@ -99,30 +82,24 @@ function ReferralAppointmentPanel({
       queryClient.invalidateQueries({ queryKey: ["referrals", userId] }),
       queryClient.invalidateQueries({ queryKey: availabilityKey }),
       queryClient.invalidateQueries({ queryKey: ["appointment-attention", userId] }),
+      queryClient.invalidateQueries({ queryKey: ["upcoming-appointments", userId] }),
+      queryClient.invalidateQueries({ queryKey: ["provider-calendar", userId] }),
     ]);
   }
 
   const change = useMutation({
     mutationKey,
-    mutationFn: async (request: AppointmentChange) => {
+    mutationFn: async (startUtc: string) => {
       const accessToken = await getAccessTokenSilently();
       if (!accessToken) throw new Error("Auth0 did not return an access token.");
 
-      if (request.action === "book") {
-        // Echo the provider whose availability was shown so a stale assignment cannot be booked.
-        await bookReferralAppointment(accessToken, referral.publicId, providerId, request.startUtc);
-      } else {
-        await updateReferralAppointment(accessToken, request.appointmentId, request.action);
-      }
+      // Echo the provider whose availability was shown so a stale assignment cannot be booked.
+      await bookReferralAppointment(accessToken, referral.publicId, providerId, startUtc);
     },
     retry: false,
-    onSuccess: async (_data, request) => {
+    onSuccess: async () => {
       setSelection(null);
-      setNotice({
-        book: "Appointment booked.",
-        cancel: "Appointment canceled. The referral is ready to schedule again.",
-        complete: "Appointment completed and referral closed.",
-      }[request.action]);
+      setNotice("Appointment booked.");
       await refreshSchedule();
     },
     onError: async (error) => {
@@ -148,19 +125,7 @@ function ReferralAppointmentPanel({
       return;
     }
     setNotice("");
-    change.mutate({ action: "book", startUtc: selectedSlot.startUtc });
-  }
-
-  function changeAppointment(action: "cancel" | "complete") {
-    if (!appointment || busy) return;
-
-    const confirmation = action === "cancel"
-      ? "Cancel this appointment and release its time slot?"
-      : "Mark this appointment complete and close the referral?";
-    if (!window.confirm(confirmation)) return;
-
-    setNotice("");
-    change.mutate({ action, appointmentId: appointment.publicId });
+    change.mutate(selectedSlot.startUtc);
   }
 
   if (!canBook && !appointment && !notice && !change.isError) return null;
@@ -171,28 +136,14 @@ function ReferralAppointmentPanel({
         {appointment ? "Scheduled appointment" : canBook ? "Book an appointment" : "Appointment"}
       </h3>
       {appointment && (
-        <>
-          <p>
-            <time dateTime={appointment.startUtc}>
-              {new Intl.DateTimeFormat(undefined, {
-                dateStyle: "full", timeZone: timeZone ?? "UTC",
-              }).format(new Date(appointment.startUtc))}
-            </time>
-            {" · "}{slotLabel(appointment, timeZone ?? "UTC")} ({timeZone ?? "UTC"})
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {referral.canSchedule && (
-              <button type="button" data-variant="danger" disabled={busy} onClick={() => changeAppointment("cancel")}>
-                {change.isPending && change.variables.action === "cancel" ? "Canceling…" : "Cancel appointment"}
-              </button>
-            )}
-            {referral.canReview && (
-              <button type="button" disabled={busy} onClick={() => changeAppointment("complete")}>
-                {change.isPending && change.variables.action === "complete" ? "Completing…" : "Complete appointment"}
-              </button>
-            )}
-          </div>
-        </>
+        <p>
+          <time dateTime={appointment.startUtc}>
+            {new Intl.DateTimeFormat(undefined, {
+              dateStyle: "full", timeZone: timeZone ?? "UTC",
+            }).format(new Date(appointment.startUtc))}
+          </time>
+          {" · "}{slotLabel(appointment, timeZone ?? "UTC")} ({timeZone ?? "UTC"})
+        </p>
       )}
       {canBook && !timeZone && <p role="alert">Set the receiving clinic’s time zone before booking.</p>}
       {canBook && timeZone && (
@@ -250,7 +201,7 @@ function ReferralAppointmentPanel({
               ) : <p>No open times on this date. Choose another day.</p>
             )}
             <button type="submit" disabled={!dateInRange || !selectedSlot || !availability.isSuccess}>
-              {change.isPending && change.variables.action === "book" ? "Booking…" : "Book appointment"}
+              {change.isPending ? "Booking…" : "Book appointment"}
             </button>
           </fieldset>
         </form>

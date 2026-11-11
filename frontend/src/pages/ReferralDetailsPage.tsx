@@ -326,22 +326,53 @@ function ReferralDetailsContent({
     retry: false,
   });
 
-  if (query.isPending) {
-    return <p className="mt-3" role="status">Loading referral…</p>;
-  }
-  if (query.isError) {
-    if (query.error instanceof ReferralRequestError && query.error.status === 404) {
-      return <p className="mt-3" role="alert">Referral not found.</p>;
-    }
-    return (
-      <div className="mt-3 space-y-2">
-        <p role="alert">{referralErrorMessage(query.error, "Unable to load this referral.")}</p>
-        <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>Try again</button>
-      </div>
-    );
-  }
+  const result = query.isSuccess ? query.data : undefined;
+  const notFound = query.error instanceof ReferralRequestError && query.error.status === 404;
 
-  return <ReferralRecord userId={userId} publicId={publicId} {...query.data} />;
+  return (
+    <>
+      <ReferralDetailsHeader appointmentPublicId={result?.referral.confirmedAppointment?.publicId} />
+      {query.isPending && <p className="mt-3" role="status">Loading referral…</p>}
+      {query.isError && (
+        notFound ? (
+          <p className="mt-3" role="alert">Referral not found.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            <p role="alert">{referralErrorMessage(query.error, "Unable to load this referral.")}</p>
+            <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>Try again</button>
+          </div>
+        )
+      )}
+      {result && <ReferralRecord userId={userId} publicId={publicId} {...result} />}
+    </>
+  );
+}
+
+function ReferralDetailsHeader({ appointmentPublicId }: { appointmentPublicId?: string }) {
+  return (
+    <>
+      <div className="page-heading">
+        <Link to="/referrals" className="workspace-button" data-variant="secondary">
+          <span className="flex items-center gap-2">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5m7 7-7-7 7-7" />
+            </svg>
+            Back to referrals
+          </span>
+        </Link>
+        {appointmentPublicId && (
+          <Link
+            className="workspace-button ml-auto"
+            to={"/appointments/" + appointmentPublicId}
+            state={{ fromReferral: true }}
+          >
+            View appointment
+          </Link>
+        )}
+      </div>
+      <h1 id="referral-details-heading" className="page-title mt-3">Referral details</h1>
+    </>
+  );
 }
 
 function ReferralDetailsPage() {
@@ -355,15 +386,6 @@ function ReferralDetailsPage() {
       aria-labelledby="referral-details-heading"
       className="workspace-panel mx-auto w-full max-w-5xl"
     >
-      <Link to="/referrals" className="workspace-button" data-variant="secondary">
-        <span className="flex items-center gap-2">
-          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5m7 7-7-7 7-7" />
-          </svg>
-          Back to referrals
-        </span>
-      </Link>
-      <h1 id="referral-details-heading" className="page-title mt-3">Referral details</h1>
       {user?.sub && publicId ? (
         <ReferralDetailsContent
           key={[user.sub, publicId, clinicPublicId].join(":")}
@@ -372,7 +394,10 @@ function ReferralDetailsPage() {
           clinicPublicId={clinicPublicId}
         />
       ) : (
-        <p className="mt-3" role="alert">Unable to open this referral.</p>
+        <>
+          <ReferralDetailsHeader />
+          <p className="mt-3" role="alert">Unable to open this referral.</p>
+        </>
       )}
     </section>
   );

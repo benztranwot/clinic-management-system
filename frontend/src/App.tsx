@@ -11,8 +11,10 @@ import ReferralsPage from "./pages/ReferralsPage";
 import ReferralDetailsPage from "./pages/ReferralDetailsPage";
 import AppShell from "./components/AppShell";
 import NewReferralPage from "./pages/NewReferralPage";
-import AppointmentAttentionPage from "./pages/AppointmentAttentionPage";
+import AppointmentListPage from "./pages/AppointmentAttentionPage";
+import AppointmentDetailsPage from "./pages/AppointmentDetailsPage";
 import ProviderSchedulePage from "./pages/ProviderSchedulePage";
+import { appointmentLists } from "./components/appointments/appointmentLists";
 import "./App.css";
 
 function App() {
@@ -77,12 +79,17 @@ function App() {
           <a className="workspace-link" href="/">Return to the homepage</a>
         </section>
       ) : !signedIn ? (
-        <section className="workspace-panel max-w-md space-y-3">
-          <h1 className="page-title">Sign in</h1>
-          <p>Sign in to view application records.</p>
-          <button type="button" onClick={() => void handleSignIn()} disabled={isRedirecting}>
-            {isRedirecting ? "Opening sign-in…" : "Sign in"}
-          </button>
+        <section className="w-full max-w-md space-y-4 text-center" aria-labelledby="welcome-heading">
+          <h1 id="welcome-heading" className="page-title">Welcome to Clinic Management System</h1>
+          <form className="workspace-panel space-y-3" onSubmit={(event) => {
+            event.preventDefault();
+            if (!isRedirecting) void handleSignIn();
+          }}>
+            <button type="submit" className="w-full" disabled={isRedirecting}>
+              {isRedirecting ? "Opening sign-in…" : "Sign in"}
+            </button>
+            {actionError && <p role="alert">{actionError}</p>}
+          </form>
         </section>
       ) : !isRedirecting && (
         <Routes>
@@ -94,7 +101,10 @@ function App() {
           <Route path="/patients/:publicId" element={<div className="legacy-directory"><PatientDetailsPage /></div>} />
           <Route path="/referrals" element={<ReferralsPage />} />
           <Route path="/my-schedule" element={<ProviderSchedulePage />} />
-          <Route path="/appointments/needs-attention" element={<AppointmentAttentionPage />} />
+          <Route path={appointmentLists.upcoming.path} element={<AppointmentListPage view="upcoming" />} />
+          <Route path={appointmentLists.conflicts.path} element={<AppointmentListPage view="conflicts" />} />
+          <Route path="/appointments/needs-attention" element={<Navigate to={appointmentLists.conflicts.path} replace />} />
+          <Route path="/appointments/:publicId" element={<AppointmentDetailsPage />} />
           <Route path="/referrals/new" element={<NewReferralPage />} />
           <Route path="/referrals/:publicId" element={<ReferralDetailsPage />} />
           <Route path="*" element={
@@ -105,7 +115,7 @@ function App() {
           } />
         </Routes>
       )}
-      {actionError && <p role="alert" className="mt-3">{actionError}</p>}
+      {signedIn && actionError && <p role="alert" className="mt-3">{actionError}</p>}
     </AppShell>
   );
 }

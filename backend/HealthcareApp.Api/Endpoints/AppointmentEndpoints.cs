@@ -17,7 +17,9 @@ public static class AppointmentEndpoints
         var routes = app.MapGroup("/api/appointments").RequireAuthorization();
         routes.MapPost("", BookDirectAsync);
         routes.MapGet("/needs-attention", GetNeedsAttentionAsync);
+        routes.MapGet("/upcoming", GetUpcomingAsync);
         routes.MapGet("/{publicId:guid}", GetByIdAsync);
+        routes.MapPut("/{publicId:guid}/reschedule", RescheduleAsync);
         routes.MapPost("/{publicId:guid}/cancel", CancelAsync);
         routes.MapPost("/{publicId:guid}/complete", CompleteAsync);
 
@@ -299,6 +301,143 @@ public static class AppointmentEndpoints
         }
     }
 
+    private static async Task<IResult> RescheduleAsync(
+        Guid publicId,
+        RescheduleAppointmentRequest request,
+        ClaimsPrincipal user,
+        HealthcareDbContext db,
+        TimeProvider clock,
+        CancellationToken cancellationToken
+    )
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null)
+        {
+            return Results.Challenge();
+        }
+
+        if (!UtcTimestamp.TryParse(request.ExpectedStartUtc, out var expectedStart)
+            || !UtcTimestamp.TryParse(request.StartUtc, out var start)
+            || start.Ticks % (Appointment.DurationMinutes * TimeSpan.TicksPerMinute) != 0)
+        {
+            return Results.BadRequest(new { message = "Choose a UTC start on the 30-minute grid and provide the original start." });
+        }
+
+        var appointments =
+            from appointment in db.Appointments
+            join service in db.ClinicalServices on appointment.ClinicalServiceId equals service.Id
+            join clinic in identity.QuerySchedulingClinics(db) on service.ClinicId equals clinic.Id
+            where appointment.PublicId == publicId
+            select new { Appointment = appointment, clinic.TimeZoneId };
+
+        var target = await appointments.Select(item => new
+        {
+            item.Appointment.ProviderId,
+            ReferralPublicId = db.Referrals.Where(referral => referral.Id == item.Appointment.ReferralId)
+                .Select(referral => (Guid?)referral.PublicId).FirstOrDefault(),
+        }).SingleOrDefaultAsync(cancellationToken);
+
+        if (target is null)
+        {
+            return Results.NotFound();
+        }
+
+        try
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            // Use the same lock order as booking and cancellation.
+            if (target.ReferralPublicId is Guid referralPublicId
+                && !await TransactionLock.TryAcquireReferralAsync(db, referralPublicId, cancellationToken))
+            {
+                return AppointmentChanged();
+            }
+
+            if (!await ProviderCalendarLock.TryAcquireAsync(db, target.ProviderId, cancellationToken))
+            {
+                return AppointmentChanged();
+            }
+
+            var current = await appointments.SingleOrDefaultAsync(
+                item => item.Appointment.ProviderId == target.ProviderId, cancellationToken
+            );
+            if (current is null)
+            {
+                return AppointmentChanged();
+            }
+
+            var appointment = current.Appointment;
+            var now = clock.GetUtcNow();
+            if (appointment.Status != AppointmentStatus.Confirmed || appointment.StartUtc <= now)
+            {
+                return Results.Conflict(new { message = "Only upcoming confirmed appointments can be rescheduled." });
+            }
+
+            if (appointment.StartUtc == start)
+            {
+                return Results.NoContent();
+            }
+
+            if (appointment.StartUtc != expectedStart)
+            {
+                return AppointmentChanged();
+            }
+
+            if (!await db.ProviderServices.AnyAsync(link => link.ProviderId == appointment.ProviderId
+                    && link.ClinicalServiceId == appointment.ClinicalServiceId, cancellationToken))
+            {
+                return Results.Conflict(new { message = "This provider no longer offers the appointment’s service." });
+            }
+
+            if (string.IsNullOrEmpty(current.TimeZoneId)
+                || !TimeZoneInfo.TryFindSystemTimeZoneById(current.TimeZoneId, out var timeZone))
+            {
+                return Results.Conflict(new { message = "Set the clinic's time zone before rescheduling." });
+            }
+
+            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(start, timeZone).DateTime);
+            if (start <= now || !AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
+            {
+                return Results.BadRequest(new { message = "Choose a future slot within 30 days." });
+            }
+
+            var slots = await AppointmentAvailability.FindAsync(
+                db, appointment.ProviderId, localDate, timeZone, now, cancellationToken
+            );
+            if (!slots.Any(slot => slot.StartUtc == start))
+            {
+                return SlotConflict();
+            }
+
+            if (await db.Appointments.AnyAsync(other =>
+                    other.Id != appointment.Id && other.PatientId == appointment.PatientId
+                    && other.Status == AppointmentStatus.Confirmed && other.StartUtc == start,
+                    cancellationToken))
+            {
+                return PatientConflict();
+            }
+
+            appointment.StartUtc = start;
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return Results.NoContent();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return AppointmentChanged();
+        }
+        catch (Exception exception) when (IsDuplicateIndex(exception, "UX_Appointments_ConfirmedPatientSlot"))
+        {
+            return PatientConflict();
+        }
+        catch (Exception exception) when (
+            IsDuplicateIndex(exception, "UX_Appointments_ConfirmedProviderSlot")
+            || GetSqlException(exception) is { Number: 1205 })
+        {
+            return SlotConflict();
+        }
+    }
+
     private static Task<IResult> CancelAsync(
         Guid publicId,
         ClaimsPrincipal user,
@@ -435,6 +574,7 @@ public static class AppointmentEndpoints
         ClaimsPrincipal user,
         HttpContext http,
         HealthcareDbContext db,
+        TimeProvider clock,
         CancellationToken cancellationToken
     )
     {
@@ -444,8 +584,12 @@ public static class AppointmentEndpoints
             return Results.Challenge();
         }
 
+        var now = clock.GetUtcNow();
+        var earliestStart = now.AddMinutes(-Appointment.DurationMinutes);
+        var schedulingClinics = identity.QuerySchedulingClinics(db);
         var booking = await (
-            from appointment in db.Appointments
+            from row in WithTimeOffOverlap(db)
+            let appointment = row.Appointment
             join patient in db.Patients on appointment.PatientId equals patient.Id
             join service in db.ClinicalServices on appointment.ClinicalServiceId equals service.Id
             join provider in db.Providers on appointment.ProviderId equals provider.Id
@@ -457,10 +601,18 @@ public static class AppointmentEndpoints
                 PatientPublicId = patient.PublicId,
                 ClinicalServicePublicId = service.PublicId,
                 ProviderPublicId = provider.PublicId,
+                ClinicPublicId = clinic.PublicId,
+                ClinicName = clinic.Name,
+                clinic.TimeZoneId,
+                PatientName = patient.FirstName + " " + patient.LastName,
+                ProviderName = provider.FirstName + " " + provider.LastName,
+                ServiceName = service.Name,
+                CanSchedule = schedulingClinics.Any(allowed => allowed.Id == clinic.Id),
                 ReferralPublicId = db.Referrals.Where(referral => referral.Id == appointment.ReferralId)
                     .Select(referral => (Guid?)referral.PublicId).FirstOrDefault(),
                 appointment.StartUtc,
                 appointment.Status,
+                OverlapsProviderTimeOff = appointment.StartUtc > earliestStart && row.OverlapsProviderTimeOff,
             }
         ).SingleOrDefaultAsync(cancellationToken);
 
@@ -476,6 +628,16 @@ public static class AppointmentEndpoints
             booking.PatientPublicId,
             booking.ClinicalServicePublicId,
             booking.ProviderPublicId,
+            booking.ClinicPublicId,
+            booking.ClinicName,
+            booking.TimeZoneId,
+            booking.PatientName,
+            booking.ProviderName,
+            booking.ServiceName,
+            CanReschedule = booking.CanSchedule && booking.Status == AppointmentStatus.Confirmed
+                && booking.StartUtc > now,
+            CanCancel = booking.CanSchedule && booking.Status == AppointmentStatus.Confirmed,
+            booking.OverlapsProviderTimeOff,
             booking.ReferralPublicId,
             booking.StartUtc,
             EndUtc = booking.StartUtc.AddMinutes(Appointment.DurationMinutes),
@@ -483,11 +645,28 @@ public static class AppointmentEndpoints
         });
     }
 
-    private static async Task<IResult> GetNeedsAttentionAsync(
+    private static Task<IResult> GetNeedsAttentionAsync(
         ClaimsPrincipal user,
         HttpContext http,
         HealthcareDbContext db,
         TimeProvider clock,
+        CancellationToken cancellationToken
+    ) => GetSchedulingAppointmentsAsync(user, http, db, clock, true, cancellationToken);
+
+    private static Task<IResult> GetUpcomingAsync(
+        ClaimsPrincipal user,
+        HttpContext http,
+        HealthcareDbContext db,
+        TimeProvider clock,
+        CancellationToken cancellationToken
+    ) => GetSchedulingAppointmentsAsync(user, http, db, clock, false, cancellationToken);
+
+    private static async Task<IResult> GetSchedulingAppointmentsAsync(
+        ClaimsPrincipal user,
+        HttpContext http,
+        HealthcareDbContext db,
+        TimeProvider clock,
+        bool needsAttention,
         CancellationToken cancellationToken
     )
     {
@@ -504,19 +683,19 @@ public static class AppointmentEndpoints
             return Results.Forbid();
         }
 
-        // Include appointments in progress and use half-open intervals for overlap.
-        var earliestStart = clock.GetUtcNow().AddMinutes(-Appointment.DurationMinutes);
-        var conflicts = await (
-            from appointment in db.Appointments
+        // The attention queue includes conflicts for appointments still in progress.
+        var now = clock.GetUtcNow();
+        var earliestStart = needsAttention ? now.AddMinutes(-Appointment.DurationMinutes) : now;
+        var appointments = await (
+            from row in WithTimeOffOverlap(db)
+            let appointment = row.Appointment
             join patient in db.Patients on appointment.PatientId equals patient.Id
             join service in db.ClinicalServices on appointment.ClinicalServiceId equals service.Id
             join provider in db.Providers on appointment.ProviderId equals provider.Id
             join clinic in clinics on service.ClinicId equals clinic.Id
             where appointment.Status == AppointmentStatus.Confirmed
                 && appointment.StartUtc > earliestStart
-                && db.ProviderTimeOff.Any(block => block.ProviderId == appointment.ProviderId
-                    && appointment.StartUtc < block.EndUtc
-                    && block.StartUtc < appointment.StartUtc.AddMinutes(Appointment.DurationMinutes))
+                && row.OverlapsProviderTimeOff == needsAttention
             orderby appointment.StartUtc, appointment.Id
             select new
             {
@@ -534,7 +713,7 @@ public static class AppointmentEndpoints
         ).ToListAsync(cancellationToken);
 
         http.Response.Headers.CacheControl = "no-store";
-        return Results.Ok(conflicts.Select(item => new
+        return Results.Ok(appointments.Select(item => new
         {
             item.PublicId,
             item.StartUtc,
@@ -547,6 +726,22 @@ public static class AppointmentEndpoints
             item.ServiceName,
             item.ReferralPublicId,
         }));
+    }
+
+    private static IQueryable<AppointmentWithOverlap> WithTimeOffOverlap(HealthcareDbContext db) =>
+        db.Appointments.Select(appointment => new AppointmentWithOverlap
+        {
+            Appointment = appointment,
+            OverlapsProviderTimeOff = appointment.Status == AppointmentStatus.Confirmed
+                && db.ProviderTimeOff.Any(block => block.ProviderId == appointment.ProviderId
+                    && appointment.StartUtc < block.EndUtc
+                    && block.StartUtc < appointment.StartUtc.AddMinutes(Appointment.DurationMinutes)),
+        });
+
+    private sealed class AppointmentWithOverlap
+    {
+        public required Appointment Appointment { get; init; }
+        public bool OverlapsProviderTimeOff { get; init; }
     }
 
     private static SqlException? GetSqlException(Exception exception) =>
