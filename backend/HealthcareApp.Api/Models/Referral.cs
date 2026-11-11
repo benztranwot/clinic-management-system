@@ -13,7 +13,7 @@ public class Referral
     public int ClinicalServiceId { get; set; }
 
     // Leave the provider unset until someone is assigned to the referral.
-    public int? AssignedProviderId { get; set; }
+    public required int AssignedProviderId { get; set; }
 
     public required string ReferringProviderName { get; set; }
 

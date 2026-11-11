@@ -74,10 +74,17 @@ public class AppointmentSchemaTests
             db.AddRange(firstProvider, secondProvider, service, otherService);
             await db.SaveChangesAsync();
 
+            db.ProviderServices.Add(new ProviderService
+            {
+                ClinicId = clinic.Id, ProviderId = firstProvider.Id, ClinicalServiceId = service.Id,
+            });
+            await db.SaveChangesAsync();
+
             var referral = new Referral
             {
                 PatientId = firstPatient.Id,
                 ClinicalServiceId = service.Id,
+                AssignedProviderId = firstProvider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "Fictional referral for schema test",
                 Status = ReferralStatus.ReadyToSchedule,

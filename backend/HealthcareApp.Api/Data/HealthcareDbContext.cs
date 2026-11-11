@@ -172,7 +172,7 @@ public class HealthcareDbContext : DbContext
             .HasForeignKey(r => r.ClinicalServiceId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Allow an unassigned referral. An assigned provider must offer the requested service.
+        // Every referral requires a provider who offers the requested service.
         referral
             .HasOne<ProviderService>()
             .WithMany()

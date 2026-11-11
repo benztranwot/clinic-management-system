@@ -180,30 +180,19 @@ public static class ProviderEndpoints
             );
         }
 
-        // Load the provider so EF Core can track the changes.
-        var provider = await db.Providers.SingleOrDefaultAsync(
-            p => p.PublicId == publicId,
-            cancellationToken
-        );
+        // Update the matching row in one statement so a concurrent delete yields zero rows.
+        var updatedCount = await db.Providers
+            .Where(provider => provider.PublicId == publicId)
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(provider => provider.FirstName, firstName)
+                    .SetProperty(provider => provider.LastName, lastName),
+                cancellationToken
+            );
 
-        if (provider is null)
-        {
-            return Results.NotFound();
-        }
-
-        // Update the provider's names and save them to SQL Server.
-        provider.FirstName = firstName;
-        provider.LastName = lastName;
-        await db.SaveChangesAsync(cancellationToken);
-
-        return Results.Ok(
-            new
-            {
-                provider.PublicId,
-                provider.FirstName,
-                provider.LastName,
-            }
-        );
+        return updatedCount == 0
+            ? Results.NotFound()
+            : Results.Ok(new { PublicId = publicId, FirstName = firstName, LastName = lastName });
     }
 
     private static async Task<IResult> DeleteProviderAsync(

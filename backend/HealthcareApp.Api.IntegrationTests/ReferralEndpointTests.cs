@@ -61,14 +61,44 @@ public class ReferralEndpointTests
 
             // Use the clinic ID that SQL Server generated when saving it.
             var service = new ClinicalService { ClinicId = clinic.Id, Name = "Physical exam" };
-            db.ClinicalServices.Add(service);
+            var provider = new Provider { ClinicId = clinic.Id, FirstName = "Beth", LastName = "Demo" };
+            db.AddRange(service, provider);
             await db.SaveChangesAsync();
+            db.ProviderServices.Add(new ProviderService
+            {
+                ClinicId = clinic.Id, ProviderId = provider.Id, ClinicalServiceId = service.Id,
+            });
+            await db.SaveChangesAsync();
+
+            using var missingProvider = await client.PostAsJsonAsync("/api/referrals", new
+            {
+                patientPublicId = patient.PublicId,
+                clinicalServicePublicId = service.PublicId,
+                referringProviderName = "Dr. Demo",
+                reason = "Routine physical exam",
+            });
+            Assert.Equal(HttpStatusCode.BadRequest, missingProvider.StatusCode);
+
+            var unlinkedProvider = new Provider { ClinicId = clinic.Id, FirstName = "John", LastName = "Demo" };
+            db.Providers.Add(unlinkedProvider);
+            await db.SaveChangesAsync();
+            using var ineligibleProvider = await client.PostAsJsonAsync("/api/referrals", new
+            {
+                patientPublicId = patient.PublicId,
+                clinicalServicePublicId = service.PublicId,
+                assignedProviderPublicId = unlinkedProvider.PublicId,
+                referringProviderName = "Dr. Demo",
+                reason = "Routine physical exam",
+            });
+            Assert.Equal(HttpStatusCode.BadRequest, ineligibleProvider.StatusCode);
+            Assert.False(await db.Referrals.AnyAsync());
 
             // Arrange: build one request body for both submissions.
             var request = new
             {
                 patientPublicId = patient.PublicId,
                 clinicalServicePublicId = service.PublicId,
+                assignedProviderPublicId = provider.PublicId,
                 referringProviderName = "Dr. Demo",
                 reason = "Routine physical exam",
             };
@@ -111,10 +141,7 @@ public class ReferralEndpointTests
             Assert.Equal(patient.PublicId, saved.GetProperty("patientPublicId").GetGuid());
             Assert.Equal(service.PublicId, saved.GetProperty("clinicalServicePublicId").GetGuid());
             Assert.Equal("PendingReview", saved.GetProperty("status").GetString());
-            Assert.Equal(
-                JsonValueKind.Null,
-                saved.GetProperty("assignedProviderPublicId").ValueKind
-            );
+            Assert.Equal(provider.PublicId, saved.GetProperty("assignedProviderPublicId").GetGuid());
         }
         finally
         {
@@ -124,7 +151,7 @@ public class ReferralEndpointTests
     }
 
     [Fact]
-    public async Task AssignProvider_WithoutServiceEligibility_LeavesReferralUnassigned()
+    public async Task ReassignProvider_WithoutServiceEligibility_KeepsOriginalProvider()
     {
         using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
@@ -175,17 +202,21 @@ public class ReferralEndpointTests
             db.ClinicalServices.Add(service);
             await db.SaveChangesAsync();
 
-            // Leave out the ProviderService link so this provider is ineligible.
+            // Only the original provider offers this service.
+            var originalProvider = await ReferralTestData.AddEligibleProviderAsync(db, service);
             var referral = new Referral
             {
                 PatientId = patient.Id,
                 ClinicalServiceId = service.Id,
+                AssignedProviderId = originalProvider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "Nutrition counseling referral",
             };
 
             db.Referrals.Add(referral);
             await db.SaveChangesAsync();
+
+            await AddAdministratorAsync(db);
 
             // Attempt to assign the provider through the actual API route.
             using var response = await client.PutAsJsonAsync(
@@ -207,7 +238,7 @@ public class ReferralEndpointTests
                 .Referrals.AsNoTracking()
                 .SingleAsync(r => r.PublicId == referral.PublicId);
 
-            Assert.Null(saved.AssignedProviderId);
+            Assert.Equal(originalProvider.Id, saved.AssignedProviderId);
             Assert.Equal(ReferralStatus.PendingReview, saved.Status);
         }
         finally
@@ -260,11 +291,14 @@ public class ReferralEndpointTests
             db.ClinicalServices.Add(service);
             await db.SaveChangesAsync();
 
+            var provider = await ReferralTestData.AddEligibleProviderAsync(db, service);
+
             // Start with a pending referral that has no missing information note.
             var referral = new Referral
             {
                 PatientId = patient.Id,
                 ClinicalServiceId = service.Id,
+                AssignedProviderId = provider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "Routine physical exam",
             };
@@ -342,11 +376,14 @@ public class ReferralEndpointTests
             db.ClinicalServices.Add(service);
             await db.SaveChangesAsync();
 
+            var provider = await ReferralTestData.AddEligibleProviderAsync(db, service);
+
             // Arrange an existing referral that has already been closed.
             var referral = new Referral
             {
                 PatientId = patient.Id,
                 ClinicalServiceId = service.Id,
+                AssignedProviderId = provider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "Routine physical exam",
                 Status = ReferralStatus.Closed,
@@ -354,6 +391,8 @@ public class ReferralEndpointTests
 
             db.Referrals.Add(referral);
             await db.SaveChangesAsync();
+
+            await AddAdministratorAsync(db);
 
             // Attempt to reopen the closed referral through the status route.
             using var response = await client.PutAsJsonAsync(
@@ -418,13 +457,20 @@ public class ReferralEndpointTests
             // Create a service offered by the clinic.
             var service = new ClinicalService { ClinicId = clinic.Id, Name = "Physical exam" };
 
-            db.ClinicalServices.Add(service);
+            var provider = new Provider { ClinicId = clinic.Id, FirstName = "Beth", LastName = "Demo" };
+            db.AddRange(service, provider);
             await db.SaveChangesAsync();
+            db.ProviderServices.Add(new ProviderService
+            {
+                ClinicId = clinic.Id, ProviderId = provider.Id, ClinicalServiceId = service.Id,
+            });
+            await AddAdministratorAsync(db);
 
             var request = new
             {
                 patientPublicId = patient.PublicId,
                 clinicalServicePublicId = service.PublicId,
+                assignedProviderPublicId = provider.PublicId,
                 referringProviderName = "Dr. Demo",
                 reason = "Routine physical exam",
             };
@@ -474,5 +520,16 @@ public class ReferralEndpointTests
             // Remove the temporary database even if the test fails.
             await db.Database.EnsureDeletedAsync();
         }
+    }
+
+    private static async Task AddAdministratorAsync(HealthcareDbContext db)
+    {
+        db.AppAccounts.Add(new AppAccount
+        {
+            Issuer = TestJwtIssuer.Issuer,
+            Subject = "auth0|integration-test-user",
+            IsAdministrator = true,
+        });
+        await db.SaveChangesAsync();
     }
 }

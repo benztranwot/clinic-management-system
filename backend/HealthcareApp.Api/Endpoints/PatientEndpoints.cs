@@ -52,6 +52,7 @@ public static class PatientEndpoints
     private static async Task<IResult> CreatePatientAsync(
         CreatePatientRequest request,
         HealthcareDbContext db,
+        TimeProvider clock,
         CancellationToken cancellationToken
     )
     {
@@ -73,7 +74,7 @@ public static class PatientEndpoints
 
         // Require a date of birth on or before today.
         var dateOfBirth = request.DateOfBirth;
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
 
         if (dateOfBirth is null || dateOfBirth.Value > today)
         {
@@ -138,6 +139,7 @@ public static class PatientEndpoints
         Guid publicId,
         UpdatePatientRequest request,
         HealthcareDbContext db,
+        TimeProvider clock,
         CancellationToken cancellationToken
     )
     {
@@ -159,7 +161,7 @@ public static class PatientEndpoints
 
         // Require a date of birth on or before today.
         var dateOfBirth = request.DateOfBirth;
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
 
         if (dateOfBirth is null || dateOfBirth.Value > today)
         {

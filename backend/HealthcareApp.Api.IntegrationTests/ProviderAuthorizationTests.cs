@@ -25,6 +25,7 @@ public class ProviderAuthorizationTests
     [InlineData("Update", false, null, HttpStatusCode.Unauthorized)]
     [InlineData("Update", true, "read:providers", HttpStatusCode.Forbidden)]
     [InlineData("Update", true, "manage:providers", HttpStatusCode.OK)]
+    [InlineData("UpdateMissing", true, "manage:providers", HttpStatusCode.NotFound)]
     [InlineData("Delete", false, null, HttpStatusCode.Unauthorized)]
     [InlineData("Delete", true, "read:providers", HttpStatusCode.Forbidden)]
     [InlineData("Delete", true, "manage:providers", HttpStatusCode.NoContent)]
@@ -84,7 +85,8 @@ public class ProviderAuthorizationTests
 
             // List and create use the clinic URL; other operations use the provider URL.
             var collectionUrl = $"/api/clinics/{clinic.PublicId}/providers";
-            var providerUrl = $"/api/providers/{provider.PublicId}";
+            var targetProviderId = operation == "UpdateMissing" ? Guid.NewGuid() : provider.PublicId;
+            var providerUrl = $"/api/providers/{targetProviderId}";
             using var request = operation switch
             {
                 "List" => new HttpRequestMessage(HttpMethod.Get, collectionUrl),
@@ -95,7 +97,7 @@ public class ProviderAuthorizationTests
                         new { firstName = "Morgan", lastName = "Example" }
                     ),
                 },
-                "Update" => new HttpRequestMessage(HttpMethod.Put, providerUrl)
+                "Update" or "UpdateMissing" => new HttpRequestMessage(HttpMethod.Put, providerUrl)
                 {
                     Content = JsonContent.Create(
                         new { firstName = "Jordan", lastName = "Updated" }

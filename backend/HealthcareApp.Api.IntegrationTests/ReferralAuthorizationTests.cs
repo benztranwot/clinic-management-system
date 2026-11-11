@@ -24,6 +24,12 @@ public class ReferralAuthorizationTests
     [InlineData("Eligible", true, "read:referrals read:provider-services", HttpStatusCode.Forbidden)]
     [InlineData("Eligible", true, "read:referrals read:providers", HttpStatusCode.Forbidden)]
     [InlineData("Eligible", true, "read:referrals read:providers read:provider-services", HttpStatusCode.OK)]
+    [InlineData("ServiceEligible", false, null, HttpStatusCode.Unauthorized)]
+    [InlineData("ServiceEligible", true, "read:providers read:provider-services", HttpStatusCode.Forbidden)]
+    [InlineData("ServiceEligible", true, "manage:referrals", HttpStatusCode.Forbidden)]
+    [InlineData("ServiceEligible", true, "manage:referrals read:provider-services", HttpStatusCode.Forbidden)]
+    [InlineData("ServiceEligible", true, "manage:referrals read:providers", HttpStatusCode.Forbidden)]
+    [InlineData("ServiceEligible", true, "manage:referrals read:providers read:provider-services", HttpStatusCode.OK)]
     [InlineData("Create", false, null, HttpStatusCode.Unauthorized)]
     [InlineData("Create", true, "read:referrals", HttpStatusCode.Forbidden)]
     [InlineData("Create", true, "manage:referrals", HttpStatusCode.Created)]
@@ -33,8 +39,7 @@ public class ReferralAuthorizationTests
     [InlineData("Status", false, null, HttpStatusCode.Unauthorized)]
     [InlineData("Status", true, "read:referrals", HttpStatusCode.Forbidden)]
     [InlineData("Status", true, "manage:referrals", HttpStatusCode.OK)]
-    [InlineData("ReadyWithoutProvider", true, "manage:referrals", HttpStatusCode.Conflict)]
-    [InlineData("ReadyWithProvider", true, "manage:referrals", HttpStatusCode.OK)]
+    [InlineData("Ready", true, "manage:referrals", HttpStatusCode.OK)]
     [InlineData("ClearNote", true, "manage:referrals", HttpStatusCode.OK)]
     [InlineData("Close", true, "manage:referrals", HttpStatusCode.OK)]
     public async Task ReferralRoutes_AccessAndWorkflowRules_ReturnExpectedStatus(
@@ -97,6 +102,13 @@ public class ReferralAuthorizationTests
             db.Providers.Add(provider);
             await db.SaveChangesAsync();
 
+            db.AppAccounts.Add(new AppAccount
+            {
+                Issuer = TestJwtIssuer.Issuer,
+                Subject = "auth0|integration-test-user",
+                IsAdministrator = true,
+            });
+
             // Make this provider eligible for the requested service.
             db.ProviderServices.Add(new ProviderService
             {
@@ -106,7 +118,7 @@ public class ReferralAuthorizationTests
             });
             await db.SaveChangesAsync();
 
-            if (operation == "Eligible" && expectedStatus == HttpStatusCode.OK)
+            if ((operation is "Eligible" or "ServiceEligible") && expectedStatus == HttpStatusCode.OK)
             {
                 // A provider at this clinic is not eligible without the requested service link.
                 db.Providers.Add(new Provider { ClinicId = clinic.Id, FirstName = "Casey", LastName = "Unlinked" });
@@ -129,17 +141,22 @@ public class ReferralAuthorizationTests
                 await db.SaveChangesAsync();
             }
 
+            var replacement = operation == "Assign"
+                ? await ReferralTestData.AddEligibleProviderAsync(db, service, "Casey")
+                : provider;
+
             var referral = new Referral
             {
                 PatientId = patient.Id,
                 ClinicalServiceId = service.Id,
+                AssignedProviderId = provider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "Original referral reason",
             };
 
-            if (operation == "ReadyWithProvider")
+            if (operation == "Assign")
             {
-                referral.AssignedProviderId = provider.Id;
+                referral.Status = ReferralStatus.ReadyToSchedule;
             }
 
             if (operation == "ClearNote")
@@ -157,7 +174,7 @@ public class ReferralAuthorizationTests
             var referralUrl = $"/api/referrals/{referral.PublicId}";
             var requestedStatus = operation switch
             {
-                "ReadyWithoutProvider" or "ReadyWithProvider" => "ReadyToSchedule",
+                "Ready" => "ReadyToSchedule",
                 "ClearNote" => "PendingReview",
                 "Close" => "Closed",
                 _ => "MissingInformation",
@@ -168,6 +185,9 @@ public class ReferralAuthorizationTests
                 "List" => new HttpRequestMessage(HttpMethod.Get, "/api/referrals"),
                 "Read" => new HttpRequestMessage(HttpMethod.Get, referralUrl),
                 "Eligible" => new HttpRequestMessage(HttpMethod.Get, $"{referralUrl}/eligible-providers"),
+                "ServiceEligible" => new HttpRequestMessage(
+                    HttpMethod.Get, $"/api/services/{service.PublicId}/eligible-providers"
+                ),
                 "Create" => new HttpRequestMessage(HttpMethod.Post, "/api/referrals")
                 {
                     // Use another patient so the existing referral is not a duplicate.
@@ -175,15 +195,16 @@ public class ReferralAuthorizationTests
                     {
                         patientPublicId = otherPatient.PublicId,
                         clinicalServicePublicId = service.PublicId,
+                        assignedProviderPublicId = provider.PublicId,
                         referringProviderName = "Dr. Fictional Sender",
                         reason = "New referral reason",
                     }),
                 },
                 "Assign" => new HttpRequestMessage(HttpMethod.Put, $"{referralUrl}/provider")
                 {
-                    Content = JsonContent.Create(new { providerPublicId = provider.PublicId }),
+                    Content = JsonContent.Create(new { providerPublicId = replacement.PublicId }),
                 },
-                "Status" or "ReadyWithoutProvider" or "ReadyWithProvider" or "ClearNote" or "Close"
+                "Status" or "Ready" or "ClearNote" or "Close"
                     => new HttpRequestMessage(HttpMethod.Put, $"{referralUrl}/status")
                     {
                         Content = JsonContent.Create(new
@@ -203,7 +224,7 @@ public class ReferralAuthorizationTests
                 Assert.Contains(response.Headers.WwwAuthenticate, c => c.Scheme == "Bearer");
             }
 
-            if (expectedStatus == HttpStatusCode.OK && operation == "Eligible")
+            if (expectedStatus == HttpStatusCode.OK && (operation is "Eligible" or "ServiceEligible"))
             {
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
                 var eligible = Assert.Single(body.EnumerateArray());
@@ -234,20 +255,21 @@ public class ReferralAuthorizationTests
                     Assert.Equal("Dr. Demo", body.GetProperty("referringProviderName").GetString());
                     Assert.Equal("Original referral reason", body.GetProperty("reason").GetString());
                     Assert.Equal("PendingReview", body.GetProperty("status").GetString());
-                    Assert.Equal(JsonValueKind.Null, body.GetProperty("assignedProviderPublicId").ValueKind);
+                    Assert.Equal(provider.PublicId, body.GetProperty("assignedProviderPublicId").GetGuid());
                     Assert.Equal(JsonValueKind.Null, body.GetProperty("missingInformationNote").ValueKind);
                 }
                 else if (operation == "Assign")
                 {
-                    expectedProviderId = provider.Id;
-                    Assert.Equal(provider.PublicId, body.GetProperty("assignedProviderPublicId").GetGuid());
+                    expectedProviderId = replacement.Id;
+                    expectedSavedStatus = ReferralStatus.PendingReview;
+                    Assert.Equal(replacement.PublicId, body.GetProperty("assignedProviderPublicId").GetGuid());
                 }
                 else
                 {
                     expectedSavedStatus = operation switch
                     {
                         "Status" => ReferralStatus.MissingInformation,
-                        "ReadyWithProvider" => ReferralStatus.ReadyToSchedule,
+                        "Ready" => ReferralStatus.ReadyToSchedule,
                         "ClearNote" => ReferralStatus.PendingReview,
                         "Close" => ReferralStatus.Closed,
                         _ => throw new ArgumentOutOfRangeException(nameof(operation)),
@@ -286,7 +308,7 @@ public class ReferralAuthorizationTests
                 Assert.Equal("Dr. Fictional Sender", created.ReferringProviderName);
                 Assert.Equal("New referral reason", created.Reason);
                 Assert.Equal(ReferralStatus.PendingReview, created.Status);
-                Assert.Null(created.AssignedProviderId);
+                Assert.Equal(provider.Id, created.AssignedProviderId);
                 Assert.Null(created.MissingInformationNote);
                 Assert.Equal(created.CreatedAtUtc, body.GetProperty("createdAtUtc").GetDateTimeOffset());
             }

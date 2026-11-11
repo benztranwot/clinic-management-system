@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
+using HealthcareApp.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthcareApp.Api.Endpoints;
@@ -109,6 +110,8 @@ public static class AccountEndpoints
                         ServiceName = service.Name,
                         ClinicName = clinic.Name,
                         referral.Status,
+                        HasConfirmedAppointment = db.Appointments.Any(appointment =>
+                            appointment.ReferralId == referral.Id && appointment.Status == AppointmentStatus.Confirmed),
                         referral.CreatedAtUtc,
                     }
                 ).ToList(),
@@ -129,6 +132,7 @@ public static class AccountEndpoints
                 referral.ServiceName,
                 referral.ClinicName,
                 Status = referral.Status.ToString(),
+                Stage = ReferralEndpoints.GetStage(referral.Status, referral.HasConfirmedAppointment),
                 referral.CreatedAtUtc,
             })
         );
