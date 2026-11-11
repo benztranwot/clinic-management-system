@@ -7,10 +7,21 @@ export const referralStatusLabels = {
   PendingReview: "Pending review",
   MissingInformation: "Missing information",
   ReadyToSchedule: "Ready to schedule",
+  Scheduled: "Scheduled",
   Closed: "Closed",
 } as const;
 
-export type ReferralStatus = keyof typeof referralStatusLabels;
+export type ReferralStatus = Exclude<keyof typeof referralStatusLabels, "Scheduled">;
+export type ReferralStage = Exclude<keyof typeof referralStatusLabels, "MissingInformation">;
+
+export type ReferralAccount = {
+  isAdministrator: boolean;
+  memberships: {
+    clinicPublicId: string;
+    clinicName: string;
+    role: "Clinician" | "FrontDesk";
+  }[];
+};
 
 export type ReferralSummary = {
   publicId: string;
@@ -19,6 +30,7 @@ export type ReferralSummary = {
   serviceName: string;
   clinicName: string;
   status: ReferralStatus;
+  stage: ReferralStage;
   createdAtUtc: string;
 };
 
@@ -26,15 +38,34 @@ export type ReferralDetails = ReferralSummary & {
   patientPublicId: string;
   clinicalServicePublicId: string;
   clinicPublicId: string;
-  assignedProviderPublicId: string | null;
+  clinicTimeZoneId: string | null;
+  assignedProviderPublicId: string;
+  canReview: boolean;
+  canReassign: boolean;
+  canSchedule: boolean;
+  confirmedAppointment: ReferralAppointment | null;
   referringProviderName: string;
   reason: string;
   missingInformationNote: string | null;
 };
 
+export type AppointmentSlot = {
+  startUtc: string;
+  endUtc: string;
+};
+
+export type ReferralAppointment = AppointmentSlot & { publicId: string };
+
+export type ReferralAvailability = {
+  date: string;
+  timeZoneId: string;
+  slots: AppointmentSlot[];
+};
+
 export type ReferralInput = {
   patientPublicId: string;
   clinicalServicePublicId: string;
+  assignedProviderPublicId: string;
   referringProviderName: string;
   reason: string;
 };
@@ -74,7 +105,7 @@ function referralPath(publicId: string) {
 
 type ReferralRequestOptions =
   | { signal: AbortSignal }
-  | { method: "POST" | "PUT"; body: object };
+  | { method: "POST" | "PUT"; body?: object };
 
 async function referralRequest(
   url: string,
@@ -83,7 +114,7 @@ async function referralRequest(
 ): Promise<Response> {
   const headers = new Headers({ Authorization: "Bearer " + accessToken });
   const isWrite = "method" in options;
-  if (isWrite) headers.set("Content-Type", "application/json");
+  if (isWrite && options.body !== undefined) headers.set("Content-Type", "application/json");
 
   const response = await fetch(url, {
     headers,
@@ -114,16 +145,41 @@ async function readReferralResponse<T>(
   return response.json();
 }
 
+export function getReferralAccount(accessToken: string, signal: AbortSignal) {
+  return readReferralResponse<ReferralAccount>("/api/me", accessToken, { signal });
+}
+
+export function getClinicReferrals(accessToken: string, clinicPublicId: string, signal: AbortSignal) {
+  const path = "/api/clinics/" + encodeURIComponent(clinicPublicId) + "/referrals";
+  return readReferralResponse<ReferralSummary[]>(path, accessToken, { signal });
+}
+
 export function getReferrals(accessToken: string, signal: AbortSignal) {
   return readReferralResponse<ReferralSummary[]>("/api/referrals", accessToken, { signal });
 }
 
-export function getReferral(accessToken: string, publicId: string, signal: AbortSignal) {
-  return readReferralResponse<ReferralDetails>(referralPath(publicId), accessToken, { signal });
+export function getReferral(
+  accessToken: string,
+  publicId: string,
+  signal: AbortSignal,
+  clinicPublicId: string | null,
+) {
+  const path = clinicPublicId
+    ? "/api/clinics/" + encodeURIComponent(clinicPublicId) + "/referrals/" + encodeURIComponent(publicId)
+    : referralPath(publicId);
+  return readReferralResponse<ReferralDetails>(path, accessToken, { signal });
 }
 
 export function getEligibleProviders(accessToken: string, publicId: string, signal: AbortSignal) {
   return readReferralResponse<Provider[]>(referralPath(publicId) + "/eligible-providers", accessToken, { signal });
+}
+
+export function getServiceEligibleProviders(accessToken: string, serviceId: string, signal: AbortSignal) {
+  return readReferralResponse<Provider[]>(
+    "/api/services/" + encodeURIComponent(serviceId) + "/eligible-providers",
+    accessToken,
+    { signal },
+  );
 }
 
 export function createReferral(accessToken: string, input: ReferralInput) {
@@ -153,5 +209,41 @@ export async function updateReferralStatus(
   await referralRequest(referralPath(publicId) + "/status", accessToken, {
     method: "PUT",
     body: { status, missingInformationNote },
+  });
+}
+
+export function getReferralAvailability(
+  accessToken: string,
+  providerPublicId: string,
+  date: string,
+  signal: AbortSignal,
+) {
+  const path = "/api/providers/" + encodeURIComponent(providerPublicId) + "/availability";
+  return readReferralResponse<ReferralAvailability>(
+    path + "?" + new URLSearchParams({ date }),
+    accessToken,
+    { signal },
+  );
+}
+
+export async function bookReferralAppointment(
+  accessToken: string,
+  referralId: string,
+  providerPublicId: string,
+  startUtc: string,
+): Promise<void> {
+  await referralRequest(referralPath(referralId) + "/appointments", accessToken, {
+    method: "POST",
+    body: { providerPublicId, startUtc },
+  });
+}
+
+export async function updateReferralAppointment(
+  accessToken: string,
+  appointmentId: string,
+  action: "cancel" | "complete",
+): Promise<void> {
+  await referralRequest("/api/appointments/" + encodeURIComponent(appointmentId) + "/" + action, accessToken, {
+    method: "POST",
   });
 }

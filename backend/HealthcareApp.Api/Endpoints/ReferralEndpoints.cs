@@ -19,6 +19,10 @@ public static class ReferralEndpoints
         app.MapGet("/api/clinics/{clinicPublicId:guid}/referrals", GetClinicReferralsAsync)
             .RequireAuthorization();
 
+        // Staff can open a referral from its receiving clinic's queue.
+        app.MapGet("/api/clinics/{clinicPublicId:guid}/referrals/{publicId:guid}", GetClinicReferralByIdAsync)
+            .RequireAuthorization();
+
         // Require permission to create a referral.
         app.MapPost("/api/referrals", CreateReferralAsync).RequireAuthorization("ManageReferrals");
 
@@ -235,23 +239,61 @@ public static class ReferralEndpoints
         );
     }
 
-    private static async Task<IResult> GetReferralByIdAsync(
+    private static Task<IResult> GetReferralByIdAsync(
         Guid publicId,
         ClaimsPrincipal user,
+        HttpContext http,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        return ReadReferralAsync(publicId, AccountIdentity.FromPrincipal(user), db.Clinics, db, cancellationToken);
+    }
+
+    private static async Task<IResult> GetClinicReferralByIdAsync(
+        Guid clinicPublicId,
+        Guid publicId,
+        ClaimsPrincipal user,
+        HttpContext http,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
     {
         var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null)
+        {
+            return Results.Challenge();
+        }
+
+        var allowedClinics = identity.QueryStaffClinics(db).Where(clinic => clinic.PublicId == clinicPublicId);
+        if (!await allowedClinics.AnyAsync(cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        http.Response.Headers.CacheControl = "no-store";
+        return await ReadReferralAsync(publicId, identity, allowedClinics, db, cancellationToken);
+    }
+
+    private static async Task<IResult> ReadReferralAsync(
+        Guid publicId,
+        AccountIdentity? identity,
+        IQueryable<Clinic> clinics,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
         var reviewable = QueryReviewableReferrals(db, identity);
         var schedulingClinics = identity?.QuerySchedulingClinics(db) ?? db.Clinics.Where(_ => false);
+        var staffClinics = identity?.QueryStaffClinics(db) ?? db.Clinics.Where(_ => false);
 
         // Join the referral to its patient and service to get their public IDs.
         var referral = await (
             from r in db.Referrals
             join patient in db.Patients on r.PatientId equals patient.Id
             join service in db.ClinicalServices on r.ClinicalServiceId equals service.Id
-            join clinic in db.Clinics on service.ClinicId equals clinic.Id
+            join clinic in clinics on service.ClinicId equals clinic.Id
             join provider in db.Providers on r.AssignedProviderId equals provider.Id
             where r.PublicId == publicId
             select new
@@ -264,16 +306,21 @@ public static class ReferralEndpoints
                 ClinicPublicId = clinic.PublicId,
                 ServiceName = service.Name,
                 ClinicName = clinic.Name,
+                ClinicTimeZoneId = clinic.TimeZoneId,
 
                 AssignedProviderPublicId = provider.PublicId,
 
                 r.ReferringProviderName,
                 r.Reason,
                 r.Status,
-                HasConfirmedAppointment = db.Appointments.Any(appointment =>
-                    appointment.ReferralId == r.Id && appointment.Status == AppointmentStatus.Confirmed),
+                ConfirmedAppointment = db.Appointments
+                    .Where(appointment =>
+                        appointment.ReferralId == r.Id && appointment.Status == AppointmentStatus.Confirmed)
+                    .Select(appointment => new { appointment.PublicId, appointment.StartUtc })
+                    .FirstOrDefault(),
+                CanSeeAppointment = staffClinics.Any(item => item.Id == clinic.Id),
                 CanReview = reviewable.Any(item => item.Id == r.Id),
-                CanReassign = schedulingClinics.Any(item => item.Id == clinic.Id),
+                CanSchedule = schedulingClinics.Any(item => item.Id == clinic.Id),
                 r.MissingInformationNote,
                 r.CreatedAtUtc,
             }
@@ -297,13 +344,18 @@ public static class ReferralEndpoints
                 referral.ClinicPublicId,
                 referral.ServiceName,
                 referral.ClinicName,
+                referral.ClinicTimeZoneId,
                 referral.AssignedProviderPublicId,
                 referral.ReferringProviderName,
                 referral.Reason,
                 Status = referral.Status.ToString(),
-                Stage = GetStage(referral.Status, referral.HasConfirmedAppointment),
+                Stage = GetStage(referral.Status, referral.ConfirmedAppointment is not null),
                 referral.CanReview,
-                referral.CanReassign,
+                CanReassign = referral.CanSchedule,
+                referral.CanSchedule,
+                ConfirmedAppointment = referral.CanSeeAppointment && referral.ConfirmedAppointment is { } booking
+                    ? new { booking.PublicId, booking.StartUtc, EndUtc = booking.StartUtc.AddMinutes(Appointment.DurationMinutes) }
+                    : null,
                 referral.MissingInformationNote,
                 referral.CreatedAtUtc,
             }

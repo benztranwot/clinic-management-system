@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Link, NavLink, Navigate, Route, Routes } from "react-router";
+import { Link, Navigate, Route, Routes } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import ClinicsPage from "./pages/ClinicsPage";
 import ProvidersPage from "./pages/ProvidersPage";
@@ -9,6 +9,8 @@ import PatientsPage from "./pages/PatientsPage";
 import PatientDetailsPage from "./pages/PatientDetailsPage";
 import ReferralsPage from "./pages/ReferralsPage";
 import ReferralDetailsPage from "./pages/ReferralDetailsPage";
+import AppShell from "./components/AppShell";
+import NewReferralPage from "./pages/NewReferralPage";
 import "./App.css";
 
 function App() {
@@ -54,115 +56,48 @@ function App() {
     }
   }
 
-  // Wait until Auth0 finishes checking the current session.
-  if (isLoading) {
-    return (
-      <main className="app">
-        <p role="status">Checking sign-in…</p>
-      </main>
-    );
-  }
-
-  // Handle errors that occur while processing authentication.
-  if (error) {
-    return (
-      <main className="app">
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Clinic Management
-        </h1>
-        <p role="alert">We couldn’t complete sign-in. Please try again.</p>
-        <a href="/">Return to the homepage</a>
-      </main>
-    );
-  }
+  const signedIn = isAuthenticated && !isLoading && !error;
+  const accountName = signedIn ? user?.name?.trim() || user?.email?.trim() || "Signed in" : undefined;
 
   return (
-    <main className="app">
-      <h1 className="text-3xl font-semibold tracking-tight">
-        Clinic Management
-      </h1>
-
-      {/* Show the appropriate controls for the current session. */}
-      {isAuthenticated ? (
-        <section>
-          <p>Signed in as {user?.name ?? user?.email ?? "your account"}.</p>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={isRedirecting}
-          >
-            {isRedirecting ? "Signing out…" : "Sign out"}
-          </button>
+    <AppShell accountName={accountName} signingOut={isRedirecting} onSignOut={() => void handleSignOut()}>
+      {isLoading ? (
+        <p role="status">Checking sign-in…</p>
+      ) : error ? (
+        <section className="workspace-panel space-y-3">
+          <h1 className="page-title">Sign-in error</h1>
+          <p role="alert">We couldn’t complete sign-in. Please try again.</p>
+          <a className="workspace-link" href="/">Return to the homepage</a>
         </section>
-      ) : (
-        <section>
+      ) : !signedIn ? (
+        <section className="workspace-panel max-w-md space-y-3">
+          <h1 className="page-title">Sign in</h1>
           <p>Sign in to view application records.</p>
-          <button type="button" onClick={handleSignIn} disabled={isRedirecting}>
+          <button type="button" onClick={() => void handleSignIn()} disabled={isRedirecting}>
             {isRedirecting ? "Opening sign-in…" : "Sign in"}
           </button>
         </section>
+      ) : !isRedirecting && (
+        <Routes>
+          <Route path="/" element={<Navigate to="/referrals" replace />} />
+          <Route path="/clinics" element={<div className="legacy-directory"><ClinicsPage /></div>} />
+          <Route path="/clinics/:clinicPublicId/providers" element={<div className="legacy-directory"><ProvidersPage /></div>} />
+          <Route path="/clinics/:clinicPublicId/services" element={<div className="legacy-directory"><ServicesPage /></div>} />
+          <Route path="/patients" element={<div className="legacy-directory"><PatientsPage /></div>} />
+          <Route path="/patients/:publicId" element={<div className="legacy-directory"><PatientDetailsPage /></div>} />
+          <Route path="/referrals" element={<ReferralsPage />} />
+          <Route path="/referrals/new" element={<NewReferralPage />} />
+          <Route path="/referrals/:publicId" element={<ReferralDetailsPage />} />
+          <Route path="*" element={
+            <section className="workspace-panel space-y-3">
+              <h1 className="page-title">Page not found</h1>
+              <Link to="/referrals" className="workspace-link">Return to referrals</Link>
+            </section>
+          } />
+        </Routes>
       )}
-
-      {/* Show application pages after authentication finishes successfully. */}
-      {isAuthenticated && !isRedirecting && (
-        <>
-          <nav aria-label="Main navigation" className="mt-6 flex flex-wrap gap-4">
-            <NavLink
-              to="/clinics"
-              className={({ isActive }) =>
-                isActive ? "font-semibold underline" : "text-blue-700"
-              }
-            >
-              Clinics
-            </NavLink>
-            <NavLink
-              to="/patients"
-              className={({ isActive }) =>
-                isActive ? "font-semibold underline" : "text-blue-700"
-              }
-            >
-              Patients
-            </NavLink>
-            <NavLink
-              to="/referrals"
-              className={({ isActive }) =>
-                isActive ? "font-semibold underline" : "text-blue-700"
-              }
-            >
-              Referrals
-            </NavLink>
-          </nav>
-          <Routes>
-            <Route path="/" element={<Navigate to="/clinics" replace />} />
-  
-            <Route path="/clinics" element={<ClinicsPage />} />
-            <Route path="/clinics/:clinicPublicId/providers" element={<ProvidersPage />} />
-            <Route path="/clinics/:clinicPublicId/services" element={<ServicesPage />} />
-            <Route path="/patients" element={<PatientsPage />} />
-            <Route path="/patients/:publicId" element={<PatientDetailsPage />} />
-            <Route path="/referrals" element={<ReferralsPage />} />
-            <Route path="/referrals/:publicId" element={<ReferralDetailsPage />} />
-  
-            <Route
-              path="*"
-              element={
-                <section className="mt-8">
-                  <h2 className="text-xl font-semibold">Page not found</h2>
-                  <Link
-                    to="/clinics"
-                    className="mt-2 inline-block text-blue-700 underline"
-                  >
-                    Return to clinics
-                  </Link>
-                </section>
-              }
-            />
-          </Routes>
-        </>
-      )}
-
-      {actionError && <p role="alert">{actionError}</p>}
-    </main>
+      {actionError && <p role="alert" className="mt-3">{actionError}</p>}
+    </AppShell>
   );
 }
 
