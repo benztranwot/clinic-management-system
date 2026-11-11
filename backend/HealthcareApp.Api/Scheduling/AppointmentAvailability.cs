@@ -35,7 +35,9 @@ internal static class AppointmentAvailability
                 cancellationToken
             ) ?? ProviderWeeklyHours.CreateDefault(providerId, dayOfWeek);
 
-        var candidates = GetCandidates(date, hours, timeZone, now);
+        var candidates = GetCandidates(date, hours, timeZone)
+            .Where(slot => slot.StartUtc > now)
+            .ToArray();
         if (candidates.Length == 0)
         {
             return [];
@@ -67,11 +69,10 @@ internal static class AppointmentAvailability
             .ToArray();
     }
 
-    private static AppointmentSlot[] GetCandidates(
+    internal static AppointmentSlot[] GetCandidates(
         DateOnly date,
         ProviderWeeklyHours hours,
-        TimeZoneInfo timeZone,
-        DateTimeOffset now
+        TimeZoneInfo timeZone
     )
     {
         if (hours.StartMinute is not int start || hours.EndMinute is not int end)
@@ -109,8 +110,7 @@ internal static class AppointmentAvailability
             {
                 var startUtc = new DateTimeOffset(localStart, offset).ToUniversalTime();
                 var endUtc = startUtc.AddMinutes(duration);
-                if (startUtc > now
-                    && startUtc.Ticks % slotTicks == 0
+                if (startUtc.Ticks % slotTicks == 0
                     && TimeZoneInfo.ConvertTime(endUtc, timeZone).DateTime == localStart.AddMinutes(duration))
                 {
                     slots.Add(new AppointmentSlot(startUtc, endUtc));

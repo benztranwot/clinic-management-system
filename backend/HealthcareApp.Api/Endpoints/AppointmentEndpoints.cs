@@ -16,6 +16,7 @@ public static class AppointmentEndpoints
     {
         var routes = app.MapGroup("/api/appointments").RequireAuthorization();
         routes.MapPost("", BookDirectAsync);
+        routes.MapGet("/needs-attention", GetNeedsAttentionAsync);
         routes.MapGet("/{publicId:guid}", GetByIdAsync);
         routes.MapPost("/{publicId:guid}/cancel", CancelAsync);
         routes.MapPost("/{publicId:guid}/complete", CompleteAsync);
@@ -480,6 +481,72 @@ public static class AppointmentEndpoints
             EndUtc = booking.StartUtc.AddMinutes(Appointment.DurationMinutes),
             Status = booking.Status.ToString(),
         });
+    }
+
+    private static async Task<IResult> GetNeedsAttentionAsync(
+        ClaimsPrincipal user,
+        HttpContext http,
+        HealthcareDbContext db,
+        TimeProvider clock,
+        CancellationToken cancellationToken
+    )
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null)
+        {
+            return Results.Challenge();
+        }
+
+        var clinics = identity.QuerySchedulingClinics(db);
+        if (!await clinics.AnyAsync(cancellationToken)
+            && !await identity.QueryAccounts(db).AnyAsync(account => account.IsAdministrator, cancellationToken))
+        {
+            return Results.Forbid();
+        }
+
+        // Include appointments in progress and use half-open intervals for overlap.
+        var earliestStart = clock.GetUtcNow().AddMinutes(-Appointment.DurationMinutes);
+        var conflicts = await (
+            from appointment in db.Appointments
+            join patient in db.Patients on appointment.PatientId equals patient.Id
+            join service in db.ClinicalServices on appointment.ClinicalServiceId equals service.Id
+            join provider in db.Providers on appointment.ProviderId equals provider.Id
+            join clinic in clinics on service.ClinicId equals clinic.Id
+            where appointment.Status == AppointmentStatus.Confirmed
+                && appointment.StartUtc > earliestStart
+                && db.ProviderTimeOff.Any(block => block.ProviderId == appointment.ProviderId
+                    && appointment.StartUtc < block.EndUtc
+                    && block.StartUtc < appointment.StartUtc.AddMinutes(Appointment.DurationMinutes))
+            orderby appointment.StartUtc, appointment.Id
+            select new
+            {
+                appointment.PublicId,
+                appointment.StartUtc,
+                ClinicPublicId = clinic.PublicId,
+                ClinicName = clinic.Name,
+                clinic.TimeZoneId,
+                PatientName = patient.FirstName + " " + patient.LastName,
+                ProviderName = provider.FirstName + " " + provider.LastName,
+                ServiceName = service.Name,
+                ReferralPublicId = db.Referrals.Where(referral => referral.Id == appointment.ReferralId)
+                    .Select(referral => (Guid?)referral.PublicId).FirstOrDefault(),
+            }
+        ).ToListAsync(cancellationToken);
+
+        http.Response.Headers.CacheControl = "no-store";
+        return Results.Ok(conflicts.Select(item => new
+        {
+            item.PublicId,
+            item.StartUtc,
+            EndUtc = item.StartUtc.AddMinutes(Appointment.DurationMinutes),
+            item.ClinicPublicId,
+            item.ClinicName,
+            item.TimeZoneId,
+            item.PatientName,
+            item.ProviderName,
+            item.ServiceName,
+            item.ReferralPublicId,
+        }));
     }
 
     private static SqlException? GetSqlException(Exception exception) =>

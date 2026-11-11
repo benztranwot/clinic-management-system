@@ -353,9 +353,16 @@ function ReferralDetailsPage() {
   return (
     <section
       aria-labelledby="referral-details-heading"
-      className="workspace-panel"
+      className="workspace-panel mx-auto w-full max-w-5xl"
     >
-      <Link to="/referrals" className="text-sm text-action underline">Back to referrals</Link>
+      <Link to="/referrals" className="workspace-button" data-variant="secondary">
+        <span className="flex items-center gap-2">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5m7 7-7-7 7-7" />
+          </svg>
+          Back to referrals
+        </span>
+      </Link>
       <h1 id="referral-details-heading" className="page-title mt-3">Referral details</h1>
       {user?.sub && publicId ? (
         <ReferralDetailsContent

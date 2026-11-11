@@ -16,6 +16,7 @@ export type ReferralStage = Exclude<keyof typeof referralStatusLabels, "MissingI
 
 export type ReferralAccount = {
   isAdministrator: boolean;
+  providerPublicId: string | null;
   memberships: {
     clinicPublicId: string;
     clinicName: string;
