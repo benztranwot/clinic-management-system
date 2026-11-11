@@ -103,20 +103,6 @@ function ProviderCalendarView({ userId }: { userId: string }) {
   const [notice, setNotice] = useState("");
   const [now, setNow] = useState(() => Date.now());
 
-  // Keep slot styling current without polling the calendar API.
-  useEffect(() => {
-    function updateClock() {
-      setNow(Date.now());
-    }
-
-    const timer = window.setInterval(updateClock, 15_000);
-    window.addEventListener("focus", updateClock);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", updateClock);
-    };
-  }, []);
-
   async function getToken() {
     const token = await getAccessTokenSilently();
     if (!token) throw new Error("Unable to verify your session. Sign in again.");
@@ -128,6 +114,35 @@ function ProviderCalendarView({ userId }: { userId: string }) {
     retry: false,
     queryFn: async ({ signal }) => getProviderCalendar(await getToken(), signal),
   });
+  const clinicToday = calendar.data?.today;
+  const clinicTimeZone = calendar.data?.timeZoneId;
+  const { isFetching, refetch } = calendar;
+
+  // Keep slot styling current and reload server date rules when the clinic day changes.
+  useEffect(() => {
+    function updateClock() {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      if (!clinicToday || !clinicTimeZone || isFetching) return;
+
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: clinicTimeZone, year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(new Date(currentTime));
+      const currentDate = ["year", "month", "day"]
+        .map((type) => parts.find((part) => part.type === type)?.value).join("-");
+      if (currentDate !== clinicToday) void refetch();
+    }
+
+    const timer = window.setInterval(updateClock, 15_000);
+    window.addEventListener("focus", updateClock);
+    document.addEventListener("visibilitychange", updateClock);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", updateClock);
+      document.removeEventListener("visibilitychange", updateClock);
+    };
+  }, [clinicToday, clinicTimeZone, isFetching, refetch]);
+
   const change = useMutation({
     mutationFn: async (day: CalendarDay) => {
       const token = await getToken();

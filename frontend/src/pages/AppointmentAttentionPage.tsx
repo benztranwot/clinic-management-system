@@ -1,9 +1,27 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { getAppointmentConflicts, type AppointmentConflict } from "../api/appointments";
+import { referralErrorMessage, updateReferralAppointment } from "../api/referrals";
 
-function ConflictCard({ appointment }: { appointment: AppointmentConflict }) {
+function ConflictCard({ appointment, userId }: { appointment: AppointmentConflict; userId: string }) {
+  const { getAccessTokenSilently } = useAuth0();
+  const queryClient = useQueryClient();
+  const cancel = useMutation({
+    mutationFn: async () => {
+      const token = await getAccessTokenSilently();
+      if (!token) throw new Error("Unable to verify your session. Sign in again.");
+      await updateReferralAppointment(token, appointment.publicId, "cancel");
+    },
+    retry: false,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["appointment-attention", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["provider-calendar", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["provider-availability", userId] }),
+      ]);
+    },
+  });
   const timeZone = appointment.timeZoneId ?? "UTC";
   const start = new Date(appointment.startUtc);
   const date = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone });
@@ -25,7 +43,7 @@ function ConflictCard({ appointment }: { appointment: AppointmentConflict }) {
         {" "}({timeZone})
       </p>
       <p className="text-sm text-subtle">{appointment.providerName} · {appointment.clinicName}</p>
-      {appointment.referralPublicId && (
+      {appointment.referralPublicId ? (
         <Link
           className="workspace-button"
           to={{
@@ -35,6 +53,20 @@ function ConflictCard({ appointment }: { appointment: AppointmentConflict }) {
         >
           Open referral
         </Link>
+      ) : (
+        <button
+          type="button"
+          data-variant="danger"
+          disabled={cancel.isPending || cancel.isSuccess}
+          onClick={() => {
+            if (window.confirm("Cancel this appointment and release its time slot?")) cancel.mutate();
+          }}
+        >
+          {cancel.isPending ? "Canceling…" : cancel.isSuccess ? "Appointment canceled" : "Cancel appointment"}
+        </button>
+      )}
+      {cancel.isError && (
+        <p role="alert">{referralErrorMessage(cancel.error, "Unable to cancel the appointment. Refresh before trying again.")}</p>
       )}
     </li>
   );
@@ -74,7 +106,7 @@ export default function AppointmentAttentionPage() {
         <p className="text-sm text-subtle">No confirmed appointments overlap provider time off.</p>
       ) : (
         <ul className="space-y-3" aria-label="Appointments that need attention">
-          {queue.data.map((appointment) => <ConflictCard key={appointment.publicId} appointment={appointment} />)}
+          {queue.data.map((appointment) => <ConflictCard key={appointment.publicId} appointment={appointment} userId={userId} />)}
         </ul>
       )}
     </section>
