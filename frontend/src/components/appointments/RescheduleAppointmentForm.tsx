@@ -6,6 +6,8 @@ import { getReferralAvailability } from "../../api/referrals";
 import { appointmentWriteKey, refreshAppointmentViews } from "./appointmentQueries";
 import { addCalendarDays, dateInTimeZone } from "./clinicDates";
 
+type SlotSelection = { startUtc: string; expectedStartUtc: string };
+
 export default function RescheduleAppointmentForm({
   appointment, userId, timeZone, onClose, onSaved,
 }: {
@@ -19,7 +21,9 @@ export default function RescheduleAppointmentForm({
   const queryClient = useQueryClient();
   const [today, setToday] = useState(() => dateInTimeZone(new Date(), timeZone));
   const [date, setDate] = useState(() => dateInTimeZone(new Date(appointment.startUtc), timeZone));
-  const [selectedStart, setSelectedStart] = useState("");
+  const [selection, setSelection] = useState<SlotSelection | null>(null);
+  const selectionOutdated = selection !== null && selection.expectedStartUtc !== appointment.startUtc;
+  const selectedStart = selectionOutdated ? "" : selection?.startUtc ?? "";
   const lastDay = addCalendarDays(today, 30);
   const validDate = date >= today && date <= lastDay;
   const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
@@ -56,8 +60,8 @@ export default function RescheduleAppointmentForm({
   const writing = useIsMutating({ mutationKey }) > 0;
   const change = useMutation({
     mutationKey,
-    mutationFn: async () => rescheduleAppointment(
-      appointment.publicId, await getToken(), appointment.startUtc, selectedStart,
+    mutationFn: async ({ expectedStartUtc, startUtc }: SlotSelection) => rescheduleAppointment(
+      appointment.publicId, await getToken(), expectedStartUtc, startUtc,
     ),
     retry: false,
     onSuccess: async () => {
@@ -66,7 +70,7 @@ export default function RescheduleAppointmentForm({
     },
     onError: async (error) => {
       if (error instanceof AppointmentRequestError && [400, 404, 409].includes(error.status)) {
-        setSelectedStart("");
+        setSelection(null);
         await refreshAppointmentViews(queryClient, userId, appointment.publicId);
       }
     },
@@ -74,14 +78,14 @@ export default function RescheduleAppointmentForm({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSave || writing) return;
+    if (!selection || !canSave || writing) return;
     const currentDay = dateInTimeZone(new Date(), timeZone);
     if (currentDay !== today) {
-      setSelectedStart("");
+      setSelection(null);
       setToday(currentDay);
       return;
     }
-    change.mutate();
+    change.mutate(selection);
   }
 
   return (
@@ -100,7 +104,7 @@ export default function RescheduleAppointmentForm({
             required
             onChange={(event) => {
               setDate(event.target.value);
-              setSelectedStart("");
+              setSelection(null);
               change.reset();
             }}
           />
@@ -125,7 +129,9 @@ export default function RescheduleAppointmentForm({
               value={slots.some((slot) => slot.startUtc === selectedStart) ? selectedStart : ""}
               required
               onChange={(event) => {
-                setSelectedStart(event.target.value);
+                setSelection(event.target.value
+                  ? { startUtc: event.target.value, expectedStartUtc: appointment.startUtc }
+                  : null);
                 change.reset();
               }}
             >
@@ -145,6 +151,7 @@ export default function RescheduleAppointmentForm({
           <button type="button" data-variant="secondary" onClick={onClose}>Close reschedule form</button>
         </div>
       </fieldset>
+      {selectionOutdated && <p role="status">The appointment time changed. Choose a new time again.</p>}
       {change.isError && <p role="alert">{change.error.message}</p>}
     </form>
   );

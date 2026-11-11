@@ -344,7 +344,10 @@ public static class AppointmentEndpoints
 
         try
         {
-            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            // Keep the clinic time zone and eligibility stable until the move commits.
+            await using var transaction = await db.Database.BeginTransactionAsync(
+                IsolationLevel.RepeatableRead, cancellationToken
+            );
 
             // Use the same lock order as booking and cancellation.
             if (target.ReferralPublicId is Guid referralPublicId
@@ -395,6 +398,7 @@ public static class AppointmentEndpoints
                 return Results.Conflict(new { message = "Set the clinic's time zone before rescheduling." });
             }
 
+            now = clock.GetUtcNow();
             var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(start, timeZone).DateTime);
             if (start <= now || !AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
             {
@@ -415,6 +419,18 @@ public static class AppointmentEndpoints
                     cancellationToken))
             {
                 return PatientConflict();
+            }
+
+            // Time can pass while the availability and patient-conflict queries are running.
+            now = clock.GetUtcNow();
+            if (appointment.StartUtc <= now)
+            {
+                return Results.Conflict(new { message = "Only upcoming confirmed appointments can be rescheduled." });
+            }
+
+            if (start <= now || !AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
+            {
+                return Results.BadRequest(new { message = "Choose a future slot within 30 days." });
             }
 
             appointment.StartUtc = start;

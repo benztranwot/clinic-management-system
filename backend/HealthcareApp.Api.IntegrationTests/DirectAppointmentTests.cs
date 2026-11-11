@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -37,12 +38,13 @@ public class DirectAppointmentTests
         var now = new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero);
         var start = new DateTimeOffset(2030, 1, 7, 14, 0, 0, TimeSpan.Zero);
 
+        var clock = new TestClock(now);
         using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
         await using var signedFactory = tokens.CreateFactory(factory);
         await using var configuredFactory = signedFactory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
-                services.AddSingleton<TimeProvider>(new FixedClock(now))
+                services.AddSingleton<TimeProvider>(clock)
             )
         );
         using var client = configuredFactory.CreateClient();
@@ -224,6 +226,13 @@ public class DirectAppointmentTests
             var beforeMove = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/needs-attention");
             Assert.Equal(saved.PublicId, Assert.Single(beforeMove.EnumerateArray()).GetProperty("publicId").GetGuid());
 
+            // The original visit starts after availability is checked and before the update.
+            clock.EnqueueReads(now, now, start);
+            using var startedDuringReschedule = await client.PutAsJsonAsync(rescheduleUrl, move);
+            Assert.Equal(HttpStatusCode.Conflict, startedDuringReschedule.StatusCode);
+            var afterStartedConflict = await client.GetFromJsonAsync<JsonElement>(bookingUrl);
+            Assert.Equal(start, afterStartedConflict.GetProperty("startUtc").GetDateTimeOffset());
+
             using var moved = await client.PutAsJsonAsync(rescheduleUrl, move);
             Assert.Equal(HttpStatusCode.NoContent, moved.StatusCode);
             using var retry = await client.PutAsJsonAsync(rescheduleUrl, move);
@@ -264,8 +273,18 @@ public class DirectAppointmentTests
         Assert.Equal(code, body.GetProperty("code").GetString());
     }
 
-    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    private sealed class TestClock(DateTimeOffset now) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => now;
+        private readonly ConcurrentQueue<DateTimeOffset> reads = new();
+
+        public void EnqueueReads(params DateTimeOffset[] values)
+        {
+            foreach (var value in values)
+            {
+                reads.Enqueue(value);
+            }
+        }
+
+        public override DateTimeOffset GetUtcNow() => reads.TryDequeue(out var value) ? value : now;
     }
 }

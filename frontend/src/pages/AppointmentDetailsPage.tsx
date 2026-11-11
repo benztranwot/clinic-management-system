@@ -56,7 +56,14 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
         )}
       </div>
       {details.isPending && <p role="status">Loading appointment…</p>}
-      {details.isError && <p role="alert">{details.error.message}</p>}
+      {details.isError && (
+        <div className="space-y-2">
+          <p role="alert">{details.error.message}</p>
+          <button type="button" data-variant="secondary" disabled={details.isFetching} onClick={() => void details.refetch()}>
+            {details.isFetching ? "Retrying…" : "Try again"}
+          </button>
+        </div>
+      )}
       {appointment && <AppointmentInformation appointment={appointment} userId={userId} />}
     </>
   );
