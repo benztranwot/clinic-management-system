@@ -1,5 +1,5 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import ReferralAccountFeedback from "../components/referrals/ReferralAccountFeedback";
 import ReferralCreateForm from "../components/referrals/ReferralCreateForm";
 import { useReferralAccount } from "../components/referrals/useReferralAccount";
@@ -17,8 +17,7 @@ export default function NewReferralPage() {
   const { user } = useAuth0();
 
   return (
-    <section className="workspace-panel space-y-3" aria-labelledby="new-referral-heading">
-      <Link to="/referrals" className="workspace-link text-sm">Back to referrals</Link>
+    <section className="workspace-panel mx-auto w-full max-w-2xl space-y-3" aria-labelledby="new-referral-heading">
       <h1 id="new-referral-heading" className="page-title">New referral</h1>
       {user?.sub
         ? <NewReferralContent key={user.sub} userId={user.sub} />
