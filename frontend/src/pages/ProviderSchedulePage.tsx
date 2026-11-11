@@ -155,6 +155,8 @@ function ProviderCalendarView({ userId }: { userId: string }) {
         queryClient.invalidateQueries({ queryKey }),
         queryClient.invalidateQueries({ queryKey: ["provider-availability", userId] }),
         queryClient.invalidateQueries({ queryKey: ["appointment-attention", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["upcoming-appointments", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["appointment", userId] }),
       ]);
     },
   });

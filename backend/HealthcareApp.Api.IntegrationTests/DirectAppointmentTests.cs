@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -37,12 +38,13 @@ public class DirectAppointmentTests
         var now = new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero);
         var start = new DateTimeOffset(2030, 1, 7, 14, 0, 0, TimeSpan.Zero);
 
+        var clock = new TestClock(now);
         using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
         await using var signedFactory = tokens.CreateFactory(factory);
         await using var configuredFactory = signedFactory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
-                services.AddSingleton<TimeProvider>(new FixedClock(now))
+                services.AddSingleton<TimeProvider>(clock)
             )
         );
         using var client = configuredFactory.CreateClient();
@@ -178,6 +180,11 @@ public class DirectAppointmentTests
 
             var detail = await client.GetFromJsonAsync<JsonElement>(bookingUrl);
             Assert.Equal(winningPatient, detail.GetProperty("patientPublicId").GetGuid());
+            Assert.True(detail.GetProperty("canCancel").GetBoolean());
+            Assert.False(detail.GetProperty("overlapsProviderTimeOff").GetBoolean());
+            var upcoming = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/upcoming");
+            Assert.Equal(body.GetProperty("publicId").GetGuid(),
+                Assert.Single(upcoming.EnumerateArray()).GetProperty("publicId").GetGuid());
 
             tokens.AuthorizeSubject(client, "auth0|unlinked-booking-account");
             using var hidden = await client.GetAsync(bookingUrl);
@@ -187,6 +194,71 @@ public class DirectAppointmentTests
             Assert.Equal(staff.Id, saved.BookedByAppAccountId);
             Assert.Null(saved.ReferralId);
             Assert.Equal(start, saved.StartUtc);
+
+            var rescheduleUrl = bookingUrl + "/reschedule";
+            var move = new RescheduleAppointmentRequest(StartUtc, "2030-01-07T15:00:00Z");
+
+            tokens.AuthorizeSubject(client, clinicianSubject);
+            var clinicianDetail = await client.GetFromJsonAsync<JsonElement>(bookingUrl);
+            Assert.False(clinicianDetail.GetProperty("canCancel").GetBoolean());
+            using var deniedUpcoming = await client.GetAsync(AppointmentsUrl + "/upcoming");
+            Assert.Equal(HttpStatusCode.Forbidden, deniedUpcoming.StatusCode);
+            using var deniedMove = await client.PutAsJsonAsync(rescheduleUrl, move);
+            Assert.Equal(HttpStatusCode.NotFound, deniedMove.StatusCode);
+
+            db.ProviderTimeOff.Add(new ProviderTimeOff
+            {
+                ProviderId = provider.Id, StartUtc = start, EndUtc = start.AddMinutes(30),
+            });
+            await db.SaveChangesAsync();
+
+            tokens.AuthorizeSubject(client, subject);
+            using var blockedMove = await client.PutAsJsonAsync(
+                rescheduleUrl, move with { StartUtc = "2030-01-07T14:30:00Z" }
+            );
+            await AssertConflictAsync(blockedMove, "slot_unavailable");
+            var afterConflict = await client.GetFromJsonAsync<JsonElement>(bookingUrl);
+            Assert.Equal(start, afterConflict.GetProperty("startUtc").GetDateTimeOffset());
+            Assert.True(afterConflict.GetProperty("canReschedule").GetBoolean());
+            Assert.True(afterConflict.GetProperty("overlapsProviderTimeOff").GetBoolean());
+            upcoming = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/upcoming");
+            Assert.Empty(upcoming.EnumerateArray());
+            var beforeMove = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/needs-attention");
+            Assert.Equal(saved.PublicId, Assert.Single(beforeMove.EnumerateArray()).GetProperty("publicId").GetGuid());
+
+            // The original visit starts after availability is checked and before the update.
+            clock.EnqueueReads(now, now, start);
+            using var startedDuringReschedule = await client.PutAsJsonAsync(rescheduleUrl, move);
+            Assert.Equal(HttpStatusCode.Conflict, startedDuringReschedule.StatusCode);
+            var afterStartedConflict = await client.GetFromJsonAsync<JsonElement>(bookingUrl);
+            Assert.Equal(start, afterStartedConflict.GetProperty("startUtc").GetDateTimeOffset());
+
+            using var moved = await client.PutAsJsonAsync(rescheduleUrl, move);
+            Assert.Equal(HttpStatusCode.NoContent, moved.StatusCode);
+            using var retry = await client.PutAsJsonAsync(rescheduleUrl, move);
+            Assert.Equal(HttpStatusCode.NoContent, retry.StatusCode);
+
+            using var stale = await client.PutAsJsonAsync(
+                rescheduleUrl, move with { StartUtc = "2030-01-07T15:30:00Z" }
+            );
+            await AssertConflictAsync(stale, "appointment_changed");
+
+            var updated = Assert.Single(await db.Appointments.AsNoTracking().ToListAsync());
+            Assert.Equal(saved.PublicId, updated.PublicId);
+            Assert.Equal(saved.ProviderId, updated.ProviderId);
+            Assert.Equal(start.AddHours(1), updated.StartUtc);
+            var afterMove = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/needs-attention");
+            Assert.Empty(afterMove.EnumerateArray());
+
+            upcoming = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/upcoming");
+            Assert.Equal(saved.PublicId, Assert.Single(upcoming.EnumerateArray()).GetProperty("publicId").GetGuid());
+            using var cancelled = await client.PostAsync(bookingUrl + "/cancel", null);
+            Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+            var cancelledDetail = await client.GetFromJsonAsync<JsonElement>(bookingUrl);
+            Assert.Equal("Cancelled", cancelledDetail.GetProperty("status").GetString());
+            Assert.False(cancelledDetail.GetProperty("canCancel").GetBoolean());
+            upcoming = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/upcoming");
+            Assert.Empty(upcoming.EnumerateArray());
         }
         finally
         {
@@ -201,8 +273,18 @@ public class DirectAppointmentTests
         Assert.Equal(code, body.GetProperty("code").GetString());
     }
 
-    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    private sealed class TestClock(DateTimeOffset now) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => now;
+        private readonly ConcurrentQueue<DateTimeOffset> reads = new();
+
+        public void EnqueueReads(params DateTimeOffset[] values)
+        {
+            foreach (var value in values)
+            {
+                reads.Enqueue(value);
+            }
+        }
+
+        public override DateTimeOffset GetUtcNow() => reads.TryDequeue(out var value) ? value : now;
     }
 }

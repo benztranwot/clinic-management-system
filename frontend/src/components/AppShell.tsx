@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink } from "react-router";
+import { appointmentLists } from "./appointments/appointmentLists";
+import { useAppointmentAttention } from "./appointments/useAppointmentAttention";
 import { useReferralAccount } from "./referrals/useReferralAccount";
 
 type Theme = "system" | "light" | "dark";
@@ -41,11 +43,27 @@ function SchedulingLinks({ userId }: { userId: string }) {
   const account = data?.account;
   const isClinician = account?.memberships.some(({ role }) => role === "Clinician");
   const canSchedule = account?.isAdministrator || account?.memberships.some(({ role }) => role === "FrontDesk");
+  const attention = useAppointmentAttention(canSchedule ? userId : undefined);
 
   return (
     <>
       {account?.providerPublicId && isClinician && <NavLink to="/my-schedule">My schedule</NavLink>}
-      {canSchedule && <NavLink to="/appointments/needs-attention">Needs attention</NavLink>}
+      {canSchedule && (
+        <>
+          <NavLink to={appointmentLists.upcoming.path}>{appointmentLists.upcoming.title}</NavLink>
+          <NavLink to={appointmentLists.conflicts.path} className="workspace-nav-count">
+            <span>{appointmentLists.conflicts.title}</span>
+            {attention.isSuccess && (
+              <>
+                <span aria-hidden="true" className="rounded-full bg-[var(--muted)] px-2 text-xs tabular-nums">
+                  {attention.data.length}
+                </span>
+                <span className="sr-only">{attention.data.length} appointments with availability conflicts</span>
+              </>
+            )}
+          </NavLink>
+        </>
+      )}
     </>
   );
 }
@@ -60,7 +78,7 @@ type AppShellProps = {
 
 export default function AppShell({ accountName, userId, signingOut, onSignOut, children }: AppShellProps) {
   return (
-    <div className={accountName ? "app workspace" : "app"}>
+    <div className={accountName ? "app workspace" : "app guest"}>
       <a href="#main-content" className="skip-link">Skip to content</a>
       <header className="workspace-header">
         <div className="workspace-brand">

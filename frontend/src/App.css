@@ -4,9 +4,21 @@
   min-height: 100dvh;
 }
 
+.guest .workspace-header {
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+.guest .workspace-main {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding-block: 6rem;
+}
+
 .workspace {
   display: grid;
-  grid-template-columns: 12rem minmax(0, 1fr);
+  grid-template-columns: 15rem minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   grid-template-areas: "header header" "navigation content";
 }
@@ -65,6 +77,13 @@
   padding: 0.625rem 0.875rem;
   border-radius: 0.5rem;
   font-weight: 500;
+}
+
+.workspace-nav-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
 }
 
 .workspace-nav a:hover, .workspace-nav a[aria-current="page"] {

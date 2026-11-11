@@ -238,13 +238,3 @@ export async function bookReferralAppointment(
     body: { providerPublicId, startUtc },
   });
 }
-
-export async function updateReferralAppointment(
-  accessToken: string,
-  appointmentId: string,
-  action: "cancel" | "complete",
-): Promise<void> {
-  await referralRequest("/api/appointments/" + encodeURIComponent(appointmentId) + "/" + action, accessToken, {
-    method: "POST",
-  });
-}

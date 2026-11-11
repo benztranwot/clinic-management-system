@@ -15,12 +15,11 @@ import { useReferralAccount } from "../components/referrals/useReferralAccount";
 
 const stageFilters = ["PendingReview", "ReadyToSchedule", "Scheduled", "Closed"] as const;
 
-function ReferralQueue({ userId, clinicId, frontDesk }: { userId: string; clinicId?: string; frontDesk: boolean }) {
+function ReferralQueue({ userId, clinicId }: { userId: string; clinicId?: string }) {
   const { getAccessTokenSilently } = useAuth0();
   const [params, setParams] = useSearchParams();
   const filter = params.get("stage");
-  const stage = stageFilters.find((value) => value === filter) ??
-    (filter === "all" ? "all" : frontDesk ? "ReadyToSchedule" : "all");
+  const stage = stageFilters.find((value) => value === filter) ?? "all";
 
   const query = useQuery({
     queryKey: ["referrals", userId, clinicId ?? "all"],
@@ -118,11 +117,10 @@ function StaffQueue({ userId, account }: { userId: string; account: ReferralAcco
   const [selectedClinic, setSelectedClinic] = useState("");
   const activeClinic = clinics.find(([id]) => id === selectedClinic) ?? clinics[0];
 
-  if (account.isAdministrator) return <ReferralQueue userId={userId} frontDesk={false} />;
+  if (account.isAdministrator) return <ReferralQueue userId={userId} />;
   if (!activeClinic) return <p>Your account has no staff clinic membership.</p>;
 
   const [clinicId, clinicName] = activeClinic;
-  const frontDesk = account.memberships.some(({ clinicPublicId, role }) => clinicPublicId === clinicId && role === "FrontDesk");
   return (
     <>
       {clinics.length === 1 ? (
@@ -135,7 +133,7 @@ function StaffQueue({ userId, account }: { userId: string; account: ReferralAcco
           </select>
         </label>
       )}
-      <ReferralQueue userId={userId} clinicId={clinicId} frontDesk={frontDesk} />
+      <ReferralQueue userId={userId} clinicId={clinicId} />
     </>
   );
 }
