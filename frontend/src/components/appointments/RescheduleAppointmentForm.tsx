@@ -5,6 +5,7 @@ import { AppointmentRequestError, rescheduleAppointment, type AppointmentDetails
 import { getReferralAvailability } from "../../api/referrals";
 import { appointmentWriteKey, refreshAppointmentViews } from "./appointmentQueries";
 import { addCalendarDays, dateInTimeZone } from "./clinicDates";
+import { ActionIcon } from "../ActionIcon";
 
 type SlotSelection = { startUtc: string; expectedStartUtc: string };
 
@@ -20,12 +21,16 @@ export default function RescheduleAppointmentForm({
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
   const [today, setToday] = useState(() => dateInTimeZone(new Date(), timeZone));
-  const [date, setDate] = useState(() => dateInTimeZone(new Date(appointment.startUtc), timeZone));
+  const [date, setDate] = useState(() => {
+    const originalDate = dateInTimeZone(new Date(appointment.startUtc), timeZone);
+    return originalDate > today && originalDate <= addCalendarDays(today, 30) ? originalDate : "";
+  });
   const [selection, setSelection] = useState<SlotSelection | null>(null);
   const selectionOutdated = selection !== null && selection.expectedStartUtc !== appointment.startUtc;
   const selectedStart = selectionOutdated ? "" : selection?.startUtc ?? "";
+  const firstDay = addCalendarDays(today, 1);
   const lastDay = addCalendarDays(today, 30);
-  const validDate = date >= today && date <= lastDay;
+  const validDate = date >= firstDay && date <= lastDay;
   const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
 
   useEffect(() => {
@@ -97,7 +102,7 @@ export default function RescheduleAppointmentForm({
           New appointment date
           <input
             type="date"
-            min={today}
+            min={firstDay}
             max={lastDay}
             value={date}
             className="mt-1 block rounded-md border border-field-border px-3 py-2"
@@ -109,12 +114,13 @@ export default function RescheduleAppointmentForm({
             }}
           />
         </label>
-        {date && !validDate && <p role="alert">Choose a date from today through 30 days ahead.</p>}
+        {date && !validDate && <p role="alert">Choose a date from tomorrow through 30 days ahead in the clinic’s time zone.</p>}
         {validDate && availability.isPending && <p role="status">Checking available times…</p>}
         {validDate && availability.isError && (
           <div className="space-y-2">
             <p role="alert">{availability.error.message}</p>
             <button type="button" data-variant="secondary" disabled={availability.isFetching} onClick={() => void availability.refetch()}>
+              <ActionIcon name="refresh" />
               Retry available times
             </button>
           </div>
@@ -146,9 +152,10 @@ export default function RescheduleAppointmentForm({
         ))}
         <div className="flex flex-wrap gap-2">
           <button type="submit" disabled={!canSave || writing}>
+            <ActionIcon name="save" />
             {change.isPending ? "Saving…" : "Save new time"}
           </button>
-          <button type="button" data-variant="secondary" onClick={onClose}>Close reschedule form</button>
+          <button type="button" data-variant="secondary" onClick={onClose}><ActionIcon name="close" />Close reschedule form</button>
         </div>
       </fieldset>
       {selectionOutdated && <p role="status">The appointment time changed. Choose a new time again.</p>}

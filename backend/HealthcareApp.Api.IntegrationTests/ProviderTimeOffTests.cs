@@ -46,7 +46,11 @@ public class ProviderTimeOffTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Time Off Test Clinic", TimeZoneId = "America/Chicago" };
+            var clinic = new Clinic
+            {
+                Name = "Time Off Test Clinic", TimeZoneId = "America/Chicago",
+                Address = "100 Test Avenue",
+            };
             db.Clinics.Add(clinic);
             await db.SaveChangesAsync();
 

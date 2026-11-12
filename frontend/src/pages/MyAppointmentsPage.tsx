@@ -1,6 +1,7 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { AppointmentRequestError, getMyAppointments, type PatientAppointment } from "../api/appointments";
+import { ActionIcon } from "../components/ActionIcon";
 
 function AppointmentCard({ appointment }: { appointment: PatientAppointment }) {
   const timeZone = appointment.timeZoneId ?? "UTC";
@@ -47,6 +48,7 @@ export default function MyAppointmentsPage({ userId }: { userId?: string }) {
         <h1 id="my-appointments-heading" className="page-title">My appointments</h1>
         {userId && !forbidden && (
           <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>
+            <ActionIcon name="refresh" />
             {query.isFetching ? "Refreshing…" : "Refresh"}
           </button>
         )}

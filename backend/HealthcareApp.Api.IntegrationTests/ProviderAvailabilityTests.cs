@@ -28,7 +28,7 @@ public class ProviderAvailabilityTests
     public async Task GetAvailability_FiltersLunchTimeOffBookingsAndWeekends()
     {
         const string subject = "auth0|availability-front-desk";
-        var now = new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero);
+        var now = new DateTimeOffset(2030, 1, 7, 5, 30, 0, TimeSpan.Zero);
         var firstStart = new DateTimeOffset(2030, 1, 7, 14, 0, 0, TimeSpan.Zero);
 
         using var tokens = new TestJwtIssuer();
@@ -51,10 +51,15 @@ public class ProviderAvailabilityTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Calendar Test Clinic", TimeZoneId = "America/Chicago" };
+            var clinic = new Clinic
+            {
+                Name = "Calendar Test Clinic", TimeZoneId = "America/Chicago",
+                Address = "100 Test Avenue",
+            };
             var otherClinic = new Clinic
             {
                 Name = "Other Calendar Test Clinic", TimeZoneId = "America/Chicago",
+                Address = "100 Test Avenue",
             };
             var staff = new AppAccount { Issuer = TestJwtIssuer.Issuer, Subject = subject };
             var patient = new Patient
@@ -95,6 +100,10 @@ public class ProviderAvailabilityTests
             tokens.AuthorizeSubject(client, subject);
             var url = $"/api/providers/{provider.PublicId}/availability";
             var weekdayUrl = $"{url}?date=2030-01-07";
+
+            // It is January 7 in UTC, but still January 6 at this clinic.
+            using var sameDay = await client.GetAsync($"{url}?date=2030-01-06");
+            Assert.Equal(HttpStatusCode.BadRequest, sameDay.StatusCode);
 
             using var invalidDate = await client.GetAsync($"{url}?date=2030-02-07");
             Assert.Equal(HttpStatusCode.BadRequest, invalidDate.StatusCode);

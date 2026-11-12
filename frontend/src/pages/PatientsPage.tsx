@@ -2,9 +2,14 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import { getPatients, PatientRequestError } from "../api/patients";
+import WorkspaceTable from "../components/WorkspaceTable";
 import PatientForm from "../components/patients/PatientForm";
+import { ActionIcon } from "../components/ActionIcon";
 
-function PatientList({ userId }: { userId: string }) {
+const birthDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" });
+
+function PatientList({ userId, create }: { userId: string; create: boolean }) {
+  const navigate = useNavigate();
   const { getAccessTokenSilently } = useAuth0();
   const query = useQuery({
     // Isolate each user's records and cancel requests when this page unmounts.
@@ -60,6 +65,7 @@ function PatientList({ userId }: { userId: string }) {
           disabled={query.isFetching}
           onClick={() => void query.refetch()}
         >
+          <ActionIcon name="refresh" />
           {query.isFetching ? "Trying again…" : "Try again"}
         </button>
       </div>
@@ -68,42 +74,56 @@ function PatientList({ userId }: { userId: string }) {
 
   const { patients, canManage } = query.data;
 
+  if (create) {
+    return canManage ? (
+      <PatientForm userId={userId}
+          onCancel={() => void navigate("/patients")}
+          onSaved={() => void navigate("/patients", { replace: true, state: { patientCreated: true } })} />
+    ) : <p role="alert">Your account doesn’t have permission to create patients.</p>;
+  }
+
   return (
     <>
-      {canManage && <PatientForm userId={userId} />}
+      <div className="page-heading">
+        <h1 id="patients-heading" className="page-title">Patients</h1>
+        {canManage && <Link className="workspace-button" to="/patients/new"><ActionIcon name="plus" />Register patient</Link>}
+      </div>
       {patients.length === 0 ? (
-        <p className="mt-3 text-slate-600">No patients found.</p>
+        <p className="queue-empty">No patients found.</p>
       ) : (
-        <ul className="mt-3 divide-y divide-slate-200" aria-label="Patients">
+        <WorkspaceTable label="Patients" columns={["Last name", "First name", "Date of birth"]}>
           {patients.map((patient) => (
-            <li key={patient.publicId} className="py-3 font-medium break-words">
-              <Link
-                to={`/patients/${patient.publicId}`}
-                className="text-blue-700 underline"
-              >
-                {patient.lastName}, {patient.firstName}
-              </Link>
-            </li>
+            <tr key={patient.publicId} className="workspace-action-row">
+              <td>
+                <Link className="workspace-row-action"
+                  aria-label={"View patient: " + patient.firstName + " " + patient.lastName}
+                  to={"/patients/" + patient.publicId}>
+                  {patient.lastName}
+                </Link>
+              </td>
+              <td>{patient.firstName}</td>
+              <td>
+                <time dateTime={patient.dateOfBirth}>
+                  {birthDateFormat.format(new Date(patient.dateOfBirth + "T00:00:00Z"))}
+                </time>
+              </td>
+            </tr>
           ))}
-        </ul>
+        </WorkspaceTable>
       )}
     </>
   );
 }
 
-function PatientsPage() {
+function PatientsPage({ create = false }: { create?: boolean }) {
   const { user } = useAuth0();
   const { state } = useLocation();
   const navigate = useNavigate();
 
   return (
-    <section
-      aria-labelledby="patients-heading"
-      className="mt-8 rounded-lg border border-slate-200 bg-white p-6"
-    >
-      <h2 id="patients-heading" className="text-xl font-semibold text-slate-900">
-        Patients
-      </h2>
+    <section aria-label="Patients" className="workspace-panel mx-auto w-full max-w-4xl space-y-4">
+      {create && <h1 className="page-title">Register patient</h1>}
+      {!create && state?.patientCreated === true && <p role="status">Patient registered.</p>}
       {state?.patientDeleted === true && (
         <div className="mt-3 flex items-center gap-3">
           <p role="status">Patient deleted.</p>
@@ -112,12 +132,13 @@ function PatientsPage() {
             aria-label="Dismiss patient deleted message"
             onClick={() => void navigate("/patients", { replace: true, state: null })}
           >
+            <ActionIcon name="close" />
             Dismiss
           </button>
         </div>
       )}
       {user?.sub ? (
-        <PatientList userId={user.sub} />
+        <PatientList userId={user.sub} create={create} />
       ) : (
         <p className="mt-3" role="alert">
           We couldn’t identify your session. Sign out and sign back in.

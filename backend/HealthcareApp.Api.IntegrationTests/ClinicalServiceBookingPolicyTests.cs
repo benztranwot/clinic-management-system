@@ -43,8 +43,18 @@ public class ClinicalServiceBookingPolicyTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Booking Test Clinic" };
-            var otherClinic = new Clinic { Name = "Other Booking Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Booking Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
+            var otherClinic = new Clinic
+            {
+                Name = "Other Booking Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             db.Clinics.AddRange(clinic, otherClinic);
             await db.SaveChangesAsync();
 

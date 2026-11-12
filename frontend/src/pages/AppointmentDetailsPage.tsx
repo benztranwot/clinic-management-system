@@ -7,6 +7,7 @@ import CancelAppointmentButton from "../components/appointments/CancelAppointmen
 import RescheduleAppointmentForm from "../components/appointments/RescheduleAppointmentForm";
 import { appointmentLists } from "../components/appointments/appointmentLists";
 import { appointmentWriteKey } from "../components/appointments/appointmentQueries";
+import { ActionIcon } from "../components/ActionIcon";
 
 function AppointmentRecord({ publicId, userId }: { publicId: string; userId: string }) {
   const { getAccessTokenSilently } = useAuth0();
@@ -29,22 +30,23 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
   const backToReferral = location.state?.fromReferral === true && referralLink;
   const originList = location.state?.appointmentList;
   const fromConflicts = originList === "conflicts"
-    || (originList !== "upcoming" && appointment?.overlapsProviderTimeOff);
+    || (originList !== "upcoming" && !location.search && appointment?.overlapsProviderTimeOff);
   const backList = fromConflicts ? appointmentLists.conflicts : appointmentLists.upcoming;
+  const backSearch = fromConflicts ? "" : location.search;
+  const backState = originList === "upcoming" && location.state?.filterOwner === userId
+    ? { patientFilter: location.state.patientFilter, filterOwner: userId }
+    : undefined;
 
   return (
     <>
       <div className="page-heading">
-        <Link to={backToReferral || backList.path} className="workspace-button" data-variant="secondary">
-          <span className="flex items-center gap-2">
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5m7 7-7-7 7-7" />
-            </svg>
-            {backToReferral ? "Back to referral" : "Back to " + backList.title.toLowerCase()}
-          </span>
+        <Link to={backToReferral || { pathname: backList.path, search: backSearch }} state={backState} className="workspace-button" data-variant="secondary">
+          <ActionIcon name="back" />
+          {backToReferral ? "Back to referral" : "Back to " + backList.title.toLowerCase()}
         </Link>
         {referralLink && (
           <Link className="workspace-button ml-auto" to={referralLink}>
+            <ActionIcon name="eye" />
             View referral
           </Link>
         )}
@@ -60,6 +62,7 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
         <div className="space-y-2">
           <p role="alert">{details.error.message}</p>
           <button type="button" data-variant="secondary" disabled={details.isFetching} onClick={() => void details.refetch()}>
+            <ActionIcon name="refresh" />
             {details.isFetching ? "Retrying…" : "Try again"}
           </button>
         </div>
@@ -104,11 +107,12 @@ function AppointmentInformation({
             setNotice("");
             setRescheduling(true);
           }}>
+            <ActionIcon name="calendarClock" />
             Reschedule
           </button>
         )}
         <CancelAppointmentButton publicId={appointment.publicId} userId={userId} canCancel={appointment.canCancel} />
-        {appointment.status === "Confirmed" && <button type="button" disabled>Complete appointment</button>}
+        {appointment.status === "Confirmed" && <button type="button" disabled><ActionIcon name="check" />Complete appointment</button>}
       </div>
       {rescheduling && appointment.canReschedule && (
         <RescheduleAppointmentForm

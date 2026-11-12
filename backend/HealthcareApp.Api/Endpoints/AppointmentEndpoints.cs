@@ -18,6 +18,7 @@ public static class AppointmentEndpoints
         routes.MapPost("", BookDirectAsync);
         routes.MapGet("/needs-attention", GetNeedsAttentionAsync);
         routes.MapGet("/upcoming", GetUpcomingAsync);
+        routes.MapPost("/upcoming/search", SearchUpcomingAsync);
         routes.MapGet("/{publicId:guid}", GetByIdAsync);
         routes.MapPut("/{publicId:guid}/reschedule", RescheduleAsync);
         routes.MapPost("/{publicId:guid}/cancel", CancelAsync);
@@ -236,7 +237,7 @@ public static class AppointmentEndpoints
             var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(start, timeZone).DateTime);
             if (start <= now || !AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
             {
-                return Results.BadRequest(new { message = "Choose a future slot within 30 days." });
+                return Results.BadRequest(new { message = "Choose a slot from tomorrow through 30 days ahead in the clinic’s time zone." });
             }
 
             var slots = await AppointmentAvailability.FindAsync(
@@ -254,6 +255,12 @@ public static class AppointmentEndpoints
                     cancellationToken))
             {
                 return PatientConflict();
+            }
+
+            now = clock.GetUtcNow();
+            if (!AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
+            {
+                return Results.BadRequest(new { message = "Choose a slot from tomorrow through 30 days ahead in the clinic’s time zone." });
             }
 
             var booking = new Appointment
@@ -402,7 +409,7 @@ public static class AppointmentEndpoints
             var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(start, timeZone).DateTime);
             if (start <= now || !AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
             {
-                return Results.BadRequest(new { message = "Choose a future slot within 30 days." });
+                return Results.BadRequest(new { message = "Choose a slot from tomorrow through 30 days ahead in the clinic’s time zone." });
             }
 
             var slots = await AppointmentAvailability.FindAsync(
@@ -430,7 +437,7 @@ public static class AppointmentEndpoints
 
             if (start <= now || !AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
             {
-                return Results.BadRequest(new { message = "Choose a future slot within 30 days." });
+                return Results.BadRequest(new { message = "Choose a slot from tomorrow through 30 days ahead in the clinic’s time zone." });
             }
 
             appointment.StartUtc = start;
@@ -677,13 +684,23 @@ public static class AppointmentEndpoints
         CancellationToken cancellationToken
     ) => GetSchedulingAppointmentsAsync(user, http, db, clock, false, cancellationToken);
 
+    private static Task<IResult> SearchUpcomingAsync(
+        SearchUpcomingAppointmentsRequest request,
+        ClaimsPrincipal user,
+        HttpContext http,
+        HealthcareDbContext db,
+        TimeProvider clock,
+        CancellationToken cancellationToken
+    ) => GetSchedulingAppointmentsAsync(user, http, db, clock, false, cancellationToken, request);
+
     private static async Task<IResult> GetSchedulingAppointmentsAsync(
         ClaimsPrincipal user,
         HttpContext http,
         HealthcareDbContext db,
         TimeProvider clock,
         bool needsAttention,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        SearchUpcomingAppointmentsRequest? search = null
     )
     {
         var identity = AccountIdentity.FromPrincipal(user);
@@ -702,7 +719,7 @@ public static class AppointmentEndpoints
         // The attention queue includes conflicts for appointments still in progress.
         var now = clock.GetUtcNow();
         var earliestStart = needsAttention ? now.AddMinutes(-Appointment.DurationMinutes) : now;
-        var appointments = await (
+        var query =
             from row in WithTimeOffOverlap(db)
             let appointment = row.Appointment
             join patient in db.Patients on appointment.PatientId equals patient.Id
@@ -712,9 +729,9 @@ public static class AppointmentEndpoints
             where appointment.Status == AppointmentStatus.Confirmed
                 && appointment.StartUtc > earliestStart
                 && row.OverlapsProviderTimeOff == needsAttention
-            orderby appointment.StartUtc, appointment.Id
             select new
             {
+                appointment.Id,
                 appointment.PublicId,
                 appointment.StartUtc,
                 ClinicPublicId = clinic.PublicId,
@@ -725,11 +742,43 @@ public static class AppointmentEndpoints
                 ServiceName = service.Name,
                 ReferralPublicId = db.Referrals.Where(referral => referral.Id == appointment.ReferralId)
                     .Select(referral => (Guid?)referral.PublicId).FirstOrDefault(),
+            };
+
+        const int pageSize = 20;
+        if (search is not null)
+        {
+            if (search.Page < 1 || search.Page > int.MaxValue / pageSize
+                || search.FromUtc >= search.UntilUtc
+                || new[] { search.Clinic, search.Service, search.Provider, search.Patient }
+                    .Any(term => term?.Length > 200))
+            {
+                return Results.BadRequest(new { message = "Check the date range, search terms, and page number." });
             }
-        ).ToListAsync(cancellationToken);
+
+            if (search.Clinic?.Trim() is { Length: > 0 } clinic)
+                query = query.Where(item => item.ClinicName.Contains(clinic));
+            if (search.Service?.Trim() is { Length: > 0 } service)
+                query = query.Where(item => item.ServiceName.Contains(service));
+            if (search.Provider?.Trim() is { Length: > 0 } provider)
+                query = query.Where(item => item.ProviderName.Contains(provider));
+            if (search.Patient?.Trim() is { Length: > 0 } patient)
+                query = query.Where(item => item.PatientName.Contains(patient));
+            if (search.FromUtc is { } from)
+                query = query.Where(item => item.StartUtc >= from);
+            if (search.UntilUtc is { } until)
+                query = query.Where(item => item.StartUtc < until);
+        }
+
+        var ordered = search?.LatestFirst == true
+            ? query.OrderByDescending(item => item.StartUtc).ThenByDescending(item => item.Id)
+            : query.OrderBy(item => item.StartUtc).ThenBy(item => item.Id);
+
+        // Fetch one extra row to tell the caller whether there is another page.
+        var appointments = await (search is null ? ordered : ordered.Skip((search.Page - 1) * pageSize).Take(pageSize + 1))
+            .ToListAsync(cancellationToken);
 
         http.Response.Headers.CacheControl = "no-store";
-        return Results.Ok(appointments.Select(item => new
+        var items = appointments.Take(search is null ? appointments.Count : pageSize).Select(item => new
         {
             item.PublicId,
             item.StartUtc,
@@ -741,7 +790,12 @@ public static class AppointmentEndpoints
             item.ProviderName,
             item.ServiceName,
             item.ReferralPublicId,
-        }));
+        });
+
+        if (search is null)
+            return Results.Ok(items);
+
+        return Results.Ok(new { Items = items, HasMore = appointments.Count > pageSize });
     }
 
     private static IQueryable<AppointmentWithOverlap> WithTimeOffOverlap(HealthcareDbContext db) =>

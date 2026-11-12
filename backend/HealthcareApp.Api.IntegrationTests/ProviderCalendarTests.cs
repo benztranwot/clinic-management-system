@@ -35,9 +35,17 @@ public class ProviderCalendarTests
         try
         {
             await db.Database.MigrateAsync();
-            var clinic = new Clinic { Name = "Calendar Clinic", TimeZoneId = "America/Chicago" };
+            var clinic = new Clinic
+            {
+                Name = "Calendar Clinic", TimeZoneId = "America/Chicago",
+                Address = "100 Test Avenue",
+            };
             var patient = new Patient { FirstName = "Taylor", LastName = "Demo", DateOfBirth = new DateOnly(1990, 1, 1) };
-            var otherClinic = new Clinic { Name = "Other Calendar Clinic", TimeZoneId = "America/Chicago" };
+            var otherClinic = new Clinic
+            {
+                Name = "Other Calendar Clinic", TimeZoneId = "America/Chicago",
+                Address = "100 Test Avenue",
+            };
             db.AddRange(clinic, otherClinic, patient);
             await db.SaveChangesAsync();
 
@@ -172,11 +180,10 @@ public class ProviderCalendarTests
                 slot.GetProperty("startUtc").GetDateTimeOffset() == appointment.StartUtc);
             Assert.Equal(appointment.PublicId, today.GetProperty("appointments")[0].GetProperty("publicId").GetGuid());
 
-            var availability = await client.GetFromJsonAsync<JsonElement>(
+            // Today's open time still appears in the provider calendar, but cannot be booked.
+            using var availability = await client.GetAsync(
                 $"/api/providers/{provider.PublicId}/availability?date=2030-01-07");
-            Assert.Equal(7, availability.GetProperty("slots").GetArrayLength());
-            Assert.All(availability.GetProperty("slots").EnumerateArray(), slot =>
-                Assert.True(slot.GetProperty("startUtc").GetDateTimeOffset() > clock.Now));
+            Assert.Equal(HttpStatusCode.BadRequest, availability.StatusCode);
         }
         finally
         {

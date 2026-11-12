@@ -1,24 +1,25 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router";
 import { getProvider } from "../api/providers";
 import {
-  assignReferralProvider,
   getEligibleProviders,
   getReferral,
   referralErrorMessage,
   ReferralRequestError,
-  updateReferralStatus,
+  saveReferralUpdate,
+  type ReferralUpdate,
   type ReferralDetails,
   type ReferralStatus,
 } from "../api/referrals";
 import ReferralAppointmentPanel from "../components/referrals/ReferralAppointmentPanel";
 import ReferralStatusBadge from "../components/referrals/ReferralStatusBadge";
+import { useReferralAccount } from "../components/referrals/useReferralAccount";
+import { ActionIcon } from "../components/ActionIcon";
 
-type ReferralChange =
-  | { action: "assign"; providerPublicId: string }
-  | { action: "status"; status: ReferralStatus; note: string | null };
+type ReferralSnapshot = Pick<ReferralUpdate,
+  "expectedProviderPublicId" | "expectedStatus" | "expectedMissingInformationNote">;
 
 function ReferralRecord({
   userId,
@@ -33,7 +34,10 @@ function ReferralRecord({
 }) {
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
+  const { data: accountData } = useReferralAccount(userId);
+  const [snapshot, setSnapshot] = useState<ReferralSnapshot | null>(null);
   const [providerId, setProviderId] = useState("");
+  const [note, setNote] = useState("");
   const [status, setStatus] = useState<ReferralStatus | "">("");
   const [validationError, setValidationError] = useState("");
   const [notice, setNotice] = useState("");
@@ -59,7 +63,7 @@ function ReferralRecord({
 
   const eligible = useQuery({
     queryKey: eligibleKey,
-    enabled: canAssign,
+    enabled: canAssign && snapshot !== null,
     queryFn: async ({ signal }) => {
       const accessToken = await getAccessTokenSilently();
       if (!accessToken) throw new Error("Auth0 did not return an access token.");
@@ -69,21 +73,19 @@ function ReferralRecord({
   });
 
   const change = useMutation({
-    mutationFn: async (request: ReferralChange) => {
+    mutationFn: async (request: ReferralUpdate) => {
       const accessToken = await getAccessTokenSilently();
       if (!accessToken) throw new Error("Auth0 did not return an access token.");
-
-      if (request.action === "assign") {
-        await assignReferralProvider(accessToken, publicId, request.providerPublicId);
-      } else {
-        await updateReferralStatus(accessToken, publicId, request.status, request.note);
-      }
+      await saveReferralUpdate(accessToken, publicId, request);
     },
     retry: false,
-    onSuccess: async () => {
+    onSuccess: async (_, request) => {
+      setSnapshot(null);
+      setNotice(request.status === "Closed" ? "Referral closed." : "Referral updated.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: detailKey }),
         queryClient.invalidateQueries({ queryKey: ["referrals", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["my-referrals", userId] }),
       ]);
     },
     onError: async (error) => {
@@ -96,51 +98,67 @@ function ReferralRecord({
     },
   });
 
-  function clearChangeError(action: ReferralChange["action"]) {
-    if (change.isError && change.variables?.action === action) {
-      change.reset();
-    }
-  }
-
-  function submitChange(request: ReferralChange) {
-    if (change.isPending || appointmentWritePending || (request.action === "assign" ? !canAssign : !canReview)) return;
-
-    setNotice("");
-    setValidationError("");
-    change.mutate(request, {
-      onSuccess: () => {
-        if (request.action === "assign") {
-          setProviderId("");
-          setNotice("Receiving provider updated.");
-        } else {
-          setStatus("");
-          setNotice(request.status === "Closed" ? "Referral closed." : "Status updated.");
-        }
-      },
-    });
-  }
-
-  function handleStatus(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!status) return;
-
-    const note = status === "MissingInformation"
-      ? String(new FormData(event.currentTarget).get("note") ?? "").trim()
-      : null;
-
-    if (status === "MissingInformation" && !note) {
-      setValidationError("Enter a note explaining what information is missing.");
-      return;
-    }
-    if (status === "Closed" && !window.confirm("Close this referral? A closed referral cannot be reopened.")) return;
-    submitChange({ action: "status", status, note });
-  }
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const providerOptions = (eligible.data ?? []).filter(
     (provider) => provider.publicId !== referral.assignedProviderPublicId,
   );
   const selectedProvider = providerOptions.find((provider) => provider.publicId === providerId);
   const fieldClass = "mt-1 block w-full rounded-md border border-field-border px-3 py-2";
+  const stale = snapshot !== null && (
+    snapshot.expectedProviderPublicId !== referral.assignedProviderPublicId ||
+    snapshot.expectedStatus !== referral.status ||
+    snapshot.expectedMissingInformationNote !== referral.missingInformationNote
+  );
+  const providerChanged = canAssign && Boolean(selectedProvider);
+  const account = accountData?.account;
+  const retainsReview = account?.isAdministrator || (
+    account?.providerPublicId === selectedProvider?.publicId &&
+    account?.memberships.some(({ clinicPublicId, role }) =>
+      clinicPublicId === referral.clinicPublicId && role === "Clinician")
+  );
+  const canSaveStatus = canReview && (!providerChanged || Boolean(retainsReview));
+  const statusChanged = canSaveStatus && status !== "" && (
+    providerChanged || status !== referral.status ||
+    (status === "MissingInformation" && note.trim() !== referral.missingInformationNote)
+  );
+  const disabled = change.isPending || appointmentWritePending;
+
+  function beginEdit() {
+    setSnapshot({
+      expectedProviderPublicId: referral.assignedProviderPublicId,
+      expectedStatus: referral.status,
+      expectedMissingInformationNote: referral.missingInformationNote,
+    });
+    setProviderId("");
+    setStatus("");
+    setNote(referral.missingInformationNote ?? "");
+    setValidationError("");
+    change.reset();
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!snapshot || stale || disabled || (!providerChanged && !statusChanged)) return;
+    if (statusChanged && status === "MissingInformation" && !note.trim()) {
+      setValidationError("Enter a note explaining what information is missing.");
+      return;
+    }
+    if (statusChanged && status === "Closed" && !window.confirm("Close this referral? A closed referral cannot be reopened.")) return;
+
+    setNotice("");
+    setValidationError("");
+    change.mutate({
+      ...snapshot,
+      providerPublicId: providerChanged ? selectedProvider?.publicId : undefined,
+      status: statusChanged && status ? status : undefined,
+      missingInformationNote: statusChanged && status === "MissingInformation" ? note.trim() : undefined,
+    });
+  }
 
   const assignedName = assignedProvider.data
     ? assignedProvider.data.firstName + " " + assignedProvider.data.lastName
@@ -171,113 +189,85 @@ function ReferralRecord({
         )}
       </dl>
 
-      {canAssign && (
-        <section aria-label="Provider assignment" className="space-y-2 border-t border-panel-border pt-4">
-          <h3 className="font-semibold">Reassign receiving provider</h3>
-          {referral.stage === "ReadyToSchedule" && <p>The new provider will need to review this referral.</p>}
-          {eligible.isPending && <p role="status">Loading eligible providers…</p>}
-          {eligible.isError && (
-            <div className="space-y-2">
-              <p role="alert">{referralErrorMessage(eligible.error, "Unable to load eligible providers.")}</p>
-              <button type="button" data-variant="secondary" disabled={eligible.isFetching} onClick={() => void eligible.refetch()}>
-                Try again
-              </button>
-            </div>
-          )}
-          {eligible.isSuccess && (
-            providerOptions.length === 0 ? (
-              <p>No other eligible providers are available.</p>
-            ) : (
-              <form
-                className="space-y-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (selectedProvider) {
-                    submitChange({ action: "assign", providerPublicId: selectedProvider.publicId });
-                  }
-                }}
-              >
-                <label className="block text-sm font-medium">
-                  Eligible provider
-                  <select
-                    className={fieldClass}
-                    value={selectedProvider?.publicId ?? ""}
-                    onChange={(event) => {
-                      setProviderId(event.target.value);
-                      clearChangeError("assign");
-                    }}
-                    disabled={change.isPending || appointmentWritePending}
-                    required
-                  >
-                    <option value="">Choose a provider</option>
-                    {providerOptions.map((provider) => (
-                      <option key={provider.publicId} value={provider.publicId}>
-                        {provider.lastName}, {provider.firstName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button type="submit" disabled={change.isPending || appointmentWritePending || !selectedProvider}>
-                  {change.isPending && change.variables.action === "assign" ? "Saving…" : "Reassign provider"}
+      {(canAssign || canReview || snapshot) && (
+        <div className="border-t border-panel-border pt-4">
+          {snapshot ? (
+            <form className="space-y-4" onSubmit={submit}
+              onChange={() => {
+                if (validationError) setValidationError("");
+                if (change.isError) change.reset();
+              }}>
+              <h3 className="font-semibold">Edit referral</h3>
+              <fieldset className="grid gap-4 sm:grid-cols-2" disabled={disabled || stale}>
+                {canAssign && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium">
+                      Receiving provider
+                      <select className={fieldClass} value={selectedProvider?.publicId ?? ""}
+                        onChange={(event) => setProviderId(event.target.value)}
+                        disabled={!eligible.isSuccess || providerOptions.length === 0}>
+                        <option value="">Keep current provider</option>
+                        {providerOptions.map((provider) => (
+                          <option key={provider.publicId} value={provider.publicId}>{provider.lastName}, {provider.firstName}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {eligible.isPending && <p role="status">Loading eligible providers…</p>}
+                    {eligible.isError && (
+                      <div className="space-y-2">
+                        <p role="alert">{referralErrorMessage(eligible.error, "Unable to load eligible providers.")}</p>
+                        <button type="button" data-variant="secondary" disabled={eligible.isFetching}
+                          onClick={() => void eligible.refetch()}><ActionIcon name="refresh" />Try again</button>
+                      </div>
+                    )}
+                    {eligible.isSuccess && providerOptions.length === 0 && <p>No other eligible providers are available.</p>}
+                    {providerChanged && canReview && !canSaveStatus && (
+                      <p className="text-sm text-subtle">The receiving provider can review this referral after reassignment.</p>
+                    )}
+                    {providerChanged && referral.stage === "ReadyToSchedule" && !statusChanged && (
+                      <p className="text-sm text-subtle">Changing the provider returns the referral to pending review.</p>
+                    )}
+                  </div>
+                )}
+                {canSaveStatus && (
+                  <label className="block text-sm font-medium">
+                    Status
+                    <select className={fieldClass} value={status}
+                      onChange={(event) => setStatus(event.target.value as ReferralStatus | "")}>
+                      <option value="">{providerChanged ? "Apply reassignment rules" : "Keep current status"}</option>
+                      <option value="PendingReview">Pending review</option>
+                      <option value="MissingInformation">Missing information</option>
+                      <option value="ReadyToSchedule">Ready to schedule</option>
+                      <option value="Closed">Closed</option>
+                    </select>
+                  </label>
+                )}
+                {canSaveStatus && status === "MissingInformation" && (
+                  <label className="block text-sm font-medium sm:col-span-2">
+                    Missing information note
+                    <textarea className={fieldClass} value={note} onChange={(event) => setNote(event.target.value)}
+                      maxLength={1000} rows={3} required />
+                  </label>
+                )}
+              </fieldset>
+              {stale && <p role="alert">This referral changed. Cancel changes and reopen the editor.</p>}
+              {validationError && <p role="alert">{validationError}</p>}
+              {change.isError && !stale && (
+                <p role="alert">{referralErrorMessage(change.error, "Unable to confirm the change. Check the referral before trying again.")}</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" data-variant="secondary" disabled={change.isPending}
+                  onClick={() => { setSnapshot(null); change.reset(); }}><ActionIcon name="close" />Cancel changes</button>
+                <button type="submit" disabled={disabled || stale || (!providerChanged && !statusChanged)}>
+                  <ActionIcon name="pencil" />
+                  {change.isPending ? "Saving…" : "Update referral"}
                 </button>
-              </form>
-            )
+              </div>
+            </form>
+          ) : (
+            <button type="button" onClick={beginEdit} disabled={disabled}><ActionIcon name="pencil" />Edit referral</button>
           )}
-        </section>
-      )}
-
-      {canReview && (
-        <form className="space-y-2 border-t border-panel-border pt-4" onSubmit={handleStatus}>
-          <h3 className="font-semibold">Update status</h3>
-          <fieldset className="space-y-2" disabled={change.isPending || appointmentWritePending}>
-            <label className="block text-sm font-medium">
-              New status
-              <select
-                className={fieldClass}
-                value={status}
-                onChange={(event) => {
-                  setStatus(event.target.value as ReferralStatus | "");
-                  setValidationError("");
-                  clearChangeError("status");
-                }}
-                required
-              >
-                <option value="">Choose a status</option>
-                <option value="PendingReview">Pending review</option>
-                <option value="MissingInformation">Missing information</option>
-                <option value="ReadyToSchedule">Ready to schedule</option>
-                <option value="Closed">Closed</option>
-              </select>
-            </label>
-            {status === "MissingInformation" && (
-              <label className="block text-sm font-medium">
-                Missing information note
-                <textarea
-                  name="note"
-                  className={fieldClass}
-                  defaultValue={referral.missingInformationNote ?? ""}
-                  maxLength={1000}
-                  onChange={() => {
-                    setValidationError("");
-                    clearChangeError("status");
-                  }}
-                  rows={3}
-                  required
-                />
-              </label>
-            )}
-            {validationError && <p role="alert">{validationError}</p>}
-            <button
-              type="submit"
-              data-variant={status === "Closed" ? "danger" : undefined}
-              disabled={!status}
-            >
-              {change.isPending && change.variables.action === "status"
-                ? "Saving…"
-                : status === "Closed" ? "Close referral" : "Save status"}
-            </button>
-          </fieldset>
-        </form>
+        </div>
       )}
 
       <ReferralAppointmentPanel
@@ -288,15 +278,9 @@ function ReferralRecord({
         mutationKey={appointmentMutationKey}
       />
 
-      {change.isError && (
-        <p role="alert">{referralErrorMessage(change.error, "Unable to confirm the change. Check the referral before trying again.")}</p>
-      )}
-      {notice && (
-        <div className="flex items-center gap-3">
-          <p role="status">{notice}</p>
-          <button type="button" data-variant="secondary" aria-label="Dismiss referral message" onClick={() => setNotice("")}>Dismiss</button>
-        </div>
-      )}
+      <div className="workspace-toast" role="status" aria-atomic="true">
+        {notice && <p>{notice}</p>}
+      </div>
     </div>
   );
 }
@@ -339,7 +323,7 @@ function ReferralDetailsContent({
         ) : (
           <div className="mt-3 space-y-2">
             <p role="alert">{referralErrorMessage(query.error, "Unable to load this referral.")}</p>
-            <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>Try again</button>
+            <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}><ActionIcon name="refresh" />Try again</button>
           </div>
         )
       )}
@@ -353,12 +337,8 @@ function ReferralDetailsHeader({ appointmentPublicId }: { appointmentPublicId?: 
     <>
       <div className="page-heading">
         <Link to="/referrals" className="workspace-button" data-variant="secondary">
-          <span className="flex items-center gap-2">
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5m7 7-7-7 7-7" />
-            </svg>
-            Back to referrals
-          </span>
+          <ActionIcon name="back" />
+          Back to referrals
         </Link>
         {appointmentPublicId && (
           <Link
@@ -366,6 +346,7 @@ function ReferralDetailsHeader({ appointmentPublicId }: { appointmentPublicId?: 
             to={"/appointments/" + appointmentPublicId}
             state={{ fromReferral: true }}
           >
+            <ActionIcon name="eye" />
             View appointment
           </Link>
         )}

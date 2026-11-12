@@ -69,9 +69,24 @@ export async function getAppointment(publicId: string, accessToken: string, sign
   return response.json();
 }
 
-export async function getUpcomingAppointments(accessToken: string, signal: AbortSignal): Promise<AppointmentSummary[]> {
-  const response = await requestAppointment("/api/appointments/upcoming", accessToken,
-    "Unable to load upcoming appointments.", { signal });
+export type UpcomingAppointmentSearch = {
+  clinic: string;
+  service: string;
+  provider: string;
+  patient: string;
+  fromUtc?: string;
+  untilUtc?: string;
+  latestFirst: boolean;
+  page: number;
+};
+
+export async function searchUpcomingAppointments(
+  accessToken: string,
+  search: UpcomingAppointmentSearch,
+  signal: AbortSignal,
+): Promise<{ items: AppointmentSummary[]; hasMore: boolean }> {
+  const response = await requestAppointment("/api/appointments/upcoming/search", accessToken,
+    "Unable to load upcoming appointments.", { method: "POST", body: JSON.stringify(search), signal });
   return response.json();
 }
 

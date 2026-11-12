@@ -56,8 +56,18 @@ public class AccountEndpointTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Account Test Clinic" };
-            var otherClinic = new Clinic { Name = "Other Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Account Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
+            var otherClinic = new Clinic
+            {
+                Name = "Other Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var patient = new Patient
             {
                 FirstName = "Taylor",

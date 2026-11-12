@@ -47,7 +47,12 @@ public class ReferralEndpointTests
             // Arrange: apply the real migration to the temporary database.
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Referral Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Referral Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var patient = new Patient
             {
                 FirstName = "Taylor",
@@ -172,7 +177,12 @@ public class ReferralEndpointTests
             await db.Database.MigrateAsync();
 
             // Create the clinic and patient needed by the referral.
-            var clinic = new Clinic { Name = "Provider Eligibility Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Provider Eligibility Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var patient = new Patient
             {
                 FirstName = "Taylor",
@@ -273,7 +283,12 @@ public class ReferralEndpointTests
             await db.Database.MigrateAsync();
 
             // Create the clinic and patient needed by the referral.
-            var clinic = new Clinic { Name = "Missing Information Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Missing Information Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var patient = new Patient
             {
                 FirstName = "Taylor",
@@ -358,7 +373,12 @@ public class ReferralEndpointTests
             await db.Database.MigrateAsync();
 
             // Create the clinic and patient needed by the referral.
-            var clinic = new Clinic { Name = "Closed Referral Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Closed Referral Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var patient = new Patient
             {
                 FirstName = "Taylor",
@@ -442,7 +462,12 @@ public class ReferralEndpointTests
             await db.Database.MigrateAsync();
 
             // Create the clinic and patient needed by the referral.
-            var clinic = new Clinic { Name = "Referral History Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Referral History Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var patient = new Patient
             {
                 FirstName = "Taylor",

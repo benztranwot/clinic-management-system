@@ -151,6 +151,7 @@ namespace HealthcareApp.Api.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Address")
+                        .IsRequired()
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
@@ -163,6 +164,7 @@ namespace HealthcareApp.Api.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("TimeZoneId")
+                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 

@@ -41,7 +41,7 @@ public static class ClinicEndpoints
         // Read the clinics in name order and select the fields returned by the API.
         var clinics = await db
             .Clinics.OrderBy(clinic => clinic.Name)
-            .Select(clinic => new { clinic.PublicId, clinic.Name })
+            .Select(clinic => new { clinic.PublicId, clinic.Name, clinic.Address, clinic.TimeZoneId })
             .ToListAsync(cancellationToken);
 
         return Results.Ok(clinics);
@@ -63,7 +63,14 @@ public static class ClinicEndpoints
             );
         }
 
-        var clinic = new Clinic { Name = name };
+        var address = request.Address?.Trim();
+        var timeZoneId = request.TimeZoneId?.Trim();
+        if (ValidateSchedulingSettings(address, timeZoneId) is { } error)
+        {
+            return error;
+        }
+
+        var clinic = new Clinic { Name = name, Address = address!, TimeZoneId = timeZoneId! };
 
         // Add the new clinic and save it to SQL Server.
         db.Clinics.Add(clinic);
@@ -72,7 +79,7 @@ public static class ClinicEndpoints
         // Return the new clinic and its URL in the Location header.
         return Results.Created(
             $"/api/clinics/{clinic.PublicId}",
-            new { clinic.PublicId, clinic.Name }
+            new { clinic.PublicId, clinic.Name, clinic.Address, clinic.TimeZoneId }
         );
     }
 
@@ -114,22 +121,69 @@ public static class ClinicEndpoints
             );
         }
 
-        // Load the existing clinic so EF Core can track changes to it.
-        var clinic = await db.Clinics.SingleOrDefaultAsync(
-            c => c.PublicId == publicId,
-            cancellationToken
-        );
+        var clinics = db.Clinics.Where(clinic => clinic.PublicId == publicId);
+        var expectedAddress = request.ExpectedAddress;
+        var expectedTimeZoneId = request.ExpectedTimeZoneId;
+        var editsSettings = request.Address is not null || request.TimeZoneId is not null;
 
-        if (clinic is null)
+        if ((expectedAddress is null) != (expectedTimeZoneId is null)
+            || (expectedAddress is not null && !editsSettings))
+        {
+            return Results.BadRequest(new { message = "Send both original scheduling settings when checking for changes." });
+        }
+
+        int updatedCount;
+        if (editsSettings)
+        {
+            var address = request.Address?.Trim();
+            var timeZoneId = request.TimeZoneId?.Trim();
+            if (ValidateSchedulingSettings(address, timeZoneId) is { } error)
+            {
+                return error;
+            }
+
+            var matching = clinics;
+            if (expectedAddress is not null && expectedTimeZoneId is not null)
+            {
+                var addressBytes = expectedAddress.Length * sizeof(char);
+                var timeZoneBytes = expectedTimeZoneId.Length * sizeof(char);
+
+                // Compare and update in one statement so a concurrent write cannot slip between them.
+                matching = matching.Where(clinic =>
+                    EF.Functions.Collate(clinic.Address, "Latin1_General_100_BIN2") == expectedAddress
+                    && EF.Functions.DataLength(clinic.Address) == addressBytes
+                    && EF.Functions.Collate(clinic.TimeZoneId, "Latin1_General_100_BIN2") == expectedTimeZoneId
+                    && EF.Functions.DataLength(clinic.TimeZoneId) == timeZoneBytes);
+            }
+
+            updatedCount = await matching.ExecuteUpdateAsync(
+                updates => updates
+                    .SetProperty(clinic => clinic.Name, name)
+                    .SetProperty(clinic => clinic.Address, address!)
+                    .SetProperty(clinic => clinic.TimeZoneId, timeZoneId!),
+                cancellationToken
+            );
+        }
+        else
+        {
+            updatedCount = await clinics.ExecuteUpdateAsync(
+                updates => updates.SetProperty(clinic => clinic.Name, name),
+                cancellationToken
+            );
+        }
+
+        var saved = await clinics
+            .Select(clinic => new { clinic.PublicId, clinic.Name, clinic.Address, clinic.TimeZoneId })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (saved is null)
         {
             return Results.NotFound();
         }
 
-        // Change the clinic's name and save it to SQL Server.
-        clinic.Name = name;
-        await db.SaveChangesAsync(cancellationToken);
-
-        return Results.Ok(new { clinic.PublicId, clinic.Name });
+        return updatedCount == 0
+            ? Results.Conflict(new { message = "The clinic’s scheduling settings changed. Reload the clinic and try again." })
+            : Results.Ok(saved);
     }
 
     private static async Task<IResult> UpdateClinicSchedulingSettingsAsync(
@@ -142,6 +196,25 @@ public static class ClinicEndpoints
         var address = request.Address?.Trim();
         var timeZoneId = request.TimeZoneId?.Trim();
 
+        if (ValidateSchedulingSettings(address, timeZoneId) is { } error)
+        {
+            return error;
+        }
+
+        // Update both settings together for the clinic in the route.
+        var updatedCount = await db.Clinics.Where(clinic => clinic.PublicId == publicId)
+            .ExecuteUpdateAsync(
+                updates => updates
+                    .SetProperty(clinic => clinic.Address, address!)
+                    .SetProperty(clinic => clinic.TimeZoneId, timeZoneId!),
+                cancellationToken
+            );
+
+        return updatedCount == 0 ? Results.NotFound() : Results.NoContent();
+    }
+
+    private static IResult? ValidateSchedulingSettings(string? address, string? timeZoneId)
+    {
         if (string.IsNullOrEmpty(address) || address.Length > 300)
         {
             return Results.BadRequest(
@@ -160,16 +233,7 @@ public static class ClinicEndpoints
             );
         }
 
-        // Update both settings together for the clinic in the route.
-        var updatedCount = await db.Clinics.Where(clinic => clinic.PublicId == publicId)
-            .ExecuteUpdateAsync(
-                updates => updates
-                    .SetProperty(clinic => clinic.Address, address)
-                    .SetProperty(clinic => clinic.TimeZoneId, timeZoneId),
-                cancellationToken
-            );
-
-        return updatedCount == 0 ? Results.NotFound() : Results.NoContent();
+        return null;
     }
 
     private static async Task<IResult> DeleteClinicAsync(

@@ -50,7 +50,11 @@ public class PatientAppointmentAccessTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Test Clinic", TimeZoneId = "America/Chicago" };
+            var clinic = new Clinic
+            {
+                Name = "Test Clinic", TimeZoneId = "America/Chicago",
+                Address = "100 Test Avenue",
+            };
             var patient = NewPatient("Taylor");
             var otherPatient = NewPatient("Jordan");
             var emptyPatient = NewPatient("Casey");

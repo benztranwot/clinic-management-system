@@ -43,6 +43,7 @@ public static class PatientEndpoints
                 patient.PublicId,
                 patient.FirstName,
                 patient.LastName,
+                patient.DateOfBirth,
             })
             .ToListAsync(cancellationToken);
 

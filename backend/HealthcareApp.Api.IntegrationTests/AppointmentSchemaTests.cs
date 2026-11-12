@@ -37,7 +37,12 @@ public class AppointmentSchemaTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Appointment Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Appointment Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var firstPatient = new Patient
             {
                 FirstName = "Alex",

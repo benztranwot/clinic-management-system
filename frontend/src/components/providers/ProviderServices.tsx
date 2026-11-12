@@ -8,6 +8,7 @@ import {
   removeProviderService,
 } from "../../api/providerServices";
 import { getServices, ServiceRequestError } from "../../api/services";
+import { ActionIcon } from "../ActionIcon";
 
 type AssignmentChange = {
   action: "assign" | "remove";
@@ -137,7 +138,7 @@ function ProviderServices({
   }
 
   return (
-    <section aria-labelledby={headingId} className="space-y-3 border-t border-slate-200 pt-4">
+    <section aria-labelledby={headingId} className="space-y-3 border-t border-[var(--border)] pt-4">
       <h4 id={headingId} className="font-semibold">Assigned services</h4>
 
       {assignments.isPending && <p role="status">Loading assigned services…</p>}
@@ -145,6 +146,7 @@ function ProviderServices({
         <div className="space-y-2">
           <p role="alert">{assignmentError(assignments.error)}</p>
           <button type="button" disabled={assignments.isFetching} onClick={() => void assignments.refetch()}>
+            <ActionIcon name="refresh" />
             Try again
           </button>
         </div>
@@ -155,13 +157,14 @@ function ProviderServices({
           {assignedServices.length === 0 ? (
             <p>No services assigned.</p>
           ) : (
-            <ul aria-label="Assigned services" className="divide-y divide-slate-200">
+            <ul aria-label="Assigned services" className="divide-y divide-[var(--border)]">
               {assignedServices.map((service) => (
                 <li key={service.publicId} className="flex items-center justify-between gap-3 py-2">
                   <span>{service.name}</span>
                   {assignments.data.canManage && (
                     <button
                       type="button"
+                      data-variant="danger"
                       aria-label={"Remove " + service.name + " assignment"}
                       disabled={isBusy}
                       onClick={() => {
@@ -170,6 +173,7 @@ function ProviderServices({
                         }
                       }}
                     >
+                      <ActionIcon name="minus" />
                       {change.isPending && change.variables.action === "remove" &&
                         change.variables.serviceId === service.publicId ? "Removing…" : "Remove"}
                     </button>
@@ -186,6 +190,7 @@ function ProviderServices({
             <div className="space-y-2">
               <p role="alert">{assignmentError(clinicServices.error)}</p>
               <button type="button" disabled={clinicServices.isFetching} onClick={() => void clinicServices.refetch()}>
+                <ActionIcon name="refresh" />
                 Retry clinic services
               </button>
             </div>
@@ -198,7 +203,7 @@ function ProviderServices({
                 <label className="block text-sm font-medium">
                   Service to assign
                   <select
-                    className="mt-1 block w-full rounded-md border border-slate-400 px-3 py-2"
+                    className="mt-1 block w-full rounded-md border border-[var(--input)] px-3 py-2"
                     value={selectedService?.publicId ?? ""}
                     onChange={(event) => {
                       setSelectedId(event.target.value);
@@ -215,6 +220,7 @@ function ProviderServices({
                   </select>
                 </label>
                 <button type="submit" disabled={isBusy || !selectedService}>
+                  <ActionIcon name="plus" />
                   {change.isPending && change.variables.action === "assign" ? "Assigning…" : "Assign service"}
                 </button>
               </form>
@@ -228,6 +234,7 @@ function ProviderServices({
         <div className="flex items-center gap-3">
           <p role="status">{notice}</p>
           <button type="button" aria-label="Dismiss assignment message" onClick={() => setNotice("")}>
+            <ActionIcon name="close" />
             Dismiss
           </button>
         </div>

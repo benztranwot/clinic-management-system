@@ -74,8 +74,18 @@ public class ProviderServiceAuthorizationTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Eligibility Authorization Clinic" };
-            var otherClinic = new Clinic { Name = "Other Eligibility Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Eligibility Authorization Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
+            var otherClinic = new Clinic
+            {
+                Name = "Other Eligibility Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             db.Clinics.AddRange(clinic, otherClinic);
             await db.SaveChangesAsync();
 

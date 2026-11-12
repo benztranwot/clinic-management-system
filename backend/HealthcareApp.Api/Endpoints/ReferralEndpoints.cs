@@ -38,6 +38,10 @@ public static class ReferralEndpoints
         app.MapGet("/api/services/{servicePublicId:guid}/eligible-providers", GetServiceEligibleProvidersAsync)
             .RequireAuthorization("ManageReferrals", "ReadProviders", "ReadProviderServices");
 
+        // Apply all requested changes together under the same referral lock.
+        app.MapPatch("/api/referrals/{publicId:guid}", EditReferralAsync)
+            .RequireAuthorization("ManageReferrals");
+
         // Reassign the receiving provider before booking.
         app.MapPut("/api/referrals/{publicId:guid}/provider", AssignReferralProviderAsync)
             .RequireAuthorization("ManageReferrals");
@@ -435,7 +439,122 @@ public static class ReferralEndpoints
         );
     }
 
-    private static async Task<IResult> AssignReferralProviderAsync(
+    private static async Task<IResult> EditReferralAsync(
+        Guid publicId,
+        EditReferralRequest request,
+        ClaimsPrincipal user,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null)
+        {
+            return Results.Challenge();
+        }
+
+        if (request.ExpectedProviderPublicId == Guid.Empty
+            || string.IsNullOrWhiteSpace(request.ExpectedStatus)
+            || (request.ProviderPublicId is null && request.Status is null))
+        {
+            return Results.BadRequest(new { message = "Select a change to save for this referral." });
+        }
+
+        return await WithReferralWriteLockAsync(publicId, db, cancellationToken, async () =>
+        {
+            var reviewable = QueryReviewableReferrals(db, identity);
+            var schedulingClinics = identity.QuerySchedulingClinics(db);
+            var current = await (
+                from referral in db.Referrals
+                join provider in db.Providers on referral.AssignedProviderId equals provider.Id
+                join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
+                where referral.PublicId == publicId
+                select new
+                {
+                    ProviderPublicId = provider.PublicId,
+                    referral.Status,
+                    referral.MissingInformationNote,
+                    CanReview = reviewable.Any(item => item.Id == referral.Id),
+                    CanReassign = schedulingClinics.Any(clinic => clinic.Id == service.ClinicId),
+                }
+            ).SingleOrDefaultAsync(cancellationToken);
+
+            if (current is null)
+            {
+                return Results.NotFound(new { message = "Referral was not found." });
+            }
+
+            if ((request.ProviderPublicId.HasValue && !current.CanReassign)
+                || (request.Status is not null && !current.CanReview))
+            {
+                return Results.Forbid();
+            }
+
+            if (current.ProviderPublicId != request.ExpectedProviderPublicId
+                || current.Status.ToString() != request.ExpectedStatus
+                || current.MissingInformationNote != request.ExpectedMissingInformationNote)
+            {
+                return Results.Conflict(new { message = "The referral changed. Reload the editor and try again." });
+            }
+
+            if (request.ProviderPublicId is Guid providerPublicId)
+            {
+                var assigned = await AssignReferralProviderCoreAsync(
+                    publicId, new AssignReferralProviderRequest(providerPublicId), user, db, cancellationToken);
+                if (assigned is not IStatusCodeHttpResult { StatusCode: StatusCodes.Status200OK })
+                {
+                    return assigned;
+                }
+            }
+
+            if (request.Status is not null)
+            {
+                // Review permission is checked again against the new receiving provider.
+                var reviewed = await UpdateReferralStatusCoreAsync(publicId,
+                    new UpdateReferralStatusRequest(request.Status, request.MissingInformationNote),
+                    user, db, cancellationToken);
+                if (reviewed is not IStatusCodeHttpResult { StatusCode: StatusCodes.Status200OK })
+                {
+                    return reviewed;
+                }
+            }
+
+            return Results.NoContent();
+        });
+    }
+
+    private static Task<IResult> AssignReferralProviderAsync(
+        Guid publicId, AssignReferralProviderRequest request, ClaimsPrincipal user,
+        HealthcareDbContext db, CancellationToken cancellationToken
+    ) => WithReferralWriteLockAsync(publicId, db, cancellationToken,
+        () => AssignReferralProviderCoreAsync(publicId, request, user, db, cancellationToken));
+
+    private static Task<IResult> UpdateReferralStatusAsync(
+        Guid publicId, UpdateReferralStatusRequest request, ClaimsPrincipal user,
+        HealthcareDbContext db, CancellationToken cancellationToken
+    ) => WithReferralWriteLockAsync(publicId, db, cancellationToken,
+        () => UpdateReferralStatusCoreAsync(publicId, request, user, db, cancellationToken));
+
+    private static async Task<IResult> WithReferralWriteLockAsync(
+        Guid publicId, HealthcareDbContext db, CancellationToken cancellationToken, Func<Task<IResult>> update
+    )
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        if (!await TransactionLock.TryAcquireReferralAsync(db, publicId, cancellationToken))
+        {
+            return Results.Conflict(new { message = "The referral is being updated. Try again." });
+        }
+
+        var result = await update();
+        if (result is IStatusCodeHttpResult { StatusCode: StatusCodes.Status200OK or StatusCodes.Status204NoContent })
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return result;
+    }
+
+    private static async Task<IResult> AssignReferralProviderCoreAsync(
         Guid publicId,
         AssignReferralProviderRequest request,
         ClaimsPrincipal user,
@@ -446,12 +565,6 @@ public static class ReferralEndpoints
         if (request.ProviderPublicId == Guid.Empty)
         {
             return Results.BadRequest(new { message = "Select a provider." });
-        }
-
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (!await TransactionLock.TryAcquireReferralAsync(db, publicId, cancellationToken))
-        {
-            return Results.Conflict(new { message = "The referral is being updated. Try again." });
         }
 
         var identity = AccountIdentity.FromPrincipal(user);
@@ -556,11 +669,10 @@ public static class ReferralEndpoints
             );
         }
 
-        await transaction.CommitAsync(cancellationToken);
         return Results.Ok(new { publicId, AssignedProviderPublicId = request.ProviderPublicId });
     }
 
-    private static async Task<IResult> UpdateReferralStatusAsync(
+    private static async Task<IResult> UpdateReferralStatusCoreAsync(
         Guid publicId,
         UpdateReferralStatusRequest request,
         ClaimsPrincipal user,
@@ -599,12 +711,6 @@ public static class ReferralEndpoints
             return Results.BadRequest(
                 new { message = "Enter a missing information note between 1 and 1000 characters." }
             );
-        }
-
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (!await TransactionLock.TryAcquireReferralAsync(db, publicId, cancellationToken))
-        {
-            return Results.Conflict(new { message = "The referral is being updated. Try again." });
         }
 
         var reviewable = QueryReviewableReferrals(db, AccountIdentity.FromPrincipal(user));
@@ -674,7 +780,6 @@ public static class ReferralEndpoints
             );
         }
 
-        await transaction.CommitAsync(cancellationToken);
         return Results.Ok(
             new
             {

@@ -47,8 +47,18 @@ public class ClinicReferralAccessTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "First Test Clinic" };
-            var otherClinic = new Clinic { Name = "Second Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "First Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
+            var otherClinic = new Clinic
+            {
+                Name = "Second Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var patient = new Patient
             {
                 FirstName = "Taylor",

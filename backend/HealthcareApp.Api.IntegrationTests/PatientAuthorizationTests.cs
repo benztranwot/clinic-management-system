@@ -120,7 +120,6 @@ public class PatientAuthorizationTests
 
             if (expectedStatus == HttpStatusCode.OK)
             {
-                // The list returns names; detail and update also return birth date.
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
                 var returnedPatient =
                     operation == "List" ? Assert.Single(body.EnumerateArray()) : body;
@@ -135,13 +134,10 @@ public class PatientAuthorizationTests
                     returnedPatient.GetProperty("lastName").GetString()
                 );
 
-                if (operation != "List")
-                {
-                    Assert.Equal(
-                        operation == "Update" ? updatedBirthDate : originalBirthDate,
-                        returnedPatient.GetProperty("dateOfBirth").Deserialize<DateOnly>()
-                    );
-                }
+                Assert.Equal(
+                    operation == "Update" ? updatedBirthDate : originalBirthDate,
+                    returnedPatient.GetProperty("dateOfBirth").Deserialize<DateOnly>()
+                );
             }
 
             // Read fresh database values to verify persistence and rejected writes.

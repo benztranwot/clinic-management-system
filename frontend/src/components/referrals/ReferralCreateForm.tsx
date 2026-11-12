@@ -12,6 +12,7 @@ import {
   type ReferralInput,
 } from "../../api/referrals";
 import { getServices } from "../../api/services";
+import { ActionIcon } from "../ActionIcon";
 
 function ReferralCreateForm({
   userId,
@@ -159,6 +160,7 @@ function ReferralCreateForm({
             disabled={choices.isFetching}
             onClick={() => void choices.refetch()}
           >
+            <ActionIcon name="refresh" />
             Try again
           </button>
         </div>
@@ -236,6 +238,7 @@ function ReferralCreateForm({
                 disabled={services.isFetching}
                 onClick={() => void services.refetch()}
               >
+                <ActionIcon name="refresh" />
                 Retry clinical services
               </button>
             </div>
@@ -285,6 +288,7 @@ function ReferralCreateForm({
                   disabled={providers.isFetching}
                   onClick={() => void providers.refetch()}
                 >
+                  <ActionIcon name="refresh" />
                   Retry providers
                 </button>
               )}
@@ -323,6 +327,7 @@ function ReferralCreateForm({
           disabled={creation.isPending}
           onClick={onCancel}
         >
+          <ActionIcon name="close" />
           Cancel
         </button>
         {choices.isSuccess && (
@@ -336,6 +341,7 @@ function ReferralCreateForm({
               providers.data.length === 0
             }
           >
+            <ActionIcon name="plus" />
             {creation.isPending ? "Creating…" : "Create referral"}
           </button>
         )}

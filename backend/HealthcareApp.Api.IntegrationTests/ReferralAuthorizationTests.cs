@@ -74,7 +74,12 @@ public class ReferralAuthorizationTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Referral Authorization Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Referral Authorization Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             var patient = new Patient
             {
                 FirstName = "Taylor",
@@ -122,7 +127,12 @@ public class ReferralAuthorizationTests
             {
                 // A provider at this clinic is not eligible without the requested service link.
                 db.Providers.Add(new Provider { ClinicId = clinic.Id, FirstName = "Casey", LastName = "Unlinked" });
-                var otherClinic = new Clinic { Name = "Other Referral Clinic" };
+                var otherClinic = new Clinic
+                {
+                    Name = "Other Referral Clinic",
+                    Address = "100 Test Avenue",
+                    TimeZoneId = "America/Chicago",
+                };
                 db.Clinics.Add(otherClinic);
                 await db.SaveChangesAsync();
 

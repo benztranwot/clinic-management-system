@@ -59,8 +59,18 @@ public class ClinicalServiceAuthorizationTests
         {
             // Seed two clinics so service filtering and clinic assignment can be checked.
             await db.Database.MigrateAsync();
-            var clinic = new Clinic { Name = "Service Authorization Clinic" };
-            var otherClinic = new Clinic { Name = "Other Service Test Clinic" };
+            var clinic = new Clinic
+            {
+                Name = "Service Authorization Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
+            var otherClinic = new Clinic
+            {
+                Name = "Other Service Test Clinic",
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             db.Clinics.AddRange(otherClinic, clinic);
             await db.SaveChangesAsync();
 

@@ -109,7 +109,7 @@ function referralPath(publicId: string) {
 
 type ReferralRequestOptions =
   | { signal: AbortSignal }
-  | { method: "POST" | "PUT"; body?: object };
+  | { method: "POST" | "PUT" | "PATCH"; body?: object };
 
 async function referralRequest(
   url: string,
@@ -197,27 +197,17 @@ export function createReferral(accessToken: string, input: ReferralInput) {
   });
 }
 
-export async function assignReferralProvider(
-  accessToken: string,
-  publicId: string,
-  providerPublicId: string,
-): Promise<void> {
-  await referralRequest(referralPath(publicId) + "/provider", accessToken, {
-    method: "PUT",
-    body: { providerPublicId },
-  });
-}
+export type ReferralUpdate = {
+  expectedProviderPublicId: string;
+  expectedStatus: ReferralStatus;
+  expectedMissingInformationNote: string | null;
+  providerPublicId?: string;
+  status?: ReferralStatus;
+  missingInformationNote?: string | null;
+};
 
-export async function updateReferralStatus(
-  accessToken: string,
-  publicId: string,
-  status: ReferralStatus,
-  missingInformationNote: string | null,
-): Promise<void> {
-  await referralRequest(referralPath(publicId) + "/status", accessToken, {
-    method: "PUT",
-    body: { status, missingInformationNote },
-  });
+export async function saveReferralUpdate(accessToken: string, publicId: string, update: ReferralUpdate): Promise<void> {
+  await referralRequest(referralPath(publicId), accessToken, { method: "PATCH", body: update });
 }
 
 export function getReferralAvailability(

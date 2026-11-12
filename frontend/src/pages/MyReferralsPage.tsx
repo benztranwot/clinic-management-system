@@ -2,6 +2,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { getMyReferrals, referralErrorMessage, ReferralRequestError } from "../api/referrals";
 import ReferralStatusBadge from "../components/referrals/ReferralStatusBadge";
+import { ActionIcon } from "../components/ActionIcon";
 
 const createdDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
@@ -25,6 +26,7 @@ function MyReferrals({ userId }: { userId: string }) {
         <h1 id="my-referrals-heading" className="page-title">My referrals</h1>
         {!unlinked && (
           <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>
+            <ActionIcon name="refresh" />
             {query.isFetching ? "Refreshing…" : "Refresh"}
           </button>
         )}
