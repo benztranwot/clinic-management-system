@@ -78,16 +78,16 @@ function App() {
   const userId = signedIn && !isRedirecting ? user?.sub : undefined;
   const accountQuery = useReferralAccount(userId);
   const account = accountQuery.isSuccess ? accountQuery.data.account : undefined;
-  const loadingWorkspace = Boolean(userId && accountQuery.isPending);
+  const loadingWorkspace = accountQuery.isPending;
   const patientOnly = Boolean(account?.patientPublicId && !account.isAdministrator && account.memberships.length === 0);
-  const homePath = patientOnly ? "/my-referrals" : "/referrals";
+  const homePath = accountQuery.isSuccess ? (patientOnly ? "/my-referrals" : "/referrals") : "/";
 
   return (
     <AppShell
       accountName={accountName}
       userId={userId}
       account={account}
-      showStaffNavigation={!loadingWorkspace && !patientOnly}
+      showStaffNavigation={accountQuery.isSuccess && !patientOnly}
       signingOut={isRedirecting}
       onSignOut={() => void handleSignOut()}
     >
@@ -123,7 +123,19 @@ function App() {
         <Routes>
           <Route path="/" element={loadingWorkspace
             ? <p role="status">Loading your workspace…</p>
-            : <Navigate to={homePath} replace />} />
+            : accountQuery.isError
+              ? <section className="workspace-panel space-y-3">
+                  <h1 className="page-title">Unable to load your workspace</h1>
+                  <p role="alert">We couldn’t load your account. Please try again.</p>
+                  <button
+                    type="button"
+                    disabled={accountQuery.isFetching}
+                    onClick={() => void accountQuery.refetch()}
+                  >
+                    {accountQuery.isFetching ? "Retrying…" : "Retry"}
+                  </button>
+                </section>
+              : <Navigate to={homePath} replace />} />
           <Route path="/my-referrals" element={<MyReferralsPage />} />
           <Route path="/my-appointments" element={<MyAppointmentsPage userId={userId} />} />
           <Route path="/clinics" element={<div className="legacy-directory"><ClinicsPage /></div>} />
