@@ -1,4 +1,4 @@
-/* Lay out the workspace with a sidebar on wide screens. */
+/* Share the same header across the workspace and sign-in pages. */
 .app {
   min-height: 100vh;
   min-height: 100dvh;
@@ -18,9 +18,9 @@
 
 .workspace {
   display: grid;
-  grid-template-columns: 15rem minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
-  grid-template-areas: "header header" "navigation content";
+  grid-template-areas: "header" "content";
 }
 
 .workspace-header {
@@ -29,13 +29,13 @@
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 0.75rem 1.5rem;
+  gap: 0.65rem 1.25rem;
   padding: 0.875rem clamp(1rem, 3vw, 2rem);
   border-bottom: 1px solid var(--border);
   background: var(--card);
 }
 
-.workspace-brand, .workspace-tools, .theme-control, .page-heading {
+.workspace-brand, .workspace-tools, .page-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -43,6 +43,8 @@
 }
 
 .workspace-brand {
+  gap: 0.55rem;
+  flex-shrink: 0;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -55,27 +57,121 @@
   color: var(--link);
 }
 
-.workspace-tools, .theme-control {
+.workspace-tools {
+  gap: 0.5rem;
   font-size: 0.875rem;
 }
 
-.account-name {
+.header-disclosure {
+  position: relative;
+}
+
+.header-trigger {
+  display: grid;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.header-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.header-trigger:hover, .header-disclosure[open] .header-trigger {
+  background: var(--muted);
+}
+
+.header-trigger:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+
+.header-dropdown {
+  position: absolute;
+  z-index: 4;
+  inset-block-start: calc(100% + 0.5rem);
+  inset-inline-end: 0;
+  width: max-content;
+  min-width: 10rem;
+  max-width: min(15rem, calc(100vw - 5rem));
+  padding: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--card);
+  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 18%);
+}
+
+.app .header-dropdown button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--foreground);
+  background: transparent;
+  text-align: start;
+}
+
+.app .header-dropdown button:not(:disabled):hover,
+.app .header-dropdown button[aria-pressed="true"] {
+  background: var(--muted);
+}
+
+.theme-selected {
+  margin-inline-start: auto;
+  color: var(--link);
+}
+
+.account-avatar {
+  display: grid;
+  width: 1.85rem;
+  height: 1.85rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--link);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.account-info {
+  margin-block-end: 0.3rem;
+  padding: 0.45rem 0.55rem;
+  border-block-end: 1px solid var(--border);
   overflow-wrap: anywhere;
 }
 
-.workspace-nav {
-  grid-area: navigation;
+.app .sign-in-button {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+.sign-in-button svg {
+  flex: none;
+}
+
+.app .workspace-menu-toggle {
+  display: none;
+}
+
+.workspace-nav {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.25rem;
-  padding: 1.25rem 0.75rem;
-  border-right: 1px solid var(--border);
-  background: var(--sidebar);
+  min-width: 0;
 }
 
 .workspace-nav a {
-  padding: 0.625rem 0.875rem;
-  border-radius: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.45rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 
@@ -129,6 +225,16 @@
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+.action-icon {
+  display: inline-block;
+  margin-inline-end: 0.4rem;
+  vertical-align: -0.17em;
+}
+
+.sign-in-button .action-icon {
+  margin-inline-end: 0;
 }
 
 .app button:disabled {
@@ -195,7 +301,7 @@
   background-color: var(--card);
 }
 
-.theme-control select, .queue-filter select {
+.queue-filter select {
   max-width: 100%;
   padding: 0.4rem 0.65rem;
   border: 1px solid var(--input);
@@ -209,6 +315,18 @@
   gap: 0.5rem;
   font-size: 0.875rem;
   font-weight: 600;
+}
+
+.workspace-filter-dialog {
+  width: min(32rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  overflow-y: auto;
+  color: var(--foreground);
+}
+
+.workspace-filter-dialog::backdrop {
+  background: rgb(8 16 28 / 60%);
 }
 
 .queue-scroll {
@@ -240,6 +358,31 @@
   background: var(--muted);
 }
 
+/* Keep a native link or button in the table while extending its hit area to the row. */
+.workspace-action-row {
+  position: relative;
+}
+
+.workspace-row-action {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app button.workspace-row-action,
+.app button.workspace-row-action:not(:disabled):hover {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+}
+
+.workspace-row-action:not(:disabled)::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  cursor: pointer;
+}
+
 .queue-table time {
   white-space: nowrap;
 }
@@ -258,30 +401,56 @@
   color: var(--muted-foreground);
 }
 
+.workspace-toast {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 5;
+  max-width: calc(100vw - 2rem);
+}
+
+.workspace-toast p {
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border);
+  border-inline-start: 0.25rem solid var(--primary);
+  border-radius: 0.55rem;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 0.35rem 1rem rgb(0 0 0 / 16%);
+  font-weight: 600;
+}
+
 @media (max-width: 48rem) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto 1fr;
-    grid-template-areas: "header" "navigation" "content";
+  .app .workspace-menu-toggle {
+    display: inline-block;
   }
 
   .workspace-nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    padding: 0.5rem 0.75rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
+    display: none;
+    order: 2;
+    flex: 1 1 100%;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .workspace-nav[data-expanded="true"] {
+    display: flex;
+  }
+
+  .workspace-tools {
+    margin-inline-start: auto;
   }
 }
 
-/* Keep existing directory pages readable while their layouts are updated. */
-.legacy-directory {
-  color-scheme: light;
-  --foreground: #28384b;
-  --card: #ffffff;
-  --muted: #f1f6fa;
-  --input: #8092a6;
-  --link: #08634d;
-  --alert: #b42318;
-  color: var(--foreground);
+/* Keep the sign-in form clear of a wrapped header on narrow screens. */
+@media (max-width: 30rem) {
+  .guest .workspace-header {
+    position: static;
+  }
+
+  .guest .workspace-main {
+    min-height: 65dvh;
+    padding-block: 2rem;
+  }
 }
+

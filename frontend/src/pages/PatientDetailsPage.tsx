@@ -1,20 +1,23 @@
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { deletePatient, getPatient, PatientRequestError, type PatientSummary } from "../api/patients";
 import PatientForm from "../components/patients/PatientForm";
+import { ActionIcon } from "../components/ActionIcon";
 
 function PatientDetails({
   userId,
   publicId,
+  edit,
 }: {
   userId: string;
   publicId: string;
+  edit: boolean;
 }) {
   const { getAccessTokenSilently } = useAuth0();
-  const [isEditing, setIsEditing] = useState(false);
-  const [showSaved, setShowSaved] = useState(false);
+  const { state } = useLocation();
+  const [showSaved, setShowSaved] = useState(state?.patientUpdated === true);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const query = useQuery({
@@ -102,6 +105,7 @@ function PatientDetails({
           disabled={query.isFetching}
           onClick={() => void query.refetch()}
         >
+          <ActionIcon name="refresh" />
           {query.isFetching ? "Trying again…" : "Try again"}
         </button>
       </div>
@@ -141,17 +145,14 @@ function PatientDetails({
     });
   }
 
-  if (canManage && isEditing) {
+  if (edit) {
+    if (!canManage) return <p role="alert">Your account doesn’t have permission to edit patients.</p>;
+
+    const detailsPath = "/patients/" + publicId;
     return (
-      <PatientForm
-        userId={userId}
-        patient={{ ...patient, publicId }}
-        onCancel={() => setIsEditing(false)}
-        onSaved={() => {
-          setIsEditing(false);
-          setShowSaved(true);
-        }}
-      />
+      <PatientForm userId={userId} patient={patient}
+        onCancel={() => void navigate(detailsPath)}
+        onSaved={() => void navigate(detailsPath, { replace: true, state: { patientUpdated: true } })} />
     );
   }
   return (
@@ -163,22 +164,14 @@ function PatientDetails({
       </dl>
       {canManage && (
         <div className="mt-4 flex flex-wrap gap-2">
+          <Link className="workspace-button" to={"/patients/" + publicId + "/edit"}><ActionIcon name="pencil" />Edit patient</Link>
           <button
             type="button"
             disabled={deletion.isPending}
-            onClick={() => {
-              deletion.reset();
-              setShowSaved(false);
-              setIsEditing(true);
-            }}
-          >
-            Edit patient
-          </button>
-          <button
-            type="button"
-            disabled={deletion.isPending}
+            data-variant="danger"
             onClick={handleDelete}
           >
+            <ActionIcon name="trash" />
             {deletion.isPending ? "Deleting…" : "Delete patient"}
           </button>
         </div>
@@ -192,6 +185,7 @@ function PatientDetails({
             aria-label="Dismiss patient updated message"
             onClick={() => setShowSaved(false)}
           >
+            <ActionIcon name="close" />
             Dismiss
           </button>
         </div>
@@ -200,23 +194,22 @@ function PatientDetails({
   );
 }
 
-function PatientDetailsPage() {
+function PatientDetailsPage({ edit = false }: { edit?: boolean }) {
   const { user } = useAuth0();
   const { publicId } = useParams<"publicId">();
 
   return (
     <section
       aria-labelledby="patient-details-heading"
-      className="mt-8 rounded-lg border border-slate-200 bg-white p-6"
+      className="workspace-panel mx-auto w-full max-w-4xl space-y-4"
     >
-      <Link to="/patients" className="text-sm text-blue-700 underline">
-        Back to patients
+      <Link to={edit && publicId ? "/patients/" + publicId : "/patients"} className="workspace-button" data-variant="secondary">
+        <ActionIcon name="back" />
+        {edit ? "Back to patient" : "Back to patients"}
       </Link>
-      <h2 id="patient-details-heading" className="mt-3 text-xl font-semibold">
-        Patient details
-      </h2>
+      <h1 id="patient-details-heading" className="page-title">{edit ? "Edit patient" : "Patient details"}</h1>
       {user?.sub && publicId ? (
-        <PatientDetails key={publicId} userId={user.sub} publicId={publicId} />
+        <PatientDetails key={publicId + ":" + edit} userId={user.sub} publicId={publicId} edit={edit} />
       ) : (
         <p className="mt-3" role="alert">Unable to open this patient record.</p>
       )}

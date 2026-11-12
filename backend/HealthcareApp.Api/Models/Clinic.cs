@@ -11,8 +11,8 @@ public class Clinic
 
     public required string Name { get; set; }
 
-    // Scheduling settings are filled in when a clinic is configured for booking.
-    public string? Address { get; set; }
+    // Booking times are interpreted in the clinic’s IANA time zone.
+    public required string Address { get; set; }
 
-    public string? TimeZoneId { get; set; }
+    public required string TimeZoneId { get; set; }
 }

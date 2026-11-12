@@ -22,4 +22,30 @@ public class HealthEndpointTests
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("ok", body.GetProperty("status").GetString());
     }
+
+    [Fact]
+    public async Task UnknownApiRoute_ReturnsProblemDetails()
+    {
+        using var factory = new HealthcareApiFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/api/unknown-route");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(404, body.GetProperty("status").GetInt32());
+        Assert.Equal("API route not found.", body.GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public async Task UnsupportedMethod_OnKnownApiRoute_RemainsMethodNotAllowed()
+    {
+        using var factory = new HealthcareApiFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.PostAsync("/api/health", content: null);
+
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+    }
 }

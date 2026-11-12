@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./index.css";
 import App from "./App.tsx";
+import { createAuthSessionCache } from "./auth/sessionCache";
 
 // Read the public Auth0 configuration supplied by Vite.
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
@@ -17,6 +18,7 @@ if (!domain || !clientId || !audience) {
 
 // Share one query cache across the application.
 const queryClient = new QueryClient();
+const sessionCache = createAuthSessionCache(window);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -24,6 +26,8 @@ createRoot(document.getElementById("root")!).render(
     <Auth0Provider
       domain={domain}
       clientId={clientId}
+      useRefreshTokens
+      cache={sessionCache}
       authorizationParams={{
         redirect_uri: window.location.origin,
         audience,

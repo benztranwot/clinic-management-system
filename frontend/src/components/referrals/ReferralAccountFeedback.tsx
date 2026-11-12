@@ -1,5 +1,6 @@
 import { referralErrorMessage, ReferralRequestError } from "../../api/referrals";
 import type { useReferralAccount } from "./useReferralAccount";
+import { ActionIcon } from "../ActionIcon";
 
 export default function ReferralAccountFeedback({ query }: { query: ReturnType<typeof useReferralAccount> }) {
   if (query.isPending) return <p role="status">Checking referral access…</p>;
@@ -12,6 +13,7 @@ export default function ReferralAccountFeedback({ query }: { query: ReturnType<t
         ? "Your sign-in needs to be linked to an account in Clinic Management. Ask your administrator to check your account."
         : referralErrorMessage(query.error, "Unable to check referral access.")}</p>
       <button type="button" data-variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>
+        <ActionIcon name="refresh" />
         Try again
       </button>
     </div>

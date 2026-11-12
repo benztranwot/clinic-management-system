@@ -1,7 +1,10 @@
-export type Clinic = {
-  publicId: string;
+export type ClinicInput = {
   name: string;
+  address: string;
+  timeZoneId: string;
 };
+
+export type Clinic = ClinicInput & { publicId: string };
 
 export class ClinicRequestError extends Error {
   readonly status: number;
@@ -48,30 +51,30 @@ async function readClinicData<T>(
 // Create a clinic or update the clinic identified by its public ID.
 export function createClinic(
   accessToken: string,
-  name: string,
+  input: ClinicInput,
 ): Promise<Clinic> {
-  return saveClinic("/api/clinics", "POST", accessToken, name);
+  return saveClinic("/api/clinics", "POST", accessToken, input);
 }
 
 export function updateClinic(
   accessToken: string,
   publicId: string,
-  name: string,
+  input: ClinicInput,
 ): Promise<Clinic> {
   return saveClinic(
     `/api/clinics/${encodeURIComponent(publicId)}`,
     "PUT",
     accessToken,
-    name,
+    input,
   );
 }
 
-// Both write endpoints accept a clinic name and return the saved record.
+// Both write endpoints return the saved clinic.
 async function saveClinic(
   path: string,
   method: "POST" | "PUT",
   accessToken: string,
-  name: string,
+  input: ClinicInput,
 ): Promise<Clinic> {
   const response = await fetch(path, {
     method,
@@ -79,7 +82,7 @@ async function saveClinic(
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(input),
   });
 
   if (!response.ok) {

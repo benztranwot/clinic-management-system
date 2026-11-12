@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ClinicRequestError, deleteClinic, type Clinic } from "../../api/clinics";
+import { ActionIcon } from "../ActionIcon";
 
 function DeleteClinicButton({
   clinic,
@@ -30,13 +31,14 @@ function DeleteClinicButton({
     },
     retry: false,
     onSuccess: async () => {
-      onNotice("Clinic deleted.");
+      queryClient.removeQueries({ queryKey: ["clinic", userId, clinic.publicId], exact: true });
 
       // Refresh the list after SQL Server confirms the deletion.
       await queryClient.invalidateQueries({
         queryKey: ["clinics", userId],
         exact: true,
       });
+      onNotice("Clinic deleted.");
     },
   });
 
@@ -90,9 +92,11 @@ function DeleteClinicButton({
       <button
         type="button"
         disabled={disabled || mutation.isPending || isRefreshing}
+        data-variant="danger"
         aria-label={`Delete ${clinic.name}`}
         onClick={handleDelete}
       >
+        <ActionIcon name="trash" />
         {mutation.isPending ? "Deleting…" : "Delete"}
       </button>
 
@@ -105,6 +109,7 @@ function DeleteClinicButton({
             disabled={disabled || mutation.isPending || isRefreshing}
             onClick={() => void handleRefresh()}
           >
+            <ActionIcon name="refresh" />
             {isRefreshing ? "Refreshing…" : "Refresh list"}
           </button>
         </div>

@@ -59,7 +59,7 @@ public static class ProviderAvailabilityEndpoints
         var now = clock.GetUtcNow();
         if (!AppointmentAvailability.IsInBookingWindow(localDate, timeZone, now))
         {
-            return Results.BadRequest(new { message = "Choose a date from today through 30 days ahead." });
+            return Results.BadRequest(new { message = "Choose a date from tomorrow through 30 days ahead in the clinic’s time zone." });
         }
 
         var slots = await AppointmentAvailability.FindAsync(

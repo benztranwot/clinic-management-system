@@ -33,7 +33,8 @@ public class ReferredAppointmentTests
     {
         const string subject = "auth0|referred-booking-front-desk";
         const string clinicianSubject = "auth0|referred-booking-clinician";
-        var clock = new TestClock(new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero));
+        var now = new DateTimeOffset(2030, 1, 7, 5, 30, 0, TimeSpan.Zero);
+        var clock = new TestClock(now);
 
         using var tokens = new TestJwtIssuer();
         await using var factory = new HealthcareApiFactory();
@@ -55,13 +56,19 @@ public class ReferredAppointmentTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Referral Booking Clinic", TimeZoneId = "America/Chicago" };
+            var clinic = new Clinic
+            {
+                Name = "Referral Booking Clinic", TimeZoneId = "America/Chicago",
+                Address = "100 Test Avenue",
+            };
             var account = new AppAccount { Issuer = TestJwtIssuer.Issuer, Subject = subject };
             var patient = new Patient
             {
                 FirstName = "Alex", LastName = "Demo", DateOfBirth = new DateOnly(1990, 3, 5),
             };
-            db.AddRange(clinic, account, patient);
+            const string adminSubject = "auth0|referral-edit-admin";
+            var admin = new AppAccount { Issuer = TestJwtIssuer.Issuer, Subject = adminSubject, IsAdministrator = true };
+            db.AddRange(clinic, account, patient, admin);
             await db.SaveChangesAsync();
 
             var firstProvider = new Provider
@@ -120,6 +127,34 @@ public class ReferredAppointmentTests
 
             var referralUrl = $"/api/referrals/{referral.PublicId}";
             var url = $"{referralUrl}/appointments";
+
+            var edit = new EditReferralRequest(firstProvider.PublicId, "PendingReview", null,
+                secondProvider.PublicId, "MissingInformation", null);
+            tokens.AuthorizeSubject(client, subject, "read:referrals", "manage:referrals");
+            using var deniedEdit = await client.PatchAsJsonAsync(referralUrl, edit);
+            Assert.Equal(HttpStatusCode.Forbidden, deniedEdit.StatusCode);
+
+            tokens.AuthorizeSubject(client, adminSubject, "read:referrals", "manage:referrals");
+            using var invalidEdit = await client.PatchAsJsonAsync(referralUrl, edit);
+            Assert.Equal(HttpStatusCode.BadRequest, invalidEdit.StatusCode);
+            var afterInvalidEdit = await client.GetFromJsonAsync<JsonElement>(referralUrl);
+            Assert.Equal(firstProvider.PublicId, afterInvalidEdit.GetProperty("assignedProviderPublicId").GetGuid());
+            Assert.Equal("PendingReview", afterInvalidEdit.GetProperty("status").GetString());
+
+            const string reviewNote = "Please include the assessment.";
+            using var validEdit = await client.PatchAsJsonAsync(referralUrl, edit with { MissingInformationNote = reviewNote });
+            Assert.Equal(HttpStatusCode.NoContent, validEdit.StatusCode);
+            var afterEdit = await client.GetFromJsonAsync<JsonElement>(referralUrl);
+            Assert.Equal(secondProvider.PublicId, afterEdit.GetProperty("assignedProviderPublicId").GetGuid());
+            Assert.Equal("MissingInformation", afterEdit.GetProperty("status").GetString());
+            Assert.Equal(reviewNote, afterEdit.GetProperty("missingInformationNote").GetString());
+
+            using var staleEdit = await client.PatchAsJsonAsync(referralUrl, edit with { MissingInformationNote = reviewNote });
+            Assert.Equal(HttpStatusCode.Conflict, staleEdit.StatusCode);
+            using var restore = await client.PatchAsJsonAsync(referralUrl,
+                new EditReferralRequest(secondProvider.PublicId, "MissingInformation", reviewNote,
+                    firstProvider.PublicId, "PendingReview", null));
+            Assert.Equal(HttpStatusCode.NoContent, restore.StatusCode);
             var firstRequest = new CreateReferredAppointmentRequest(StartUtc);
             var secondRequest = new CreateReferredAppointmentRequest("2030-01-07T14:30:00Z");
 
@@ -156,6 +191,11 @@ public class ReferredAppointmentTests
             Assert.False(readyDetail.GetProperty("canSchedule").GetBoolean());
 
             tokens.AuthorizeSubject(client, subject, "read:referrals", "manage:referrals");
+            clock.UtcNow = new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero);
+            using var sameDay = await client.PostAsJsonAsync(url, firstRequest);
+            Assert.Equal(HttpStatusCode.BadRequest, sameDay.StatusCode);
+            clock.UtcNow = now;
+
             using var wrongProvider = await client.PostAsJsonAsync(
                 url, new CreateReferredAppointmentRequest(StartUtc, secondProvider.PublicId)
             );

@@ -10,6 +10,7 @@ import {
   type AppointmentSlot,
   type ReferralDetails,
 } from "../../api/referrals";
+import { ActionIcon } from "../ActionIcon";
 
 function slotLabel(slot: AppointmentSlot, timeZone: string) {
   const format = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
@@ -40,8 +41,9 @@ function ReferralAppointmentPanel({
   const timeZone = referral.clinicTimeZoneId;
   const providerId = referral.assignedProviderPublicId;
   const today = timeZone ? dateInTimeZone(observedTime, timeZone) : "";
+  const firstDay = today ? addCalendarDays(today, 1) : "";
   const lastDay = today ? addCalendarDays(today, 30) : "";
-  const dateInRange = !!date && date >= today && date <= lastDay;
+  const dateInRange = !!firstDay && date >= firstDay && date <= lastDay;
   const availabilityKey = ["provider-availability", userId, providerId];
 
   useEffect(() => {
@@ -155,7 +157,7 @@ function ReferralAppointmentPanel({
                 type="date"
                 className="mt-1 block rounded-md border border-field-border px-3 py-2"
                 value={date}
-                min={today}
+                min={firstDay}
                 max={lastDay}
                 required
                 onChange={(event) => {
@@ -167,12 +169,13 @@ function ReferralAppointmentPanel({
               />
             </label>
             <p className="text-sm text-subtle">Times are shown in the receiving clinic’s time zone ({timeZone}).</p>
-            {date && !dateInRange && <p role="alert">Choose a date from today through 30 days ahead.</p>}
+            {date && !dateInRange && <p role="alert">Choose a date from tomorrow through 30 days ahead in the clinic’s time zone.</p>}
             {dateInRange && availability.isPending && <p role="status">Checking available times…</p>}
             {dateInRange && availability.isError && (
               <div className="space-y-2">
                 <p role="alert">{referralErrorMessage(availability.error, "Unable to load available times.")}</p>
                 <button type="button" data-variant="secondary" onClick={() => void availability.refetch()}>
+                  <ActionIcon name="refresh" />
                   Retry available times
                 </button>
               </div>
@@ -201,6 +204,7 @@ function ReferralAppointmentPanel({
               ) : <p>No open times on this date. Choose another day.</p>
             )}
             <button type="submit" disabled={!dateInRange || !selectedSlot || !availability.isSuccess}>
+              <ActionIcon name="calendarCheck" />
               {change.isPending ? "Booking…" : "Book appointment"}
             </button>
           </fieldset>

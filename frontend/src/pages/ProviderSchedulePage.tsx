@@ -9,6 +9,7 @@ import {
   type CalendarDay,
   type CalendarSlot,
 } from "../api/providerSchedule";
+import { ActionIcon } from "../components/ActionIcon";
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const fullDate = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" });
@@ -166,6 +167,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
     <div className="space-y-3">
       <p role="alert">{calendar.error.message}</p>
       <button type="button" data-variant="secondary" disabled={calendar.isFetching} onClick={() => void calendar.refetch()}>
+        <ActionIcon name="refresh" />
         Try again
       </button>
     </div>
@@ -207,14 +209,16 @@ function ProviderCalendarView({ userId }: { userId: string }) {
 
   return (
     <>
-      <p className="text-sm text-subtle">Next 90 days in the clinic’s time zone ({timeZoneId}). Booking opens up to 30 days ahead.</p>
+      <p className="text-sm text-subtle">Next 90 days in the clinic’s time zone ({timeZoneId}). Appointments can be booked from tomorrow through 30 days ahead.</p>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">{monthName.format(firstVisibleDate)}</h2>
         <div className="flex gap-2">
           <button type="button" data-variant="secondary" disabled={change.isPending || monthIndex === 0} onClick={() => moveMonth(-1)}>
+            <ActionIcon name="back" />
             Previous month
           </button>
           <button type="button" data-variant="secondary" disabled={change.isPending || monthIndex === months.length - 1} onClick={() => moveMonth(1)}>
+            <ActionIcon name="forward" />
             Next month
           </button>
         </div>
@@ -238,6 +242,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
                 disabled={change.isPending}
                 onClick={() => selectDay(day.date)}
               >
+                <ActionIcon name="calendar" />
                 <time dateTime={day.date}>{calendarDate(day.date).getUTCDate()}</time>
                 <span className="mt-1 block text-xs">{dayLabel(day, now)}</span>
                 {day.appointments.length > 0 && (
@@ -265,6 +270,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
               disabled={change.isPending}
               onClick={updateDay}
             >
+              <ActionIcon name={selected.dayOffPublicId ? "calendarCheck" : "calendarX"} />
               {change.isPending ? "Saving…" : selected.dayOffPublicId ? "Remove day off" : "Mark day unavailable"}
             </button>
           )}

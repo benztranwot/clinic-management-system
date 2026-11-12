@@ -35,7 +35,7 @@ public class DirectAppointmentTests
     {
         const string subject = "auth0|booking-front-desk";
         const string clinicianSubject = "auth0|booking-clinician";
-        var now = new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero);
+        var now = new DateTimeOffset(2030, 1, 7, 5, 30, 0, TimeSpan.Zero);
         var start = new DateTimeOffset(2030, 1, 7, 14, 0, 0, TimeSpan.Zero);
 
         var clock = new TestClock(now);
@@ -59,7 +59,11 @@ public class DirectAppointmentTests
         {
             await db.Database.MigrateAsync();
 
-            var clinic = new Clinic { Name = "Booking Test Clinic", TimeZoneId = "America/Chicago" };
+            var clinic = new Clinic
+            {
+                Name = "Booking Test Clinic", TimeZoneId = "America/Chicago",
+                Address = "100 Test Avenue",
+            };
             var staff = new AppAccount { Issuer = TestJwtIssuer.Issuer, Subject = subject };
             var clinician = new AppAccount { Issuer = TestJwtIssuer.Issuer, Subject = clinicianSubject };
             var firstPatient = new Patient
@@ -125,6 +129,10 @@ public class DirectAppointmentTests
             Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
 
             tokens.AuthorizeSubject(client, subject);
+            clock.EnqueueReads(start.AddMinutes(-15));
+            using var sameDay = await client.PostAsJsonAsync(AppointmentsUrl, request);
+            Assert.Equal(HttpStatusCode.BadRequest, sameDay.StatusCode);
+
             using var referralRequired = await client.PostAsJsonAsync(
                 AppointmentsUrl, request with { ClinicalServicePublicId = referralOnly.PublicId }
             );
@@ -186,6 +194,31 @@ public class DirectAppointmentTests
             Assert.Equal(body.GetProperty("publicId").GetGuid(),
                 Assert.Single(upcoming.EnumerateArray()).GetProperty("publicId").GetGuid());
 
+            var searchUrl = AppointmentsUrl + "/upcoming/search";
+            using var match = await client.PostAsJsonAsync(searchUrl, new
+            {
+                Clinic = detail.GetProperty("clinicName").GetString(),
+                Service = detail.GetProperty("serviceName").GetString(),
+                Provider = detail.GetProperty("providerName").GetString(),
+                Patient = winningPatient == firstPatient.PublicId ? firstPatient.FirstName : secondPatient.FirstName,
+                FromUtc = start,
+                UntilUtc = start.AddMinutes(30),
+                LatestFirst = true,
+            });
+            Assert.Equal(HttpStatusCode.OK, match.StatusCode);
+            var matchingPage = await match.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.False(matchingPage.GetProperty("hasMore").GetBoolean());
+            Assert.Equal(body.GetProperty("publicId").GetGuid(),
+                Assert.Single(matchingPage.GetProperty("items").EnumerateArray()).GetProperty("publicId").GetGuid());
+
+            using var noMatch = await client.PostAsJsonAsync(searchUrl, new { UntilUtc = start });
+            Assert.Equal(HttpStatusCode.OK, noMatch.StatusCode);
+            var emptyPage = await noMatch.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Empty(emptyPage.GetProperty("items").EnumerateArray());
+
+            using var invalidPage = await client.PostAsJsonAsync(searchUrl, new { Page = 0 });
+            Assert.Equal(HttpStatusCode.BadRequest, invalidPage.StatusCode);
+
             tokens.AuthorizeSubject(client, "auth0|unlinked-booking-account");
             using var hidden = await client.GetAsync(bookingUrl);
             Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
@@ -203,6 +236,8 @@ public class DirectAppointmentTests
             Assert.False(clinicianDetail.GetProperty("canCancel").GetBoolean());
             using var deniedUpcoming = await client.GetAsync(AppointmentsUrl + "/upcoming");
             Assert.Equal(HttpStatusCode.Forbidden, deniedUpcoming.StatusCode);
+            using var deniedSearch = await client.PostAsJsonAsync(searchUrl, new { });
+            Assert.Equal(HttpStatusCode.Forbidden, deniedSearch.StatusCode);
             using var deniedMove = await client.PutAsJsonAsync(rescheduleUrl, move);
             Assert.Equal(HttpStatusCode.NotFound, deniedMove.StatusCode);
 
@@ -213,6 +248,10 @@ public class DirectAppointmentTests
             await db.SaveChangesAsync();
 
             tokens.AuthorizeSubject(client, subject);
+            clock.EnqueueReads(start.AddMinutes(-15), start.AddMinutes(-15));
+            using var sameDayMove = await client.PutAsJsonAsync(rescheduleUrl, move);
+            Assert.Equal(HttpStatusCode.BadRequest, sameDayMove.StatusCode);
+
             using var blockedMove = await client.PutAsJsonAsync(
                 rescheduleUrl, move with { StartUtc = "2030-01-07T14:30:00Z" }
             );

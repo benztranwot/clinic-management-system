@@ -41,7 +41,7 @@ public static class ClinicEndpoints
         // Read the clinics in name order and select the fields returned by the API.
         var clinics = await db
             .Clinics.OrderBy(clinic => clinic.Name)
-            .Select(clinic => new { clinic.PublicId, clinic.Name })
+            .Select(clinic => new { clinic.PublicId, clinic.Name, clinic.Address, clinic.TimeZoneId })
             .ToListAsync(cancellationToken);
 
         return Results.Ok(clinics);
@@ -63,7 +63,14 @@ public static class ClinicEndpoints
             );
         }
 
-        var clinic = new Clinic { Name = name };
+        var address = request.Address?.Trim();
+        var timeZoneId = request.TimeZoneId?.Trim();
+        if (ValidateSchedulingSettings(address, timeZoneId) is { } error)
+        {
+            return error;
+        }
+
+        var clinic = new Clinic { Name = name, Address = address!, TimeZoneId = timeZoneId! };
 
         // Add the new clinic and save it to SQL Server.
         db.Clinics.Add(clinic);
@@ -72,7 +79,7 @@ public static class ClinicEndpoints
         // Return the new clinic and its URL in the Location header.
         return Results.Created(
             $"/api/clinics/{clinic.PublicId}",
-            new { clinic.PublicId, clinic.Name }
+            new { clinic.PublicId, clinic.Name, clinic.Address, clinic.TimeZoneId }
         );
     }
 
@@ -125,11 +132,25 @@ public static class ClinicEndpoints
             return Results.NotFound();
         }
 
-        // Change the clinic's name and save it to SQL Server.
+        // Older callers can rename a clinic without changing its scheduling settings.
+        if (request.Address is not null || request.TimeZoneId is not null)
+        {
+            var address = request.Address?.Trim();
+            var timeZoneId = request.TimeZoneId?.Trim();
+            if (ValidateSchedulingSettings(address, timeZoneId) is { } error)
+            {
+                return error;
+            }
+
+            clinic.Address = address!;
+            clinic.TimeZoneId = timeZoneId!;
+        }
+
+        // Save all requested changes together.
         clinic.Name = name;
         await db.SaveChangesAsync(cancellationToken);
 
-        return Results.Ok(new { clinic.PublicId, clinic.Name });
+        return Results.Ok(new { clinic.PublicId, clinic.Name, clinic.Address, clinic.TimeZoneId });
     }
 
     private static async Task<IResult> UpdateClinicSchedulingSettingsAsync(
@@ -142,6 +163,25 @@ public static class ClinicEndpoints
         var address = request.Address?.Trim();
         var timeZoneId = request.TimeZoneId?.Trim();
 
+        if (ValidateSchedulingSettings(address, timeZoneId) is { } error)
+        {
+            return error;
+        }
+
+        // Update both settings together for the clinic in the route.
+        var updatedCount = await db.Clinics.Where(clinic => clinic.PublicId == publicId)
+            .ExecuteUpdateAsync(
+                updates => updates
+                    .SetProperty(clinic => clinic.Address, address!)
+                    .SetProperty(clinic => clinic.TimeZoneId, timeZoneId!),
+                cancellationToken
+            );
+
+        return updatedCount == 0 ? Results.NotFound() : Results.NoContent();
+    }
+
+    private static IResult? ValidateSchedulingSettings(string? address, string? timeZoneId)
+    {
         if (string.IsNullOrEmpty(address) || address.Length > 300)
         {
             return Results.BadRequest(
@@ -160,16 +200,7 @@ public static class ClinicEndpoints
             );
         }
 
-        // Update both settings together for the clinic in the route.
-        var updatedCount = await db.Clinics.Where(clinic => clinic.PublicId == publicId)
-            .ExecuteUpdateAsync(
-                updates => updates
-                    .SetProperty(clinic => clinic.Address, address)
-                    .SetProperty(clinic => clinic.TimeZoneId, timeZoneId),
-                cancellationToken
-            );
-
-        return updatedCount == 0 ? Results.NotFound() : Results.NoContent();
+        return null;
     }
 
     private static async Task<IResult> DeleteClinicAsync(

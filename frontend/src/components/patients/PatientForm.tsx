@@ -8,6 +8,7 @@ import {
   type PatientDetails,
   type PatientInput,
 } from "../../api/patients";
+import { ActionIcon } from "../ActionIcon";
 
 function PatientForm({
   userId,
@@ -79,11 +80,8 @@ function PatientForm({
       { firstName, lastName, dateOfBirth },
       {
         onSuccess: () => {
-          if (patient) {
-            onSaved?.();
-          } else {
-            form.reset();
-          }
+          if (onSaved) onSaved();
+          else form.reset();
         },
       },
     );
@@ -108,14 +106,13 @@ function PatientForm({
 
   return (
     <form
-      className="mt-4 space-y-3 rounded-md border border-slate-200 p-4"
+      className="mt-4 space-y-3 rounded-md border border-panel-border p-4"
       onSubmit={handleSubmit}
       onChange={() => {
         if (validationError) setValidationError("");
         if (mutation.isError || mutation.isSuccess) mutation.reset();
       }}
     >
-      <h3 className="font-semibold">{patient ? "Edit patient" : "Register patient"}</h3>
       <fieldset className="space-y-3" disabled={mutation.isPending}>
         <div>
           <label htmlFor="patient-first-name" className="block text-sm font-medium">
@@ -125,7 +122,7 @@ function PatientForm({
             id="patient-first-name"
             name="firstName"
             defaultValue={patient?.firstName}
-            className="mt-1 w-full rounded-md border border-slate-400 px-3 py-2"
+            className="mt-1 w-full rounded-md border border-[var(--input)] px-3 py-2"
             maxLength={100}
             required
           />
@@ -139,7 +136,7 @@ function PatientForm({
             id="patient-last-name"
             name="lastName"
             defaultValue={patient?.lastName}
-            className="mt-1 w-full rounded-md border border-slate-400 px-3 py-2"
+            className="mt-1 w-full rounded-md border border-[var(--input)] px-3 py-2"
             maxLength={100}
             required
           />
@@ -154,17 +151,18 @@ function PatientForm({
             name="dateOfBirth"
             defaultValue={patient?.dateOfBirth}
             type="date"
-            className="mt-1 w-full rounded-md border border-slate-400 px-3 py-2"
+            className="mt-1 w-full rounded-md border border-[var(--input)] px-3 py-2"
             required
           />
         </div>
 
         <div className="flex flex-wrap gap-2">
           <button type="submit">
+            <ActionIcon name={patient ? "save" : "plus"} />
             {mutation.isPending ? "Saving…" : patient ? "Save changes" : "Register patient"}
           </button>
           {onCancel && (
-            <button type="button" onClick={onCancel}>Cancel</button>
+            <button type="button" data-variant="secondary" onClick={onCancel}><ActionIcon name="close" />Cancel</button>
           )}
         </div>
       </fieldset>
@@ -179,6 +177,7 @@ function PatientForm({
             aria-label="Dismiss patient registered message"
             onClick={() => mutation.reset()}
           >
+            <ActionIcon name="close" />
             Dismiss
           </button>
         </div>

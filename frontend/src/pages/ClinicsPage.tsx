@@ -1,17 +1,14 @@
-import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Link } from "react-router";
-import { useIsMutating, useQuery } from "@tanstack/react-query";
-import { ClinicRequestError, getClinics, type Clinic } from "../api/clinics";
+import { Link, useLocation, useNavigate } from "react-router";
+import { useQuery } from "@tanstack/react-query";
+import { ClinicRequestError, getClinics } from "../api/clinics";
+import WorkspaceTable from "../components/WorkspaceTable";
 import ClinicForm from "../components/clinics/ClinicForm";
-import DeleteClinicButton from "../components/clinics/DeleteClinicButton";
+import { ActionIcon } from "../components/ActionIcon";
 
-function ClinicList({ userId }: { userId: string }) {
+function ClinicList({ userId, create }: { userId: string; create: boolean }) {
+  const navigate = useNavigate();
   const { getAccessTokenSilently } = useAuth0();
-  const [editingClinic, setEditingClinic] = useState<Clinic | null>(null);
-  const [notice, setNotice] = useState("");
-  const isManaging = useIsMutating({ mutationKey: ["manage-clinic", userId] }) > 0;
-
   const query = useQuery({
     // Keep cached clinic data separate for each signed-in user.
     queryKey: ["clinics", userId],
@@ -73,6 +70,7 @@ function ClinicList({ userId }: { userId: string }) {
           disabled={query.isFetching}
           onClick={() => void query.refetch()}
         >
+          <ActionIcon name="refresh" />
           Try again
         </button>
       </div>
@@ -81,98 +79,47 @@ function ClinicList({ userId }: { userId: string }) {
 
   const { clinics, canManage } = query.data;
 
+  if (create) {
+    return canManage ? (
+      <ClinicForm userId={userId} clinic={null}
+          onCancel={() => void navigate("/clinics")}
+          onSaved={(saved) => void navigate("/clinics/" + saved.publicId, { replace: true })} />
+    ) : <p role="alert">Your account doesn’t have permission to create clinics.</p>;
+  }
+
   return (
     <>
-      {canManage && (
-        <ClinicForm
-          key={editingClinic?.publicId ?? "create"}
-          userId={userId}
-          clinic={editingClinic}
-          onCancel={() => setEditingClinic(null)}
-        />
-      )}
-
-      {notice && (
-        <div className="mt-3 flex items-center gap-3">
-          <p role="status">{notice}</p>
-          <button
-            type="button"
-            aria-label="Dismiss clinic notification"
-            onClick={() => setNotice("")}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
+      <div className="page-heading">
+        <h1 id="clinics-heading" className="page-title">Clinics</h1>
+        {canManage && <Link className="workspace-button" to="/clinics/new"><ActionIcon name="plus" />New clinic</Link>}
+      </div>
       {clinics.length === 0 ? (
-        <p className="mt-3 text-slate-600">No clinics found.</p>
+        <p className="queue-empty">No clinics found.</p>
       ) : (
-        <ul className="mt-3 divide-y divide-slate-200" aria-label="Clinics">
+        <WorkspaceTable label="Clinics" columns={["Clinic name", "Address", "Time zone"]}>
           {clinics.map((clinic) => (
-            <li
-              key={clinic.publicId}
-              className="flex items-center justify-between gap-3 py-3 font-medium"
-            >
-              <div className="min-w-0 break-words">
-                <span className="block">{clinic.name}</span>
-                <div className="flex flex-wrap gap-x-3">
-                  <Link
-                    to={"/clinics/" + clinic.publicId + "/providers"}
-                    aria-label={"View providers at " + clinic.name}
-                    className="text-sm text-blue-700 underline"
-                  >
-                    View providers
-                  </Link>
-                  <Link
-                    to={"/clinics/" + clinic.publicId + "/services"}
-                    aria-label={"View services at " + clinic.name}
-                    className="text-sm text-blue-700 underline"
-                  >
-                    View services
-                  </Link>
-                </div>
-              </div>
-              {canManage && (
-                <div className="flex shrink-0 flex-wrap items-start gap-2">
-                  <button
-                    type="button"
-                    aria-label={`Edit ${clinic.name}`}
-                    disabled={isManaging || editingClinic?.publicId === clinic.publicId}
-                    onClick={() => setEditingClinic(clinic)}
-                  >
-                    Edit
-                  </button>
-                  <DeleteClinicButton
-                    clinic={clinic}
-                    userId={userId}
-                    disabled={isManaging || editingClinic?.publicId === clinic.publicId}
-                    onNotice={setNotice}
-                  />
-                </div>
-              )}
-            </li>
+            <tr key={clinic.publicId} className="workspace-action-row">
+              <td><Link className="workspace-row-action" to={"/clinics/" + clinic.publicId}>{clinic.name}</Link></td>
+              <td>{clinic.address}</td>
+              <td>{clinic.timeZoneId}</td>
+            </tr>
           ))}
-        </ul>
+        </WorkspaceTable>
       )}
     </>
   );
 }
 
-function ClinicsPage() {
+function ClinicsPage({ create = false }: { create?: boolean }) {
   const { user } = useAuth0();
+  const { state } = useLocation();
 
   return (
-    <section
-      aria-labelledby="clinics-heading"
-      className="mt-8 rounded-lg border border-slate-200 bg-white p-6"
-    >
-      <h2 id="clinics-heading" className="text-xl font-semibold text-slate-900">
-        Clinics
-      </h2>
-
+    <section aria-label="Clinics" className="workspace-panel mx-auto w-full max-w-4xl space-y-4">
+      {create && <h1 className="page-title">New clinic</h1>}
+      {!create && state?.clinicDeleted === true && <p role="status">Clinic deleted.</p>}
       {user?.sub ? (
-        <ClinicList userId={user.sub} />
+        <ClinicList userId={user.sub} create={create} />
       ) : (
         <p className="mt-3" role="alert">
           We couldn’t identify your session. Sign out and sign back in.

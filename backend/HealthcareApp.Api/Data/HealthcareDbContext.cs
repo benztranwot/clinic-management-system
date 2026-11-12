@@ -35,8 +35,8 @@ public class HealthcareDbContext : DbContext
         var clinic = modelBuilder.Entity<Clinic>();
         clinic.HasIndex(c => c.PublicId).IsUnique();
         clinic.Property(c => c.Name).HasMaxLength(200).IsRequired();
-        clinic.Property(c => c.Address).HasMaxLength(300);
-        clinic.Property(c => c.TimeZoneId).HasMaxLength(100);
+        clinic.Property(c => c.Address).HasMaxLength(300).IsRequired();
+        clinic.Property(c => c.TimeZoneId).HasMaxLength(100).IsRequired();
 
         // Configure provider names and require each provider to belong to a clinic.
         var provider = modelBuilder.Entity<Provider>();

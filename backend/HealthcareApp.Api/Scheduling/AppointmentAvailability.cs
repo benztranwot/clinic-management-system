@@ -11,7 +11,7 @@ internal static class AppointmentAvailability
     public static bool IsInBookingWindow(DateOnly date, TimeZoneInfo timeZone, DateTimeOffset now)
     {
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, timeZone).DateTime);
-        return date >= today && date <= today.AddDays(DaysAhead);
+        return date > today && date <= today.AddDays(DaysAhead);
     }
 
     public static async Task<AppointmentSlot[]> FindAsync(

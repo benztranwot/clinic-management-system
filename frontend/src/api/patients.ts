@@ -2,6 +2,7 @@ export type PatientSummary = {
   publicId: string;
   firstName: string;
   lastName: string;
+  dateOfBirth: string;
 };
 
 export class PatientRequestError extends Error {
@@ -13,9 +14,7 @@ export class PatientRequestError extends Error {
   }
 }
 
-export type PatientDetails = PatientSummary & {
-  dateOfBirth: string;
-};
+export type PatientDetails = PatientSummary;
 
 export function getPatients(
   accessToken: string,

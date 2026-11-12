@@ -59,7 +59,12 @@ public class ClinicAuthorizationTests
         {
             // Apply the real migrations and insert one fictional clinic.
             await db.Database.MigrateAsync();
-            var clinic = new Clinic { Name = originalName };
+            var clinic = new Clinic
+            {
+                Name = originalName,
+                Address = "100 Test Avenue",
+                TimeZoneId = "America/Chicago",
+            };
             db.Clinics.Add(clinic);
             await db.SaveChangesAsync();
 
@@ -78,11 +83,11 @@ public class ClinicAuthorizationTests
                 "Read" => new HttpRequestMessage(HttpMethod.Get, clinicUrl),
                 "Create" => new HttpRequestMessage(HttpMethod.Post, "/api/clinics")
                 {
-                    Content = JsonContent.Create(new { name = createdName }),
+                    Content = JsonContent.Create(new { name = createdName, address = "200 Test Avenue", timeZoneId = "America/Denver" }),
                 },
                 "Update" => new HttpRequestMessage(HttpMethod.Put, clinicUrl)
                 {
-                    Content = JsonContent.Create(new { name = updatedName }),
+                    Content = JsonContent.Create(new { name = updatedName, address = "300 Test Avenue", timeZoneId = "America/Denver" }),
                 },
                 "Delete" => new HttpRequestMessage(HttpMethod.Delete, clinicUrl),
                 _ => throw new ArgumentOutOfRangeException(nameof(operation)),
@@ -107,6 +112,10 @@ public class ClinicAuthorizationTests
                     operation == "List" ? Assert.Single(body.EnumerateArray()) : body;
 
                 Assert.Equal(clinic.PublicId, returnedClinic.GetProperty("publicId").GetGuid());
+                Assert.Equal(operation == "Update" ? "300 Test Avenue" : clinic.Address,
+                    returnedClinic.GetProperty("address").GetString());
+                Assert.Equal(operation == "Update" ? "America/Denver" : clinic.TimeZoneId,
+                    returnedClinic.GetProperty("timeZoneId").GetString());
                 Assert.Equal(
                     operation == "Update" ? updatedName : originalName,
                     returnedClinic.GetProperty("name").GetString()
@@ -132,6 +141,8 @@ public class ClinicAuthorizationTests
 
                 var createdClinic = Assert.Single(savedClinics, c => c.PublicId == createdId);
                 Assert.Equal(createdName, createdClinic.Name);
+                Assert.Equal("200 Test Avenue", createdClinic.Address);
+                Assert.Equal("America/Denver", createdClinic.TimeZoneId);
                 var originalClinic = Assert.Single(
                     savedClinics,
                     c => c.PublicId == clinic.PublicId

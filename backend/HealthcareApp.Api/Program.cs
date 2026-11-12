@@ -77,6 +77,20 @@ app.UseExceptionHandler(
     }
 );
 
+// Give unmatched API paths a JSON response while preserving endpoint-generated errors.
+app.UseStatusCodePages(context =>
+{
+    var http = context.HttpContext;
+    if (http.Response.StatusCode != StatusCodes.Status404NotFound
+        || http.GetEndpoint() is not null
+        || !http.Request.Path.StartsWithSegments("/api"))
+    {
+        return Task.CompletedTask;
+    }
+
+    return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "API route not found.").ExecuteAsync(http);
+});
+
 // Authenticate the caller before evaluating authorization requirements.
 app.UseAuthentication();
 app.UseAuthorization();

@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
+import { ClinicServicesTable } from "../components/clinics/ClinicDirectoryTables";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { ClinicRequestError, getClinic } from "../api/clinics";
 import {
   createService,
@@ -13,6 +14,7 @@ import {
   type Service,
   type ServiceInput,
 } from "../api/services";
+import { ActionIcon } from "../components/ActionIcon";
 
 type ServiceChange =
   | { action: "create"; input: ServiceInput }
@@ -71,10 +73,10 @@ function ServiceForm({
     onSave({ name });
   }
 
-  const inputClass = "mt-1 w-full rounded-md border border-slate-400 px-3 py-2";
+  const inputClass = "mt-1 w-full rounded-md border border-[var(--input)] px-3 py-2";
   return (
     <form
-      className="mt-4 rounded-md border border-slate-200 p-4"
+      className="mt-4 rounded-md border border-[var(--border)] p-4"
       onSubmit={handleSubmit}
       onChange={() => setNameError("")}
     >
@@ -92,8 +94,8 @@ function ServiceForm({
         </label>
         {nameError && <p role="alert">{nameError}</p>}
         <div className="flex flex-wrap gap-2">
-          <button type="submit">{isSaving ? "Saving…" : "Save service"}</button>
-          <button type="button" onClick={onCancel}>Cancel</button>
+          <button type="submit"><ActionIcon name="save" />{isSaving ? "Saving…" : "Save service"}</button>
+          <button type="button" onClick={onCancel}><ActionIcon name="close" />Cancel</button>
         </div>
       </fieldset>
     </form>
@@ -103,15 +105,18 @@ function ServiceForm({
 function ServiceDirectory({
   userId,
   clinicPublicId,
+  selectedId,
 }: {
   userId: string;
   clinicPublicId: string;
+  selectedId: string | null;
 }) {
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { state } = useLocation();
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(state?.deleted === true ? "Service deleted." : "");
 
   const directoryKey = ["services", userId, clinicPublicId];
   const directory = useQuery({
@@ -134,9 +139,10 @@ function ServiceDirectory({
     retry: false,
   });
 
+  const belongsToClinic = directory.data?.services.some((item) => item.publicId === selectedId?.toLowerCase());
   const detail = useQuery({
     queryKey: ["service", userId, selectedId],
-    enabled: selectedId !== null,
+    enabled: Boolean(belongsToClinic),
     queryFn: async ({ signal }) => {
       if (!selectedId) throw new Error("Select a service first.");
       const accessToken = await getAccessTokenSilently();
@@ -177,15 +183,17 @@ function ServiceDirectory({
         });
       }
 
-      await queryClient.invalidateQueries({ queryKey: directoryKey, exact: true });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: directoryKey, exact: true }),
+        queryClient.invalidateQueries({ queryKey: ["clinic-service-list", userId, clinicPublicId], exact: true }),
+      ]);
     },
   });
 
-  function openService(publicId: string | null) {
+  function closeServiceForm() {
     change.reset();
     setNotice("");
     setFormMode(null);
-    setSelectedId(publicId);
   }
 
   function submitChange(request: ServiceChange) {
@@ -194,11 +202,13 @@ function ServiceDirectory({
     change.mutate(request, {
       onSuccess: () => {
         setFormMode(null);
-        if (request.action === "delete") setSelectedId(null);
+        if (request.action === "delete") {
+          void navigate("/clinics/" + clinicPublicId + "/services", { replace: true, state: { deleted: true } });
+          return;
+        }
         const messages = {
           create: "Service added.",
           update: "Service updated.",
-          delete: "Service deleted.",
         };
         setNotice(messages[request.action]);
       },
@@ -213,6 +223,7 @@ function ServiceDirectory({
       <div className="mt-3">
         <p role="alert">{serviceError(directory.error, "Unable to load services.")}</p>
         <button type="button" className="mt-3" disabled={directory.isFetching} onClick={() => void directory.refetch()}>
+          <ActionIcon name="refresh" />
           Try again
         </button>
       </div>
@@ -223,53 +234,40 @@ function ServiceDirectory({
   const service = detail.data;
   return (
     <>
-      <h3 className="mt-3 font-semibold">{clinic.name}</h3>
+      <div className="page-heading">
+        <div>
+          <h1 id="services-heading" className="page-title">{selectedId ? "Service details" : "Services"}</h1>
+          <p className="queue-meta">{clinic.name}</p>
+        </div>
+        {selectedId === null && canManage && formMode !== "create" && (
+          <button type="button" onClick={() => {
+            closeServiceForm();
+            setFormMode("create");
+          }}><ActionIcon name="plus" />Add service</button>
+        )}
+      </div>
 
       {selectedId === null ? (
         <>
-          {canManage && formMode !== "create" && (
-            <button
-              type="button"
-              className="mt-3"
-              onClick={() => {
-                openService(null);
-                setFormMode("create");
-              }}
-            >
-              Add service
-            </button>
-          )}
           {canManage && formMode === "create" && (
             <ServiceForm
               isSaving={change.isPending}
               onSave={(input) => submitChange({ action: "create", input })}
-              onCancel={() => openService(null)}
+              onCancel={closeServiceForm}
             />
           )}
-          {services.length === 0 ? (
-            <p className="mt-3">No services found at this clinic.</p>
-          ) : (
-            <ul className="mt-3 divide-y divide-slate-200" aria-label="Services">
-              {services.map((item) => (
-                <li key={item.publicId} className="py-3">
-                  <button type="button" disabled={change.isPending} onClick={() => openService(item.publicId)}>
-                    {item.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ClinicServicesTable clinicId={clinicPublicId} services={services} />
         </>
+      ) : !belongsToClinic ? (
+        <p role="alert">This service was not found at this clinic.</p>
       ) : (
         <div className="mt-4 space-y-3">
-          <button type="button" disabled={change.isPending} onClick={() => openService(null)}>
-            Back to services
-          </button>
           {detail.isPending && <p role="status">Loading service details…</p>}
           {detail.isError && (
             <div>
               <p role="alert">{serviceError(detail.error, "Unable to load service details.")}</p>
               <button type="button" className="mt-3" disabled={detail.isFetching} onClick={() => void detail.refetch()}>
+                <ActionIcon name="refresh" />
                 Try again
               </button>
             </div>
@@ -286,7 +284,7 @@ function ServiceDirectory({
                   service={service}
                   isSaving={change.isPending}
                   onSave={(input) => submitChange({ action: "update", publicId: service.publicId, input })}
-                  onCancel={() => openService(service.publicId)}
+                  onCancel={closeServiceForm}
                 />
               )}
               {canManage && formMode !== "edit" && (
@@ -300,17 +298,20 @@ function ServiceDirectory({
                       setFormMode("edit");
                     }}
                   >
+                    <ActionIcon name="pencil" />
                     Edit service
                   </button>
                   <button
                     type="button"
                     disabled={change.isPending}
+                    data-variant="danger"
                     onClick={() => {
                       if (window.confirm("Permanently delete " + service.name + "?")) {
                         submitChange({ action: "delete", publicId: service.publicId });
                       }
                     }}
                   >
+                    <ActionIcon name="trash" />
                     {change.isPending ? "Deleting…" : "Delete service"}
                   </button>
                 </div>
@@ -333,6 +334,7 @@ function ServiceDirectory({
         <div className="mt-3 flex items-center gap-3">
           <p role="status">{notice}</p>
           <button type="button" aria-label="Dismiss service message" onClick={() => setNotice("")}>
+            <ActionIcon name="close" />
             Dismiss
           </button>
         </div>
@@ -343,20 +345,24 @@ function ServiceDirectory({
 
 function ServicesPage() {
   const { user } = useAuth0();
-  const { clinicPublicId } = useParams<"clinicPublicId">();
+  const { clinicPublicId, publicId } = useParams<"clinicPublicId" | "publicId">();
 
   return (
     <section
-      aria-labelledby="services-heading"
-      className="mt-8 rounded-lg border border-slate-200 bg-white p-6"
+      aria-label="Services"
+      className="workspace-panel mx-auto w-full max-w-4xl space-y-4"
     >
-      <Link to="/clinics" className="text-sm text-blue-700 underline">Back to clinics</Link>
-      <h2 id="services-heading" className="mt-3 text-xl font-semibold">Services</h2>
+      <Link to={clinicPublicId ? "/clinics/" + clinicPublicId : "/clinics"}
+        className="workspace-button" data-variant="secondary">
+        <ActionIcon name="back" />
+        {clinicPublicId ? "Back to clinic" : "Back to clinics"}
+      </Link>
       {user?.sub && clinicPublicId ? (
         <ServiceDirectory
-          key={user.sub + ":" + clinicPublicId}
+          key={user.sub + ":" + clinicPublicId + ":" + (publicId ?? "")}
           userId={user.sub}
           clinicPublicId={clinicPublicId}
+          selectedId={publicId ?? null}
         />
       ) : (
         <p className="mt-3" role="alert">Unable to open this clinic’s services.</p>
