@@ -97,6 +97,24 @@ public class ClinicSchedulingSettingsTests
             using var updated = await client.PutAsJsonAsync(settingsUrl, settings);
             Assert.Equal(HttpStatusCode.NoContent, updated.StatusCode);
 
+            using var staleEdit = await client.PutAsJsonAsync(
+                clinicUrl,
+                new
+                {
+                    name = "Stale clinic name",
+                    address = "300 Demo Avenue",
+                    timeZoneId = "America/Denver",
+                    expectedAddress = clinic.Address,
+                    expectedTimeZoneId = clinic.TimeZoneId,
+                }
+            );
+            Assert.Equal(HttpStatusCode.Conflict, staleEdit.StatusCode);
+
+            var afterConflict = await client.GetFromJsonAsync<JsonElement>(clinicUrl);
+            Assert.Equal(clinic.Name, afterConflict.GetProperty("name").GetString());
+            Assert.Equal(address, afterConflict.GetProperty("address").GetString());
+            Assert.Equal(timeZoneId, afterConflict.GetProperty("timeZoneId").GetString());
+
             using var renamed = await client.PutAsJsonAsync(
                 clinicUrl,
                 new { name = "Renamed Scheduling Clinic" }
@@ -107,6 +125,23 @@ public class ClinicSchedulingSettingsTests
             Assert.Equal("Renamed Scheduling Clinic", after.GetProperty("name").GetString());
             Assert.Equal(address, after.GetProperty("address").GetString());
             Assert.Equal(timeZoneId, after.GetProperty("timeZoneId").GetString());
+
+            using var edited = await client.PutAsJsonAsync(
+                clinicUrl,
+                new
+                {
+                    name = "Updated Scheduling Clinic",
+                    address = "300 Demo Avenue",
+                    timeZoneId = "America/Denver",
+                    expectedAddress = address,
+                    expectedTimeZoneId = timeZoneId,
+                }
+            );
+            Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+            var saved = await edited.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("Updated Scheduling Clinic", saved.GetProperty("name").GetString());
+            Assert.Equal("300 Demo Avenue", saved.GetProperty("address").GetString());
+            Assert.Equal("America/Denver", saved.GetProperty("timeZoneId").GetString());
         }
         finally
         {

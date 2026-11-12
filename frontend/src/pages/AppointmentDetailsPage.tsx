@@ -30,13 +30,17 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
   const backToReferral = location.state?.fromReferral === true && referralLink;
   const originList = location.state?.appointmentList;
   const fromConflicts = originList === "conflicts"
-    || (originList !== "upcoming" && appointment?.overlapsProviderTimeOff);
+    || (originList !== "upcoming" && !location.search && appointment?.overlapsProviderTimeOff);
   const backList = fromConflicts ? appointmentLists.conflicts : appointmentLists.upcoming;
+  const backSearch = fromConflicts ? "" : location.search;
+  const backState = originList === "upcoming" && location.state?.filterOwner === userId
+    ? { patientFilter: location.state.patientFilter, filterOwner: userId }
+    : undefined;
 
   return (
     <>
       <div className="page-heading">
-        <Link to={backToReferral || backList.path} className="workspace-button" data-variant="secondary">
+        <Link to={backToReferral || { pathname: backList.path, search: backSearch }} state={backState} className="workspace-button" data-variant="secondary">
           <ActionIcon name="back" />
           {backToReferral ? "Back to referral" : "Back to " + backList.title.toLowerCase()}
         </Link>

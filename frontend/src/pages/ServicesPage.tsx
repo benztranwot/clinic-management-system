@@ -139,7 +139,7 @@ function ServiceDirectory({
     retry: false,
   });
 
-  const belongsToClinic = directory.data?.services.some((item) => item.publicId === selectedId?.toLowerCase());
+  const belongsToClinic = directory.data?.services.some((item) => item.publicId === selectedId);
   const detail = useQuery({
     queryKey: ["service", userId, selectedId],
     enabled: Boolean(belongsToClinic),
@@ -346,6 +346,7 @@ function ServiceDirectory({
 function ServicesPage() {
   const { user } = useAuth0();
   const { clinicPublicId, publicId } = useParams<"clinicPublicId" | "publicId">();
+  const selectedId = publicId?.toLowerCase() ?? null;
 
   return (
     <section
@@ -359,10 +360,10 @@ function ServicesPage() {
       </Link>
       {user?.sub && clinicPublicId ? (
         <ServiceDirectory
-          key={user.sub + ":" + clinicPublicId + ":" + (publicId ?? "")}
+          key={user.sub + ":" + clinicPublicId + ":" + (selectedId ?? "")}
           userId={user.sub}
           clinicPublicId={clinicPublicId}
-          selectedId={publicId ?? null}
+          selectedId={selectedId}
         />
       ) : (
         <p className="mt-3" role="alert">Unable to open this clinic’s services.</p>

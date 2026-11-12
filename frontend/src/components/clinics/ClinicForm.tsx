@@ -24,6 +24,7 @@ function ClinicForm({
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
   const isManaging = useIsMutating({ mutationKey: ["manage-clinic", userId] }) > 0;
+  const [originalClinic] = useState(clinic);
   const [name, setName] = useState(clinic?.name ?? "");
   const [address, setAddress] = useState(clinic?.address ?? "");
   const [timeZoneId, setTimeZoneId] = useState(clinic?.timeZoneId ?? "");
@@ -38,11 +39,21 @@ function ClinicForm({
         throw new Error("Auth0 did not return an access token.");
       }
 
-      return clinic
-        ? updateClinic(accessToken, clinic.publicId, input)
-        : createClinic(accessToken, input);
+      if (!originalClinic) return createClinic(accessToken, input);
+
+      const settingsChanged = input.address !== originalClinic.address || input.timeZoneId !== originalClinic.timeZoneId;
+      return updateClinic(accessToken, originalClinic.publicId, settingsChanged ? {
+        ...input,
+        expectedAddress: originalClinic.address,
+        expectedTimeZoneId: originalClinic.timeZoneId,
+      } : { name: input.name });
     },
     retry: false,
+    onError: (error) => {
+      if (originalClinic && error instanceof ClinicRequestError && error.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: ["clinic", userId, originalClinic.publicId], exact: true });
+      }
+    },
     onSuccess: async (savedClinic) => {
       queryClient.setQueryData<{ clinic: Clinic; canManage: boolean }>(
         ["clinic", userId, savedClinic.publicId],
@@ -54,7 +65,6 @@ function ClinicForm({
         queryKey: ["clinics", userId],
         exact: true,
       });
-      onSaved(savedClinic);
     },
   });
 
@@ -69,7 +79,7 @@ function ClinicForm({
     }
 
     setFieldError("");
-    mutation.mutate(input);
+    mutation.mutate(input, { onSuccess: onSaved });
   }
 
   const status =
@@ -87,6 +97,8 @@ function ClinicForm({
     saveError = "Your account doesn’t have permission to save clinics.";
   } else if (status === 404) {
     saveError = "This clinic is no longer available.";
+  } else if (status === 409) {
+    saveError = "The clinic’s scheduling settings changed. Cancel and reopen the editor before trying again.";
   }
 
   return (

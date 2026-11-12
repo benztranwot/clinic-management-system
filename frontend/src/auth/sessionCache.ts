@@ -1,39 +1,11 @@
-import type { ICache } from "@auth0/auth0-react";
-
-const prefix = "clinic-auth:";
-
-// Keep the SDK cache through reloads in this tab. Auth0 owns token renewal and logout.
-export function createAuthSessionCache(browser: Window): ICache | undefined {
-  let storage: Storage;
+// Remove entries written by older versions before Auth0 initializes its in-memory cache.
+export function clearLegacyAuthSessionCache(browser: Window) {
   try {
-    storage = browser.sessionStorage;
-    storage.setItem(prefix + "probe", "1");
-    storage.removeItem(prefix + "probe");
+    const storage = browser.sessionStorage;
+    for (const key of Object.keys(storage)) {
+      if (key.startsWith("clinic-auth:")) storage.removeItem(key);
+    }
   } catch {
-    return undefined;
+    // The app can sign in even when the browser blocks access to session storage.
   }
-
-  return {
-    get<T>(key: string): T | undefined {
-      const item = storage.getItem(prefix + key);
-      if (item === null) return undefined;
-
-      try {
-        return JSON.parse(item) as T;
-      } catch {
-        storage.removeItem(prefix + key);
-        return undefined;
-      }
-    },
-    set<T>(key: string, entry: T) {
-      storage.setItem(prefix + key, JSON.stringify(entry));
-    },
-    remove(key: string) {
-      storage.removeItem(prefix + key);
-    },
-    allKeys() {
-      return Object.keys(storage).filter((key) => key.startsWith(prefix))
-        .map((key) => key.slice(prefix.length));
-    },
-  };
 }

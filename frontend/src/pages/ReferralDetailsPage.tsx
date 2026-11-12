@@ -15,6 +15,7 @@ import {
 } from "../api/referrals";
 import ReferralAppointmentPanel from "../components/referrals/ReferralAppointmentPanel";
 import ReferralStatusBadge from "../components/referrals/ReferralStatusBadge";
+import { useReferralAccount } from "../components/referrals/useReferralAccount";
 import { ActionIcon } from "../components/ActionIcon";
 
 type ReferralSnapshot = Pick<ReferralUpdate,
@@ -33,6 +34,7 @@ function ReferralRecord({
 }) {
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
+  const { data: accountData } = useReferralAccount(userId);
   const [snapshot, setSnapshot] = useState<ReferralSnapshot | null>(null);
   const [providerId, setProviderId] = useState("");
   const [note, setNote] = useState("");
@@ -113,8 +115,16 @@ function ReferralRecord({
     snapshot.expectedMissingInformationNote !== referral.missingInformationNote
   );
   const providerChanged = canAssign && Boolean(selectedProvider);
-  const statusChanged = canReview && status !== "" && (
-    status !== referral.status || (status === "MissingInformation" && note.trim() !== referral.missingInformationNote)
+  const account = accountData?.account;
+  const retainsReview = account?.isAdministrator || (
+    account?.providerPublicId === selectedProvider?.publicId &&
+    account?.memberships.some(({ clinicPublicId, role }) =>
+      clinicPublicId === referral.clinicPublicId && role === "Clinician")
+  );
+  const canSaveStatus = canReview && (!providerChanged || Boolean(retainsReview));
+  const statusChanged = canSaveStatus && status !== "" && (
+    providerChanged || status !== referral.status ||
+    (status === "MissingInformation" && note.trim() !== referral.missingInformationNote)
   );
   const disabled = change.isPending || appointmentWritePending;
 
@@ -211,17 +221,20 @@ function ReferralRecord({
                       </div>
                     )}
                     {eligible.isSuccess && providerOptions.length === 0 && <p>No other eligible providers are available.</p>}
+                    {providerChanged && canReview && !canSaveStatus && (
+                      <p className="text-sm text-subtle">The receiving provider can review this referral after reassignment.</p>
+                    )}
                     {providerChanged && referral.stage === "ReadyToSchedule" && !statusChanged && (
                       <p className="text-sm text-subtle">Changing the provider returns the referral to pending review.</p>
                     )}
                   </div>
                 )}
-                {canReview && (
+                {canSaveStatus && (
                   <label className="block text-sm font-medium">
                     Status
                     <select className={fieldClass} value={status}
                       onChange={(event) => setStatus(event.target.value as ReferralStatus | "")}>
-                      <option value="">Keep current status</option>
+                      <option value="">{providerChanged ? "Apply reassignment rules" : "Keep current status"}</option>
                       <option value="PendingReview">Pending review</option>
                       <option value="MissingInformation">Missing information</option>
                       <option value="ReadyToSchedule">Ready to schedule</option>
@@ -229,7 +242,7 @@ function ReferralRecord({
                     </select>
                   </label>
                 )}
-                {canReview && status === "MissingInformation" && (
+                {canSaveStatus && status === "MissingInformation" && (
                   <label className="block text-sm font-medium sm:col-span-2">
                     Missing information note
                     <textarea className={fieldClass} value={note} onChange={(event) => setNote(event.target.value)}

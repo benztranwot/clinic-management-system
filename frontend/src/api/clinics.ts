@@ -4,6 +4,11 @@ export type ClinicInput = {
   timeZoneId: string;
 };
 
+export type ClinicUpdate = Pick<ClinicInput, "name"> | (ClinicInput & {
+  expectedAddress: string;
+  expectedTimeZoneId: string;
+});
+
 export type Clinic = ClinicInput & { publicId: string };
 
 export class ClinicRequestError extends Error {
@@ -59,7 +64,7 @@ export function createClinic(
 export function updateClinic(
   accessToken: string,
   publicId: string,
-  input: ClinicInput,
+  input: ClinicUpdate,
 ): Promise<Clinic> {
   return saveClinic(
     `/api/clinics/${encodeURIComponent(publicId)}`,
@@ -74,7 +79,7 @@ async function saveClinic(
   path: string,
   method: "POST" | "PUT",
   accessToken: string,
-  input: ClinicInput,
+  input: ClinicInput | ClinicUpdate,
 ): Promise<Clinic> {
   const response = await fetch(path, {
     method,

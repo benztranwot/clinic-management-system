@@ -121,19 +121,19 @@ public static class ClinicEndpoints
             );
         }
 
-        // Load the existing clinic so EF Core can track changes to it.
-        var clinic = await db.Clinics.SingleOrDefaultAsync(
-            c => c.PublicId == publicId,
-            cancellationToken
-        );
+        var clinics = db.Clinics.Where(clinic => clinic.PublicId == publicId);
+        var expectedAddress = request.ExpectedAddress;
+        var expectedTimeZoneId = request.ExpectedTimeZoneId;
+        var editsSettings = request.Address is not null || request.TimeZoneId is not null;
 
-        if (clinic is null)
+        if ((expectedAddress is null) != (expectedTimeZoneId is null)
+            || (expectedAddress is not null && !editsSettings))
         {
-            return Results.NotFound();
+            return Results.BadRequest(new { message = "Send both original scheduling settings when checking for changes." });
         }
 
-        // Older callers can rename a clinic without changing its scheduling settings.
-        if (request.Address is not null || request.TimeZoneId is not null)
+        int updatedCount;
+        if (editsSettings)
         {
             var address = request.Address?.Trim();
             var timeZoneId = request.TimeZoneId?.Trim();
@@ -142,15 +142,48 @@ public static class ClinicEndpoints
                 return error;
             }
 
-            clinic.Address = address!;
-            clinic.TimeZoneId = timeZoneId!;
+            var matching = clinics;
+            if (expectedAddress is not null && expectedTimeZoneId is not null)
+            {
+                var addressBytes = expectedAddress.Length * sizeof(char);
+                var timeZoneBytes = expectedTimeZoneId.Length * sizeof(char);
+
+                // Compare and update in one statement so a concurrent write cannot slip between them.
+                matching = matching.Where(clinic =>
+                    EF.Functions.Collate(clinic.Address, "Latin1_General_100_BIN2") == expectedAddress
+                    && EF.Functions.DataLength(clinic.Address) == addressBytes
+                    && EF.Functions.Collate(clinic.TimeZoneId, "Latin1_General_100_BIN2") == expectedTimeZoneId
+                    && EF.Functions.DataLength(clinic.TimeZoneId) == timeZoneBytes);
+            }
+
+            updatedCount = await matching.ExecuteUpdateAsync(
+                updates => updates
+                    .SetProperty(clinic => clinic.Name, name)
+                    .SetProperty(clinic => clinic.Address, address!)
+                    .SetProperty(clinic => clinic.TimeZoneId, timeZoneId!),
+                cancellationToken
+            );
+        }
+        else
+        {
+            updatedCount = await clinics.ExecuteUpdateAsync(
+                updates => updates.SetProperty(clinic => clinic.Name, name),
+                cancellationToken
+            );
         }
 
-        // Save all requested changes together.
-        clinic.Name = name;
-        await db.SaveChangesAsync(cancellationToken);
+        var saved = await clinics
+            .Select(clinic => new { clinic.PublicId, clinic.Name, clinic.Address, clinic.TimeZoneId })
+            .SingleOrDefaultAsync(cancellationToken);
 
-        return Results.Ok(new { clinic.PublicId, clinic.Name, clinic.Address, clinic.TimeZoneId });
+        if (saved is null)
+        {
+            return Results.NotFound();
+        }
+
+        return updatedCount == 0
+            ? Results.Conflict(new { message = "The clinic’s scheduling settings changed. Reload the clinic and try again." })
+            : Results.Ok(saved);
     }
 
     private static async Task<IResult> UpdateClinicSchedulingSettingsAsync(
