@@ -15,6 +15,9 @@ public static class AccountEndpoints
 
         // Patients can list referrals linked to their own patient record.
         app.MapGet("/api/me/referrals", GetMyReferralsAsync).RequireAuthorization();
+
+        // Use the patient link from the account for every appointment in this list.
+        app.MapGet("/api/me/appointments", GetMyAppointmentsAsync).RequireAuthorization("ReadAppointments");
     }
 
     private static async Task<IResult> GetMeAsync(
@@ -136,5 +139,62 @@ public static class AccountEndpoints
                 referral.CreatedAtUtc,
             })
         );
+    }
+
+    private static async Task<IResult> GetMyAppointmentsAsync(
+        ClaimsPrincipal user,
+        HttpContext http,
+        HealthcareDbContext db,
+        CancellationToken cancellationToken
+    )
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null)
+        {
+            return Results.Challenge();
+        }
+
+        var account = await identity.QueryAccounts(db)
+            .Where(account => account.PatientId != null)
+            .Select(account => new
+            {
+                Appointments = (
+                    from appointment in db.Appointments
+                    join service in db.ClinicalServices on appointment.ClinicalServiceId equals service.Id
+                    join clinic in db.Clinics on service.ClinicId equals clinic.Id
+                    join provider in db.Providers on appointment.ProviderId equals provider.Id
+                    where appointment.PatientId == account.PatientId
+                    orderby appointment.StartUtc descending, appointment.Id descending
+                    select new
+                    {
+                        appointment.PublicId,
+                        appointment.StartUtc,
+                        appointment.Status,
+                        ServiceName = service.Name,
+                        ClinicName = clinic.Name,
+                        clinic.TimeZoneId,
+                        ProviderName = provider.FirstName + " " + provider.LastName,
+                    }
+                ).ToList(),
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (account is null)
+        {
+            return Results.Forbid();
+        }
+
+        http.Response.Headers.CacheControl = "no-store";
+        return Results.Ok(account.Appointments.Select(appointment => new
+        {
+            appointment.PublicId,
+            appointment.StartUtc,
+            EndUtc = appointment.StartUtc.AddMinutes(Appointment.DurationMinutes),
+            Status = appointment.Status.ToString(),
+            appointment.ServiceName,
+            appointment.ClinicName,
+            appointment.TimeZoneId,
+            appointment.ProviderName,
+        }));
     }
 }

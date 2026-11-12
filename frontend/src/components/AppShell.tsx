@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { NavLink } from "react-router";
 import { appointmentLists } from "./appointments/appointmentLists";
 import { useAppointmentAttention } from "./appointments/useAppointmentAttention";
-import { useReferralAccount } from "./referrals/useReferralAccount";
+import type { ReferralAccount } from "../api/referrals";
 
 type Theme = "system" | "light" | "dark";
 const themeKey = "clinic-management-theme";
@@ -38,9 +38,7 @@ function ThemeSelect() {
   );
 }
 
-function SchedulingLinks({ userId }: { userId: string }) {
-  const { data } = useReferralAccount(userId);
-  const account = data?.account;
+function SchedulingLinks({ userId, account }: { userId: string; account?: ReferralAccount }) {
   const isClinician = account?.memberships.some(({ role }) => role === "Clinician");
   const canSchedule = account?.isAdministrator || account?.memberships.some(({ role }) => role === "FrontDesk");
   const attention = useAppointmentAttention(canSchedule ? userId : undefined);
@@ -71,12 +69,16 @@ function SchedulingLinks({ userId }: { userId: string }) {
 type AppShellProps = {
   userId?: string;
   accountName?: string;
+  account?: ReferralAccount;
+  showStaffNavigation: boolean;
   signingOut?: boolean;
   onSignOut: () => void;
   children: ReactNode;
 };
 
-export default function AppShell({ accountName, userId, signingOut, onSignOut, children }: AppShellProps) {
+export default function AppShell({
+  accountName, account, showStaffNavigation, userId, signingOut, onSignOut, children,
+}: AppShellProps) {
   return (
     <div className={accountName ? "app workspace" : "app guest"}>
       <a href="#main-content" className="skip-link">Skip to content</a>
@@ -101,10 +103,20 @@ export default function AppShell({ accountName, userId, signingOut, onSignOut, c
       </header>
       {accountName && (
         <nav aria-label="Main navigation" className="workspace-nav">
-          <NavLink to="/referrals">Referrals</NavLink>
-          <NavLink to="/clinics">Clinics</NavLink>
-          <NavLink to="/patients">Patients</NavLink>
-          {userId && <SchedulingLinks userId={userId} />}
+          {showStaffNavigation && (
+            <>
+              <NavLink to="/referrals">Referrals</NavLink>
+              <NavLink to="/clinics">Clinics</NavLink>
+              <NavLink to="/patients">Patients</NavLink>
+              {userId && <SchedulingLinks userId={userId} account={account} />}
+            </>
+          )}
+          {account?.patientPublicId && (
+            <>
+              <NavLink to="/my-referrals">My referrals</NavLink>
+              <NavLink to="/my-appointments">My appointments</NavLink>
+            </>
+          )}
         </nav>
       )}
       <main id="main-content" tabIndex={-1} className="workspace-main">{children}</main>

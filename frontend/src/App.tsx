@@ -10,12 +10,23 @@ import PatientDetailsPage from "./pages/PatientDetailsPage";
 import ReferralsPage from "./pages/ReferralsPage";
 import ReferralDetailsPage from "./pages/ReferralDetailsPage";
 import AppShell from "./components/AppShell";
+import MyReferralsPage from "./pages/MyReferralsPage";
+import MyAppointmentsPage from "./pages/MyAppointmentsPage";
+import { useReferralAccount } from "./components/referrals/useReferralAccount";
 import NewReferralPage from "./pages/NewReferralPage";
 import AppointmentListPage from "./pages/AppointmentAttentionPage";
 import AppointmentDetailsPage from "./pages/AppointmentDetailsPage";
 import ProviderSchedulePage from "./pages/ProviderSchedulePage";
 import { appointmentLists } from "./components/appointments/appointmentLists";
 import "./App.css";
+
+const signInMethods = [
+  { connection: "Clinic-Username", label: "Sign in with username and password", primary: true },
+  { connection: "google-oauth2", label: "Continue with Google", primary: false },
+  { connection: "windowslive", label: "Continue with Microsoft", primary: false },
+] as const;
+
+type SignInConnection = (typeof signInMethods)[number]["connection"];
 
 function App() {
   const { isLoading, isAuthenticated, error, user, loginWithRedirect, logout } =
@@ -26,13 +37,14 @@ function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [isRedirecting, setIsRedirecting] = useState(false);
 
-  // Open Auth0's hosted sign-in page.
-  async function handleSignIn() {
+  // Start the hosted Auth0 flow for the selected connection.
+  async function handleSignIn(connection: SignInConnection) {
+    if (isRedirecting) return;
     setActionError(null);
     setIsRedirecting(true);
 
     try {
-      await loginWithRedirect();
+      await loginWithRedirect({ authorizationParams: { connection } });
     } catch {
       setActionError("Unable to start sign-in. Please try again.");
       setIsRedirecting(false);
@@ -61,12 +73,21 @@ function App() {
   }
 
   const signedIn = isAuthenticated && !isLoading && !error;
-  const accountName = signedIn ? user?.name?.trim() || user?.email?.trim() || "Signed in" : undefined;
+  const accountName = signedIn ? user?.name?.trim() || user?.nickname?.trim() || user?.email?.trim() || "Signed in" : undefined;
+
+  const userId = signedIn && !isRedirecting ? user?.sub : undefined;
+  const accountQuery = useReferralAccount(userId);
+  const account = accountQuery.isSuccess ? accountQuery.data.account : undefined;
+  const loadingWorkspace = Boolean(userId && accountQuery.isPending);
+  const patientOnly = Boolean(account?.patientPublicId && !account.isAdministrator && account.memberships.length === 0);
+  const homePath = patientOnly ? "/my-referrals" : "/referrals";
 
   return (
     <AppShell
       accountName={accountName}
-      userId={signedIn && !isRedirecting ? user?.sub : undefined}
+      userId={userId}
+      account={account}
+      showStaffNavigation={!loadingWorkspace && !patientOnly}
       signingOut={isRedirecting}
       onSignOut={() => void handleSignOut()}
     >
@@ -81,19 +102,30 @@ function App() {
       ) : !signedIn ? (
         <section className="w-full max-w-md space-y-4 text-center" aria-labelledby="welcome-heading">
           <h1 id="welcome-heading" className="page-title">Welcome to Clinic Management System</h1>
-          <form className="workspace-panel space-y-3" onSubmit={(event) => {
-            event.preventDefault();
-            if (!isRedirecting) void handleSignIn();
-          }}>
-            <button type="submit" className="w-full" disabled={isRedirecting}>
-              {isRedirecting ? "Opening sign-in…" : "Sign in"}
-            </button>
+          <div className="workspace-panel space-y-3">
+            {signInMethods.map(({ connection, label, primary }) => (
+              <button
+                key={connection}
+                type="button"
+                className="w-full"
+                data-variant={primary ? undefined : "secondary"}
+                disabled={isRedirecting}
+                onClick={() => void handleSignIn(connection)}
+              >
+                {label}
+              </button>
+            ))}
+            {isRedirecting && <p role="status">Opening sign-in…</p>}
             {actionError && <p role="alert">{actionError}</p>}
-          </form>
+          </div>
         </section>
       ) : !isRedirecting && (
         <Routes>
-          <Route path="/" element={<Navigate to="/referrals" replace />} />
+          <Route path="/" element={loadingWorkspace
+            ? <p role="status">Loading your workspace…</p>
+            : <Navigate to={homePath} replace />} />
+          <Route path="/my-referrals" element={<MyReferralsPage />} />
+          <Route path="/my-appointments" element={<MyAppointmentsPage userId={userId} />} />
           <Route path="/clinics" element={<div className="legacy-directory"><ClinicsPage /></div>} />
           <Route path="/clinics/:clinicPublicId/providers" element={<div className="legacy-directory"><ProvidersPage /></div>} />
           <Route path="/clinics/:clinicPublicId/services" element={<div className="legacy-directory"><ServicesPage /></div>} />
@@ -110,7 +142,7 @@ function App() {
           <Route path="*" element={
             <section className="workspace-panel space-y-3">
               <h1 className="page-title">Page not found</h1>
-              <Link to="/referrals" className="workspace-link">Return to referrals</Link>
+              <Link to={homePath} className="workspace-link">Return to your workspace</Link>
             </section>
           } />
         </Routes>
