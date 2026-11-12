@@ -30,6 +30,9 @@ public static class AuthorizationServiceExtensions
             AddPermissionPolicy(options, "ReadProviderServices", "read:provider-services");
             AddPermissionPolicy(options, "ManageProviderServices", "manage:provider-services");
 
+            // Patient appointment access.
+            AddPermissionPolicy(options, "ReadAppointments", "read:appointments");
+
             // Referral access.
             AddPermissionPolicy(options, "ReadReferrals", "read:referrals");
             AddPermissionPolicy(options, "ManageReferrals", "manage:referrals");

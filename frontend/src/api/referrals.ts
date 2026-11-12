@@ -17,6 +17,7 @@ export type ReferralStage = Exclude<keyof typeof referralStatusLabels, "MissingI
 export type ReferralAccount = {
   isAdministrator: boolean;
   providerPublicId: string | null;
+  patientPublicId: string | null;
   memberships: {
     clinicPublicId: string;
     clinicName: string;
@@ -34,6 +35,8 @@ export type ReferralSummary = {
   stage: ReferralStage;
   createdAtUtc: string;
 };
+
+export type PatientReferralSummary = Omit<ReferralSummary, "patientFirstName" | "patientLastName">;
 
 export type ReferralDetails = ReferralSummary & {
   patientPublicId: string;
@@ -148,6 +151,10 @@ async function readReferralResponse<T>(
 
 export function getReferralAccount(accessToken: string, signal: AbortSignal) {
   return readReferralResponse<ReferralAccount>("/api/me", accessToken, { signal });
+}
+
+export function getMyReferrals(accessToken: string, signal: AbortSignal) {
+  return readReferralResponse<PatientReferralSummary[]>("/api/me/referrals", accessToken, { signal });
 }
 
 export function getClinicReferrals(accessToken: string, clinicPublicId: string, signal: AbortSignal) {

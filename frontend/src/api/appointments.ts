@@ -19,6 +19,16 @@ export type AppointmentDetails = AppointmentSummary & {
   overlapsProviderTimeOff: boolean;
 };
 
+export type PatientAppointment = Pick<AppointmentSummary,
+  "publicId" | "startUtc" | "endUtc" | "clinicName" | "timeZoneId" | "providerName" | "serviceName"
+> & Pick<AppointmentDetails, "status">;
+
+export async function getMyAppointments(accessToken: string, signal: AbortSignal): Promise<PatientAppointment[]> {
+  const response = await requestAppointment("/api/me/appointments", accessToken,
+    "Unable to load your appointments.", { signal });
+  return response.json();
+}
+
 export class AppointmentRequestError extends Error {
   readonly status: number;
 
