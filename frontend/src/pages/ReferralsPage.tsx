@@ -213,7 +213,8 @@ function StaffQueue({ userId, account }: { userId: string; account: ReferralAcco
 
 function ReferralsContent({ userId }: { userId: string }) {
   const query = useReferralAccount(userId);
-  const { state } = useLocation();
+  const { search, state } = useLocation();
+  const queueState = state?.referralQueueOwner === userId ? state : undefined;
   const [showCreated, setShowCreated] = useState(() => state?.referralCreatedBy === userId);
   useEffect(() => {
     if (!showCreated) return;
@@ -225,7 +226,11 @@ function ReferralsContent({ userId }: { userId: string }) {
     <section className="workspace-panel space-y-4" aria-labelledby="referrals-heading">
       <div className="page-heading">
         <h1 id="referrals-heading" className="page-title">Referral queue</h1>
-        {query.data?.canCreate && <Link to="/referrals/new" className="workspace-button"><ActionIcon name="plus" />New referral</Link>}
+        {query.data?.canCreate && (
+          <Link to={{ pathname: "/referrals/new", search }} state={queueState} className="workspace-button">
+            <ActionIcon name="plus" />New referral
+          </Link>
+        )}
       </div>
       {query.isSuccess
         ? <StaffQueue userId={userId} account={query.data.account} />

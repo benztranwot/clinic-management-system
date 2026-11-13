@@ -25,7 +25,7 @@ public static class ReferralEndpoints
 
         // List clinic and provider combinations for service-first referral creation.
         app.MapGet("/api/referrals/receiving-options", GetReferralReceivingOptionsAsync)
-            .RequireAuthorization("ManageReferrals", "ReadClinics", "ReadClinicalServices", "ReadProviders", "ReadProviderServices");
+            .RequireAuthorization(AuthorizationServiceExtensions.ReadReferralReceivingOptions);
 
         // Require permission to create a referral.
         app.MapPost("/api/referrals", CreateReferralAsync).RequireAuthorization("ManageReferrals");

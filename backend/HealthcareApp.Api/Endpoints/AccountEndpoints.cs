@@ -2,6 +2,7 @@ using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthcareApp.Api.Endpoints;
@@ -23,6 +24,7 @@ public static class AccountEndpoints
     private static async Task<IResult> GetMeAsync(
         ClaimsPrincipal user,
         HttpContext http,
+        IAuthorizationService authorization,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
@@ -76,7 +78,8 @@ public static class AccountEndpoints
         {
             account.IsAdministrator,
             CanCreateReferrals = (account.IsAdministrator || account.IsLinkedClinician)
-                && user.HasClaim("permissions", "manage:referrals"),
+                && (await authorization.AuthorizeAsync(user, HealthcareApp.Api.Authorization.AuthorizationServiceExtensions.ReadReferralReceivingOptions)).Succeeded
+                && (await authorization.AuthorizeAsync(user, "ReadPatients")).Succeeded,
             account.ProviderPublicId,
             account.PatientPublicId,
             Memberships = account.Memberships.Select(membership => new

@@ -15,7 +15,10 @@ public class ReferralCreationAccessTests
     {
         const string clinicianSubject = "auth0|referral-clinician";
         const string frontDeskSubject = "auth0|referral-front-desk";
-        string[] permissions = ["manage:referrals", "read:clinics", "read:services", "read:providers", "read:provider-services"];
+        string[] permissions =
+        [
+            "manage:referrals", "read:clinics", "read:services", "read:providers", "read:provider-services", "read:patients",
+        ];
         const string optionsUrl = "/api/referrals/receiving-options";
 
         using var tokens = new TestJwtIssuer();
@@ -70,6 +73,18 @@ public class ReferralCreationAccessTests
             Assert.Equal(HttpStatusCode.Forbidden, deniedOptions.StatusCode);
             using var deniedCreate = await client.PostAsJsonAsync("/api/referrals", request);
             Assert.Equal(HttpStatusCode.Forbidden, deniedCreate.StatusCode);
+
+            foreach (var permission in permissions)
+            {
+                tokens.AuthorizeSubject(client, clinicianSubject, permissions.Where(value => value != permission).ToArray());
+                var accountWithoutPermission = await client.GetFromJsonAsync<JsonElement>("/api/me");
+                Assert.False(accountWithoutPermission.GetProperty("canCreateReferrals").GetBoolean());
+
+                // The patient picker has its own permission. The receiving-options route does not return patient data.
+                using var optionsWithoutPermission = await client.GetAsync(optionsUrl);
+                Assert.Equal(permission == "read:patients" ? HttpStatusCode.OK : HttpStatusCode.Forbidden,
+                    optionsWithoutPermission.StatusCode);
+            }
 
             tokens.AuthorizeSubject(client, clinicianSubject, permissions);
             var clinicianAccount = await client.GetFromJsonAsync<JsonElement>("/api/me");

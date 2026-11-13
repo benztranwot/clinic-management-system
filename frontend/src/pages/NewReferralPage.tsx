@@ -1,16 +1,24 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import ReferralAccountFeedback from "../components/referrals/ReferralAccountFeedback";
 import ReferralCreateForm from "../components/referrals/ReferralCreateForm";
 import { useReferralAccount } from "../components/referrals/useReferralAccount";
 
 function NewReferralContent({ userId }: { userId: string }) {
   const navigate = useNavigate();
+  const { search, state } = useLocation();
+  const queueState = state?.referralQueueOwner === userId ? state : undefined;
   const account = useReferralAccount(userId);
   if (!account.isSuccess) return <ReferralAccountFeedback query={account} />;
   if (!account.data.canCreate) return <p role="alert">Your account doesn’t have access to create referrals.</p>;
 
-  return <ReferralCreateForm userId={userId} account={account.data.account} onCancel={() => void navigate("/referrals")} />;
+  return (
+    <ReferralCreateForm
+      userId={userId}
+      account={account.data.account}
+      onCancel={() => void navigate({ pathname: "/referrals", search }, { state: queueState, replace: true })}
+    />
+  );
 }
 
 export default function NewReferralPage() {
