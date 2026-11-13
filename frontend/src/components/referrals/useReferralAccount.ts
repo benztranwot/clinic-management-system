@@ -9,14 +9,11 @@ export function useReferralAccount(userId?: string) {
     queryKey: ["referral-account", userId],
     enabled: Boolean(userId),
     queryFn: async ({ signal }) => {
-      const token = await getAccessTokenSilently({ detailedResponse: true });
-      if (!token?.access_token) throw new Error("Auth0 did not return an access token.");
+      const token = await getAccessTokenSilently();
+      if (!token) throw new Error("Auth0 did not return an access token.");
 
-      const account = await getReferralAccount(token.access_token, signal);
-      const canCreate = token.scope?.split(/\s+/).includes("manage:referrals") &&
-        (account.isAdministrator || account.memberships.some(({ role }) => role === "Clinician"));
-
-      return { account, canCreate: Boolean(canCreate) };
+      const account = await getReferralAccount(token, signal);
+      return { account, canCreate: account.canCreateReferrals };
     },
     retry: false,
   });

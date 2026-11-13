@@ -5,6 +5,5 @@ public record CreateReferralRequest(
     Guid PatientPublicId,
     Guid ClinicalServicePublicId,
     Guid AssignedProviderPublicId,
-    string? ReferringProviderName,
     string? Reason
 );

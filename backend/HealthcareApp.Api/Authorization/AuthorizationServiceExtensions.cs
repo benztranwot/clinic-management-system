@@ -6,6 +6,8 @@ namespace HealthcareApp.Api.Authorization;
 // Register the application's permission-based authorization policies.
 public static class AuthorizationServiceExtensions
 {
+    internal const string ReadReferralReceivingOptions = nameof(ReadReferralReceivingOptions);
+
     public static IServiceCollection AddApiAuthorization(this IServiceCollection services)
     {
         return services.AddAuthorization(options =>
@@ -36,6 +38,13 @@ public static class AuthorizationServiceExtensions
             // Referral access.
             AddPermissionPolicy(options, "ReadReferrals", "read:referrals");
             AddPermissionPolicy(options, "ManageReferrals", "manage:referrals");
+            options.AddPolicy(ReadReferralReceivingOptions, policy => policy
+                .RequireAuthenticatedUser()
+                .RequireClaim("permissions", "manage:referrals")
+                .RequireClaim("permissions", "read:clinics")
+                .RequireClaim("permissions", "read:services")
+                .RequireClaim("permissions", "read:providers")
+                .RequireClaim("permissions", "read:provider-services"));
         });
     }
 

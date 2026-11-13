@@ -23,6 +23,10 @@ public static class ReferralEndpoints
         app.MapGet("/api/clinics/{clinicPublicId:guid}/referrals/{publicId:guid}", GetClinicReferralByIdAsync)
             .RequireAuthorization();
 
+        // List clinic and provider combinations for service-first referral creation.
+        app.MapGet("/api/referrals/receiving-options", GetReferralReceivingOptionsAsync)
+            .RequireAuthorization(AuthorizationServiceExtensions.ReadReferralReceivingOptions);
+
         // Require permission to create a referral.
         app.MapPost("/api/referrals", CreateReferralAsync).RequireAuthorization("ManageReferrals");
 
@@ -95,7 +99,7 @@ public static class ReferralEndpoints
             join patient in db.Patients on referral.PatientId equals patient.Id
             join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
             join clinic in clinics on service.ClinicId equals clinic.Id
-            orderby referral.CreatedAtUtc descending
+            orderby referral.CreatedAtUtc descending, referral.Id descending
             select new
             {
                 referral.PublicId,
@@ -126,14 +130,93 @@ public static class ReferralEndpoints
         );
     }
 
+    private sealed record ReferralCreator(bool IsAdministrator, string? ProviderName);
+
+    private static Task<ReferralCreator?> GetReferralCreatorAsync(
+        HealthcareDbContext db, AccountIdentity identity, CancellationToken cancellationToken)
+    {
+        var ownProviders = identity.QueryOwnProviders(db);
+
+        return identity.QueryAccounts(db)
+            .Where(account => account.IsAdministrator || ownProviders.Any())
+            .Select(account => new ReferralCreator(account.IsAdministrator, ownProviders
+                .Select(provider => provider.FirstName + " " + provider.LastName)
+                .FirstOrDefault()))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private static string GetReferrerLabel(ReferralCreator creator, ClaimsPrincipal user)
+    {
+        const int maxLength = 200;
+        const string administrator = "Administrator";
+        const string clinician = "Clinician";
+        var role = creator.IsAdministrator ? administrator : clinician;
+        var displayName = creator.IsAdministrator
+            ? user.FindFirst("https://clinic-management-api/claims/display_name")?.Value.Trim()
+            : creator.ProviderName;
+
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            return role;
+        }
+
+        var label = $"{role} {displayName}";
+        var length = Math.Min(label.Length, maxLength);
+        if (char.IsHighSurrogate(label[length - 1]))
+        {
+            length--;
+        }
+        return label[..length];
+    }
+
+    private static async Task<IResult> GetReferralReceivingOptionsAsync(
+        ClaimsPrincipal user, HttpContext http, HealthcareDbContext db, CancellationToken cancellationToken)
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null) return Results.Challenge();
+
+        var creator = await GetReferralCreatorAsync(db, identity, cancellationToken);
+        if (creator is null) return Results.Forbid();
+
+        http.Response.Headers.CacheControl = "no-store";
+
+        // Include only configured provider-service links, with the exact clinic service ID for each pair.
+        var destinations = await (
+            from link in db.ProviderServices
+            join service in db.ClinicalServices on link.ClinicalServiceId equals service.Id
+            join provider in db.Providers on link.ProviderId equals provider.Id
+            join clinic in db.Clinics on link.ClinicId equals clinic.Id
+            orderby service.Name, clinic.Name, provider.LastName, provider.FirstName, link.ClinicalServiceId, link.ProviderId
+            select new
+            {
+                ClinicalServicePublicId = service.PublicId,
+                ServiceName = service.Name,
+                ClinicPublicId = clinic.PublicId,
+                ClinicName = clinic.Name,
+                ProviderPublicId = provider.PublicId,
+                ProviderName = provider.FirstName + " " + provider.LastName,
+            }).ToListAsync(cancellationToken);
+
+        return Results.Ok(new
+        {
+            ReferringProviderName = GetReferrerLabel(creator, user),
+            Destinations = destinations,
+        });
+    }
+
     private static async Task<IResult> CreateReferralAsync(
         CreateReferralRequest request,
+        ClaimsPrincipal user,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
     {
-        // Validate the patient, service, receiving provider, and text.
-        var referringProviderName = request.ReferringProviderName?.Trim();
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null) return Results.Challenge();
+
+        var creator = await GetReferralCreatorAsync(db, identity, cancellationToken);
+        if (creator is null) return Results.Forbid();
+
         var reason = request.Reason?.Trim();
 
         if (request.PatientPublicId == Guid.Empty || request.ClinicalServicePublicId == Guid.Empty)
@@ -144,13 +227,6 @@ public static class ReferralEndpoints
         if (request.AssignedProviderPublicId == Guid.Empty)
         {
             return Results.BadRequest(new { message = "Select a receiving provider." });
-        }
-
-        if (string.IsNullOrEmpty(referringProviderName) || referringProviderName.Length > 200)
-        {
-            return Results.BadRequest(
-                new { message = "Referring provider name must be between 1 and 200 characters." }
-            );
         }
 
         if (string.IsNullOrEmpty(reason) || reason.Length > 2000)
@@ -196,7 +272,7 @@ public static class ReferralEndpoints
             PatientId = patient.Id,
             ClinicalServiceId = service.Id,
             AssignedProviderId = providerId.Value,
-            ReferringProviderName = referringProviderName,
+            ReferringProviderName = GetReferrerLabel(creator, user),
             Reason = reason,
             Status = ReferralStatus.PendingReview,
         };
@@ -313,6 +389,7 @@ public static class ReferralEndpoints
                 ClinicTimeZoneId = clinic.TimeZoneId,
 
                 AssignedProviderPublicId = provider.PublicId,
+                AssignedProviderName = provider.FirstName + " " + provider.LastName,
 
                 r.ReferringProviderName,
                 r.Reason,
@@ -350,6 +427,7 @@ public static class ReferralEndpoints
                 referral.ClinicName,
                 referral.ClinicTimeZoneId,
                 referral.AssignedProviderPublicId,
+                referral.AssignedProviderName,
                 referral.ReferringProviderName,
                 referral.Reason,
                 Status = referral.Status.ToString(),

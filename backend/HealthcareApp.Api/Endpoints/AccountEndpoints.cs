@@ -2,6 +2,7 @@ using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthcareApp.Api.Endpoints;
@@ -23,6 +24,7 @@ public static class AccountEndpoints
     private static async Task<IResult> GetMeAsync(
         ClaimsPrincipal user,
         HttpContext http,
+        IAuthorizationService authorization,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
@@ -34,11 +36,14 @@ public static class AccountEndpoints
             return Results.Challenge();
         }
 
+        var ownProviders = identity.QueryOwnProviders(db);
+
         // Load the account and its memberships using the identity from the validated token.
         var account = await identity.QueryAccounts(db)
             .Select(account => new
             {
                 account.IsAdministrator,
+                IsLinkedClinician = ownProviders.Any(),
                 ProviderPublicId = db.Providers
                     .Where(provider => provider.Id == account.ProviderId)
                     .Select(provider => (Guid?)provider.PublicId)
@@ -72,6 +77,9 @@ public static class AccountEndpoints
         return Results.Ok(new
         {
             account.IsAdministrator,
+            CanCreateReferrals = (account.IsAdministrator || account.IsLinkedClinician)
+                && (await authorization.AuthorizeAsync(user, HealthcareApp.Api.Authorization.AuthorizationServiceExtensions.ReadReferralReceivingOptions)).Succeeded
+                && (await authorization.AuthorizeAsync(user, "ReadPatients")).Succeeded,
             account.ProviderPublicId,
             account.PatientPublicId,
             Memberships = account.Memberships.Select(membership => new

@@ -75,6 +75,8 @@ public class ReferralEndpointTests
             });
             await db.SaveChangesAsync();
 
+            await AddAdministratorAsync(db);
+
             using var missingProvider = await client.PostAsJsonAsync("/api/referrals", new
             {
                 patientPublicId = patient.PublicId,
