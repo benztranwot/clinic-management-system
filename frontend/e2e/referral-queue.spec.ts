@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type {
   ReferralAccount,
+  ReferralDetails,
   ReferralReceivingOptions,
   ReferralSummary,
 } from "../src/api/referrals.ts";
@@ -98,4 +99,68 @@ test("canceling a referral draft restores the queue filters without submitting",
   await expect(filters.getByLabel("Status")).toHaveValue("PendingReview");
   await expect(filters.getByLabel("Patient", { exact: true })).toHaveValue("Alex");
   expect(unexpectedRequests).toEqual([]);
+});
+
+test("submitting a referral sends one request and opens the new record", async ({ page }) => {
+  const reason = "Follow-up physical exam for the browser test.";
+  const createdReferral: ReferralDetails = {
+    ...pendingReferral,
+    patientPublicId: alex.publicId,
+    clinicalServicePublicId: receivingOptions.destinations[0].clinicalServicePublicId,
+    clinicPublicId: receivingOptions.destinations[0].clinicPublicId,
+    clinicTimeZoneId: "America/Chicago",
+    assignedProviderPublicId: receivingOptions.destinations[0].providerPublicId,
+    assignedProviderName: receivingOptions.destinations[0].providerName,
+    canReview: true,
+    canReassign: false,
+    canSchedule: false,
+    confirmedAppointment: null,
+    referringProviderName: receivingOptions.referringProviderName,
+    reason,
+    missingInformationNote: null,
+  };
+  const responses = new Map<string, unknown>([
+    ["/api/me", account],
+    ["/api/referrals/receiving-options", receivingOptions],
+    ["/api/patients", [alex]],
+    ["/api/appointments/needs-attention", []],
+  ]);
+  const submissions: unknown[] = [];
+
+  await page.route((url) => url.pathname.startsWith("/api/"), async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+
+    if (request.method() === "POST" && path === "/api/referrals") {
+      submissions.push(request.postDataJSON());
+      await route.fulfill({ status: 201, json: { publicId: createdReferral.publicId } });
+      return;
+    }
+    if (request.method() === "GET" && path === `/api/referrals/${createdReferral.publicId}` && submissions.length > 0) {
+      await route.fulfill({ json: createdReferral });
+      return;
+    }
+    if (request.method() === "GET" && responses.has(path)) {
+      await route.fulfill({ json: responses.get(path) });
+      return;
+    }
+    await route.fulfill({ status: 500, json: { message: "Unexpected API request in browser test." } });
+  });
+
+  await page.goto("/referrals/new");
+  await page.getByLabel("Clinical service").selectOption({ label: "Physical exam" });
+  await page.getByLabel("Receiving clinic and provider").selectOption({ label: "Northside Demo Clinic — Beth Demo" });
+  await page.getByRole("combobox", { name: "Patient", exact: true }).selectOption({ label: "Demo, Alex" });
+  await page.getByLabel("Reason").fill(reason);
+  await page.getByRole("button", { name: "Create referral", exact: true }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/referrals/${createdReferral.publicId}$`));
+  await expect(page.getByRole("heading", { name: "Referral details" })).toBeVisible();
+  await expect(page.getByText(reason, { exact: true })).toBeVisible();
+  expect(submissions).toEqual([{
+    patientPublicId: alex.publicId,
+    clinicalServicePublicId: createdReferral.clinicalServicePublicId,
+    assignedProviderPublicId: createdReferral.assignedProviderPublicId,
+    reason,
+  }]);
 });
