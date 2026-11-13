@@ -2,11 +2,9 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY backend/HealthcareApp.Api/HealthcareApp.Api.csproj backend/HealthcareApp.Api/
-COPY backend/HealthcareApp.Domain/HealthcareApp.Domain.csproj backend/HealthcareApp.Domain/
 RUN dotnet restore backend/HealthcareApp.Api/HealthcareApp.Api.csproj
 
 COPY backend/HealthcareApp.Api/ backend/HealthcareApp.Api/
-COPY backend/HealthcareApp.Domain/ backend/HealthcareApp.Domain/
 RUN dotnet publish backend/HealthcareApp.Api/HealthcareApp.Api.csproj \
     --configuration Release --no-restore --output /app/publish
 
