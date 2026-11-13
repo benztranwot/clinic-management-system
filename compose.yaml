@@ -1,0 +1,63 @@
+name: clinic-management
+
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in the root .env}
+    volumes:
+      - sql-data:/var/opt/mssql
+      - ./backend/database/SeedDemoData.sql:/seed/SeedDemoData.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 3 -Q 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: migrations
+    environment: &api-environment
+      Auth0__Authority: https://${AUTH0_DOMAIN:?Set AUTH0_DOMAIN in the root .env}/
+      Auth0__Audience: ${AUTH0_AUDIENCE:?Set AUTH0_AUDIENCE in the root .env}
+      ConnectionStrings__HealthcareDatabase: 'Server=db,1433;Database=HealthcareApp_Dev;User ID=sa;Password="${MSSQL_SA_PASSWORD}";Encrypt=True;TrustServerCertificate=True'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+    environment:
+      <<: *api-environment
+      ASPNETCORE_HTTP_PORTS: "8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: frontend
+      args:
+        VITE_AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+        VITE_AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID:?Set AUTH0_CLIENT_ID in the root .env}
+        VITE_AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  sql-data:

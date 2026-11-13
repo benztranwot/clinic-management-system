@@ -1,0 +1,16 @@
+**
+!dotnet-tools.json
+!backend
+!backend/HealthcareApp.Api
+!backend/HealthcareApp.Api/**
+!backend/HealthcareApp.Domain
+!backend/HealthcareApp.Domain/**
+**/bin
+**/obj
+**/.env*
+**/*.local
+**/appsettings.*.local.json
+**/*.pfx
+**/*.pem
+**/*.key
+**/secrets
