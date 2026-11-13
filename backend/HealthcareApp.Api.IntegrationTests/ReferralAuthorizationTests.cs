@@ -315,7 +315,7 @@ public class ReferralAuthorizationTests
                 var created = Assert.Single(savedReferrals, r => r.PublicId == createdId);
                 Assert.Equal(otherPatient.Id, created.PatientId);
                 Assert.Equal(service.Id, created.ClinicalServiceId);
-                Assert.Equal("Dr. Fictional Sender", created.ReferringProviderName);
+                Assert.Equal("Administrator Demo User", created.ReferringProviderName);
                 Assert.Equal("New referral reason", created.Reason);
                 Assert.Equal(ReferralStatus.PendingReview, created.Status);
                 Assert.Equal(provider.Id, created.AssignedProviderId);

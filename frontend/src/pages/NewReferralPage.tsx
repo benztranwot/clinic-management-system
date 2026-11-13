@@ -10,7 +10,7 @@ function NewReferralContent({ userId }: { userId: string }) {
   if (!account.isSuccess) return <ReferralAccountFeedback query={account} />;
   if (!account.data.canCreate) return <p role="alert">Your account doesn’t have access to create referrals.</p>;
 
-  return <ReferralCreateForm userId={userId} onCancel={() => void navigate("/referrals")} />;
+  return <ReferralCreateForm userId={userId} account={account.data.account} onCancel={() => void navigate("/referrals")} />;
 }
 
 export default function NewReferralPage() {

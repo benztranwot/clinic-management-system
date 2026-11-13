@@ -1,8 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useSearchParams } from "react-router";
-import { getProvider } from "../api/providers";
+import { Link, useLocation, useParams, useSearchParams } from "react-router";
 import {
   getEligibleProviders,
   getReferral,
@@ -48,18 +47,6 @@ function ReferralRecord({
   const appointmentMutationKey = ["referral-appointment", userId, publicId];
   const appointmentWritePending = useIsMutating({ mutationKey: appointmentMutationKey, exact: true }) > 0;
   const eligibleKey = ["eligible-referral-providers", userId, publicId];
-
-  const assignedProvider = useQuery({
-    queryKey: ["provider", userId, referral.assignedProviderPublicId],
-    queryFn: async ({ signal }) => {
-      const accessToken = await getAccessTokenSilently();
-      if (!accessToken) {
-        throw new Error("Unable to load the assigned provider.");
-      }
-      return getProvider(accessToken, referral.assignedProviderPublicId, signal);
-    },
-    retry: false,
-  });
 
   const eligible = useQuery({
     queryKey: eligibleKey,
@@ -160,31 +147,25 @@ function ReferralRecord({
     });
   }
 
-  const assignedName = assignedProvider.data
-    ? assignedProvider.data.firstName + " " + assignedProvider.data.lastName
-    : assignedProvider.isPending ? "Loading provider…" : "Assigned (name unavailable)";
-
   return (
     <div className="mt-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">{referral.patientFirstName} {referral.patientLastName}</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <ReferralStatusBadge status={referral.stage} />
-          {referral.status === "MissingInformation" && (
-            <span className="text-sm font-medium text-subtle">Missing information</span>
-          )}
-        </div>
+        <ReferralStatusBadge status={referral.status === "MissingInformation" ? referral.status : referral.stage} />
       </div>
-      <dl className="grid gap-3 sm:grid-cols-2">
+      <dl className="grid gap-4 rounded-lg border border-panel-border p-4 sm:grid-cols-2">
         <div><dt className="font-medium">Receiving clinic</dt><dd>{referral.clinicName}</dd></div>
         <div><dt className="font-medium">Clinical service</dt><dd>{referral.serviceName}</dd></div>
-        <div><dt className="font-medium">Assigned provider</dt><dd>{assignedName}</dd></div>
-        <div><dt className="font-medium">Referring provider</dt><dd>{referral.referringProviderName}</dd></div>
-        <div className="sm:col-span-2"><dt className="font-medium">Reason</dt><dd className="whitespace-pre-wrap">{referral.reason}</dd></div>
+        <div><dt className="font-medium">Receiving provider</dt><dd>{referral.assignedProviderName}</dd></div>
+        <div><dt className="font-medium">Referred by</dt><dd>{referral.referringProviderName}</dd></div>
+        <div className="sm:col-span-2 border-t border-panel-border pt-3">
+          <dt className="font-medium">Reason for referral</dt>
+          <dd className="whitespace-pre-wrap wrap-break-word">{referral.reason}</dd>
+        </div>
         {referral.missingInformationNote && (
           <div className="sm:col-span-2">
             <dt className="font-medium">Missing information note</dt>
-            <dd className="whitespace-pre-wrap">{referral.missingInformationNote}</dd>
+            <dd className="whitespace-pre-wrap wrap-break-word">{referral.missingInformationNote}</dd>
           </div>
         )}
       </dl>
@@ -333,10 +314,17 @@ function ReferralDetailsContent({
 }
 
 function ReferralDetailsHeader({ appointmentPublicId }: { appointmentPublicId?: string }) {
+  const { user } = useAuth0();
+  const { state } = useLocation();
+  const [params] = useSearchParams();
+  const queueState = user?.sub && state?.referralQueueOwner === user.sub ? state : undefined;
+  const clinicId = params.get("clinic");
+  const backSearch = queueState?.referralQueueParams ?? (clinicId ? new URLSearchParams({ clinic: clinicId }).toString() : "");
   return (
     <>
       <div className="page-heading">
-        <Link to="/referrals" className="workspace-button" data-variant="secondary">
+        <Link to={{ pathname: "/referrals", search: backSearch }} state={queueState}
+          className="workspace-button" data-variant="secondary">
           <ActionIcon name="back" />
           Back to referrals
         </Link>
@@ -365,7 +353,7 @@ function ReferralDetailsPage() {
   return (
     <section
       aria-labelledby="referral-details-heading"
-      className="workspace-panel mx-auto w-full max-w-5xl"
+      className="workspace-panel mx-auto w-full max-w-4xl"
     >
       {user?.sub && publicId ? (
         <ReferralDetailsContent

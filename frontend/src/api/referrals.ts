@@ -16,6 +16,7 @@ export type ReferralStage = Exclude<keyof typeof referralStatusLabels, "MissingI
 
 export type ReferralAccount = {
   isAdministrator: boolean;
+  canCreateReferrals: boolean;
   providerPublicId: string | null;
   patientPublicId: string | null;
   memberships: {
@@ -44,6 +45,7 @@ export type ReferralDetails = ReferralSummary & {
   clinicPublicId: string;
   clinicTimeZoneId: string | null;
   assignedProviderPublicId: string;
+  assignedProviderName: string;
   canReview: boolean;
   canReassign: boolean;
   canSchedule: boolean;
@@ -70,8 +72,21 @@ export type ReferralInput = {
   patientPublicId: string;
   clinicalServicePublicId: string;
   assignedProviderPublicId: string;
-  referringProviderName: string;
   reason: string;
+};
+
+export type ReferralDestination = {
+  clinicalServicePublicId: string;
+  serviceName: string;
+  clinicPublicId: string;
+  clinicName: string;
+  providerPublicId: string;
+  providerName: string;
+};
+
+export type ReferralReceivingOptions = {
+  referringProviderName: string;
+  destinations: ReferralDestination[];
 };
 
 export class ReferralRequestError extends Error {
@@ -182,12 +197,8 @@ export function getEligibleProviders(accessToken: string, publicId: string, sign
   return readReferralResponse<Provider[]>(referralPath(publicId) + "/eligible-providers", accessToken, { signal });
 }
 
-export function getServiceEligibleProviders(accessToken: string, serviceId: string, signal: AbortSignal) {
-  return readReferralResponse<Provider[]>(
-    "/api/services/" + encodeURIComponent(serviceId) + "/eligible-providers",
-    accessToken,
-    { signal },
-  );
+export function getReferralReceivingOptions(accessToken: string, signal: AbortSignal) {
+  return readReferralResponse<ReferralReceivingOptions>("/api/referrals/receiving-options", accessToken, { signal });
 }
 
 export function createReferral(accessToken: string, input: ReferralInput) {

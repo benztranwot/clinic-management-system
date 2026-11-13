@@ -34,11 +34,14 @@ public static class AccountEndpoints
             return Results.Challenge();
         }
 
+        var ownProviders = identity.QueryOwnProviders(db);
+
         // Load the account and its memberships using the identity from the validated token.
         var account = await identity.QueryAccounts(db)
             .Select(account => new
             {
                 account.IsAdministrator,
+                IsLinkedClinician = ownProviders.Any(),
                 ProviderPublicId = db.Providers
                     .Where(provider => provider.Id == account.ProviderId)
                     .Select(provider => (Guid?)provider.PublicId)
@@ -72,6 +75,8 @@ public static class AccountEndpoints
         return Results.Ok(new
         {
             account.IsAdministrator,
+            CanCreateReferrals = (account.IsAdministrator || account.IsLinkedClinician)
+                && user.HasClaim("permissions", "manage:referrals"),
             account.ProviderPublicId,
             account.PatientPublicId,
             Memberships = account.Memberships.Select(membership => new

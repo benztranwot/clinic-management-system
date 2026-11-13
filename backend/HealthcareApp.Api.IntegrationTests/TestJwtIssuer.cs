@@ -68,7 +68,11 @@ internal sealed class TestJwtIssuer : IDisposable
             Issuer = Issuer,
             Audience = Audience,
             Subject = subject is null ? null : new ClaimsIdentity([new Claim("sub", subject)]),
-            Claims = new Dictionary<string, object> { ["permissions"] = permissions },
+            Claims = new Dictionary<string, object>
+            {
+                ["permissions"] = permissions,
+                ["https://clinic-management-api/claims/display_name"] = "Demo User",
+            },
             IssuedAt = now,
             NotBefore = now.AddMinutes(-1),
             Expires = now.AddMinutes(5),
