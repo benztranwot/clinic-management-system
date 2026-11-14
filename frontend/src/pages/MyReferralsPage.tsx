@@ -1,7 +1,7 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { getMyReferrals, referralErrorMessage, ReferralRequestError } from "../api/referrals";
-import ReferralStatusBadge from "../components/referrals/ReferralStatusBadge";
+import ReferralStatusBadge from "../features/referrals/components/ReferralStatusBadge";
 import { ActionIcon } from "../components/ActionIcon";
 
 const createdDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });

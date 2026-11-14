@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ClinicRequestError, deleteClinic, type Clinic } from "../../api/clinics";
-import { ActionIcon } from "../ActionIcon";
+import { ClinicRequestError, deleteClinic, type Clinic } from "../../../api/clinics";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 function DeleteClinicButton({
   clinic,

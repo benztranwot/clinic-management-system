@@ -1,8 +1,8 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useLocation, useNavigate } from "react-router";
-import ReferralAccountFeedback from "../components/referrals/ReferralAccountFeedback";
-import ReferralCreateForm from "../components/referrals/ReferralCreateForm";
-import { useReferralAccount } from "../components/referrals/useReferralAccount";
+import ReferralAccountFeedback from "../features/referrals/components/ReferralAccountFeedback";
+import ReferralCreateForm from "../features/referrals/components/ReferralCreateForm";
+import { useReferralAccount } from "../features/referrals/hooks/useReferralAccount";
 
 function NewReferralContent({ userId }: { userId: string }) {
   const navigate = useNavigate();

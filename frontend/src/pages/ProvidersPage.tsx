@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { ClinicProvidersTable } from "../components/clinics/ClinicDirectoryTables";
+import { ClinicProvidersTable } from "../features/clinics/components/ClinicDirectoryTables";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { ClinicRequestError, getClinic } from "../api/clinics";
-import ProviderServices from "../components/providers/ProviderServices";
+import ProviderServices from "../features/providers/components/ProviderServices";
 import {
   createProvider,
   deleteProvider,

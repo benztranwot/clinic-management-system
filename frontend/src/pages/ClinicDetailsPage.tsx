@@ -2,9 +2,9 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router";
 import { ClinicRequestError, getClinic } from "../api/clinics";
-import ClinicForm from "../components/clinics/ClinicForm";
-import ClinicDirectories from "../components/clinics/ClinicDirectories";
-import DeleteClinicButton from "../components/clinics/DeleteClinicButton";
+import ClinicForm from "../features/clinics/components/ClinicForm";
+import ClinicDirectories from "../features/clinics/components/ClinicDirectories";
+import DeleteClinicButton from "../features/clinics/components/DeleteClinicButton";
 import { ActionIcon } from "../components/ActionIcon";
 
 export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) {

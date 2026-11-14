@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink } from "react-router";
-import { appointmentLists } from "./appointments/appointmentLists";
-import { useAppointmentAttention } from "./appointments/useAppointmentAttention";
+import { appointmentLists } from "../features/appointments/appointmentLists";
+import { useAppointmentAttention } from "../features/appointments/hooks/useAppointmentAttention";
 import type { ReferralAccount } from "../api/referrals";
 
 type Theme = "system" | "light" | "dark";

@@ -1,6 +1,6 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
-import { getAppointmentConflicts } from "../../api/appointments";
+import { getAppointmentConflicts } from "../../../api/appointments";
 
 export function useAppointmentAttention(userId?: string) {
   const { getAccessTokenSilently } = useAuth0();

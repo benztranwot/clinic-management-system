@@ -1,7 +1,7 @@
 import { Link } from "react-router";
-import type { Provider } from "../../api/providers";
-import type { Service } from "../../api/services";
-import WorkspaceTable from "../WorkspaceTable";
+import type { Provider } from "../../../api/providers";
+import type { Service } from "../../../api/services";
+import WorkspaceTable from "../../../components/WorkspaceTable";
 
 export function ClinicProvidersTable({ clinicId, providers }: { clinicId: string; providers: Provider[] }) {
   if (!providers.length) return <p className="queue-empty">No providers found at this clinic.</p>;

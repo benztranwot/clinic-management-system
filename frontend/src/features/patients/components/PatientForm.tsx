@@ -7,8 +7,8 @@ import {
   updatePatient,
   type PatientDetails,
   type PatientInput,
-} from "../../api/patients";
-import { ActionIcon } from "../ActionIcon";
+} from "../../../api/patients";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 function PatientForm({
   userId,

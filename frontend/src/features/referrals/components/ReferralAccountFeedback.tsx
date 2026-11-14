@@ -1,6 +1,6 @@
-import { referralErrorMessage, ReferralRequestError } from "../../api/referrals";
-import type { useReferralAccount } from "./useReferralAccount";
-import { ActionIcon } from "../ActionIcon";
+import { referralErrorMessage, ReferralRequestError } from "../../../api/referrals";
+import type { useReferralAccount } from "../hooks/useReferralAccount";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 export default function ReferralAccountFeedback({ query }: { query: ReturnType<typeof useReferralAccount> }) {
   if (query.isPending) return <p role="status">Checking referral access…</p>;

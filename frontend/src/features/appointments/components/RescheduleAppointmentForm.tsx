@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AppointmentRequestError, rescheduleAppointment, type AppointmentDetails } from "../../api/appointments";
-import { getReferralAvailability } from "../../api/referrals";
-import { appointmentWriteKey, refreshAppointmentViews } from "./appointmentQueries";
-import { addCalendarDays, dateInTimeZone } from "./clinicDates";
-import { ActionIcon } from "../ActionIcon";
+import { AppointmentRequestError, rescheduleAppointment, type AppointmentDetails } from "../../../api/appointments";
+import { getReferralAvailability } from "../../../api/referrals";
+import { appointmentWriteKey, refreshAppointmentViews } from "../appointmentQueries";
+import { addCalendarDays, dateInTimeZone } from "../clinicDates";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 type SlotSelection = { startUtc: string; expectedStartUtc: string };
 

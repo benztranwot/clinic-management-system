@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addCalendarDays, dateInTimeZone } from "../appointments/clinicDates";
+import { addCalendarDays, dateInTimeZone } from "../../appointments/clinicDates";
 import {
   bookReferralAppointment,
   getReferralAvailability,
@@ -9,8 +9,8 @@ import {
   ReferralRequestError,
   type AppointmentSlot,
   type ReferralDetails,
-} from "../../api/referrals";
-import { ActionIcon } from "../ActionIcon";
+} from "../../../api/referrals";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 function slotLabel(slot: AppointmentSlot, timeZone: string) {
   const format = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });

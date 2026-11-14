@@ -3,10 +3,10 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "react-router";
 import { getAppointment, type AppointmentDetails } from "../api/appointments";
-import CancelAppointmentButton from "../components/appointments/CancelAppointmentButton";
-import RescheduleAppointmentForm from "../components/appointments/RescheduleAppointmentForm";
-import { appointmentLists } from "../components/appointments/appointmentLists";
-import { appointmentWriteKey } from "../components/appointments/appointmentQueries";
+import CancelAppointmentButton from "../features/appointments/components/CancelAppointmentButton";
+import RescheduleAppointmentForm from "../features/appointments/components/RescheduleAppointmentForm";
+import { appointmentLists } from "../features/appointments/appointmentLists";
+import { appointmentWriteKey } from "../features/appointments/appointmentQueries";
 import { ActionIcon } from "../components/ActionIcon";
 
 function AppointmentRecord({ publicId, userId }: { publicId: string; userId: string }) {

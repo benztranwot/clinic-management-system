@@ -7,8 +7,8 @@ import {
   updateClinic,
   type Clinic,
   type ClinicInput,
-} from "../../api/clinics";
-import { ActionIcon } from "../ActionIcon";
+} from "../../../api/clinics";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 function ClinicForm({
   userId,

@@ -6,9 +6,9 @@ import {
   getProviderServices,
   ProviderServiceRequestError,
   removeProviderService,
-} from "../../api/providerServices";
-import { getServices, ServiceRequestError } from "../../api/services";
-import { ActionIcon } from "../ActionIcon";
+} from "../../../api/providerServices";
+import { getServices, ServiceRequestError } from "../../../api/services";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 type AssignmentChange = {
   action: "assign" | "remove";

@@ -9,11 +9,11 @@ import {
   referralStatusLabels,
   type ReferralAccount,
 } from "../api/referrals";
-import ReferralAccountFeedback from "../components/referrals/ReferralAccountFeedback";
+import ReferralAccountFeedback from "../features/referrals/components/ReferralAccountFeedback";
 import WorkspaceFilterDialog from "../components/WorkspaceFilterDialog";
 import WorkspaceTable from "../components/WorkspaceTable";
-import ReferralStatusBadge from "../components/referrals/ReferralStatusBadge";
-import { useReferralAccount } from "../components/referrals/useReferralAccount";
+import ReferralStatusBadge from "../features/referrals/components/ReferralStatusBadge";
+import { useReferralAccount } from "../features/referrals/hooks/useReferralAccount";
 import { ActionIcon } from "../components/ActionIcon";
 
 const statusFilters = ["PendingReview", "MissingInformation", "ReadyToSchedule", "Scheduled", "Closed"] as const;

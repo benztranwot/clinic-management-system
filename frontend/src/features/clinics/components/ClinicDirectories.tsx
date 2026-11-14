@@ -1,10 +1,10 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { getProviders, ProviderRequestError } from "../../api/providers";
-import { getServices, ServiceRequestError } from "../../api/services";
+import { getProviders, ProviderRequestError } from "../../../api/providers";
+import { getServices, ServiceRequestError } from "../../../api/services";
 import { ClinicProvidersTable, ClinicServicesTable } from "./ClinicDirectoryTables";
-import { ActionIcon } from "../ActionIcon";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 export default function ClinicDirectories({ userId, clinicId }: { userId: string; clinicId: string }) {
   const { getAccessTokenSilently } = useAuth0();
