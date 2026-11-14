@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 import { getPatients, PatientRequestError } from "../api/patients";
 import WorkspaceTable from "../components/WorkspaceTable";
-import PatientForm from "../components/patients/PatientForm";
+import PatientForm from "../features/patients/components/PatientForm";
 import { ActionIcon } from "../components/ActionIcon";
 
 const birthDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" });

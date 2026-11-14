@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { ClinicServicesTable } from "../components/clinics/ClinicDirectoryTables";
+import { ClinicServicesTable } from "../features/clinics/components/ClinicDirectoryTables";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router";

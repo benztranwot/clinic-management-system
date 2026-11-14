@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ClinicRequestError, getClinics } from "../api/clinics";
 import WorkspaceTable from "../components/WorkspaceTable";
-import ClinicForm from "../components/clinics/ClinicForm";
+import ClinicForm from "../features/clinics/components/ClinicForm";
 import { ActionIcon } from "../components/ActionIcon";
 
 function ClinicList({ userId, create }: { userId: string; create: boolean }) {

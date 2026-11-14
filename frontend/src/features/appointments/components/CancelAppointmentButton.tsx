@@ -1,8 +1,8 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
-import { cancelAppointment } from "../../api/appointments";
-import { appointmentWriteKey, refreshAppointmentViews } from "./appointmentQueries";
-import { ActionIcon } from "../ActionIcon";
+import { cancelAppointment } from "../../../api/appointments";
+import { appointmentWriteKey, refreshAppointmentViews } from "../appointmentQueries";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 export default function CancelAppointmentButton({
   publicId,

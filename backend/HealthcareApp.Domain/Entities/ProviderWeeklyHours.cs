@@ -16,10 +16,10 @@ public class ProviderWeeklyHours
     public int? BreakStartMinute { get; set; }
     public int? BreakEndMinute { get; set; }
 
-    internal static bool IsWeekday(int dayOfWeek) =>
+    public static bool IsWeekday(int dayOfWeek) =>
         dayOfWeek is >= (int)System.DayOfWeek.Monday and <= (int)System.DayOfWeek.Friday;
 
-    internal static ProviderWeeklyHours CreateDefault(int providerId, int dayOfWeek)
+    public static ProviderWeeklyHours CreateDefault(int providerId, int dayOfWeek)
     {
         var hours = new ProviderWeeklyHours { ProviderId = providerId, DayOfWeek = dayOfWeek };
 

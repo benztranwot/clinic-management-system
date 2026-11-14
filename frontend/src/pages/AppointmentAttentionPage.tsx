@@ -4,9 +4,9 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { searchUpcomingAppointments, type AppointmentSummary, type UpcomingAppointmentSearch } from "../api/appointments";
-import CancelAppointmentButton from "../components/appointments/CancelAppointmentButton";
-import { appointmentLists, type AppointmentListView } from "../components/appointments/appointmentLists";
-import { useAppointmentAttention } from "../components/appointments/useAppointmentAttention";
+import CancelAppointmentButton from "../features/appointments/components/CancelAppointmentButton";
+import { appointmentLists, type AppointmentListView } from "../features/appointments/appointmentLists";
+import { useAppointmentAttention } from "../features/appointments/hooks/useAppointmentAttention";
 import { ActionIcon } from "../components/ActionIcon";
 
 function AppointmentCard({

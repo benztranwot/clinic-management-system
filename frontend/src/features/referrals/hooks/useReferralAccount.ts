@@ -1,6 +1,6 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
-import { getReferralAccount } from "../../api/referrals";
+import { getReferralAccount } from "../../../api/referrals";
 
 export function useReferralAccount(userId?: string) {
   const { getAccessTokenSilently } = useAuth0();

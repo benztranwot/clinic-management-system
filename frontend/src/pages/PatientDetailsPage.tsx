@@ -3,7 +3,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { deletePatient, getPatient, PatientRequestError, type PatientSummary } from "../api/patients";
-import PatientForm from "../components/patients/PatientForm";
+import PatientForm from "../features/patients/components/PatientForm";
 import { ActionIcon } from "../components/ActionIcon";
 
 function PatientDetails({

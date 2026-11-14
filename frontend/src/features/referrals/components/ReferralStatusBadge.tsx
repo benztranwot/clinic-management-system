@@ -1,4 +1,4 @@
-import { referralStatusLabels } from "../../api/referrals";
+import { referralStatusLabels } from "../../../api/referrals";
 
 const statusStyles = {
   PendingReview: "bg-blue-50 text-blue-800 ring-blue-200",

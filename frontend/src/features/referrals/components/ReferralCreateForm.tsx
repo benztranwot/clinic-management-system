@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
-import { getPatients } from "../../api/patients";
+import { getPatients } from "../../../api/patients";
 import {
   createReferral,
   getReferralReceivingOptions,
@@ -10,8 +10,8 @@ import {
   type ReferralAccount,
   type ReferralDestination,
   type ReferralInput,
-} from "../../api/referrals";
-import { ActionIcon } from "../ActionIcon";
+} from "../../../api/referrals";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 const fieldClass = "mt-1 block w-full rounded-md border border-field-border px-3 py-2";
 const serviceKey = (name: string) => name.trim().toLowerCase();

@@ -12,9 +12,9 @@ import {
   type ReferralDetails,
   type ReferralStatus,
 } from "../api/referrals";
-import ReferralAppointmentPanel from "../components/referrals/ReferralAppointmentPanel";
-import ReferralStatusBadge from "../components/referrals/ReferralStatusBadge";
-import { useReferralAccount } from "../components/referrals/useReferralAccount";
+import ReferralAppointmentPanel from "../features/referrals/components/ReferralAppointmentPanel";
+import ReferralStatusBadge from "../features/referrals/components/ReferralStatusBadge";
+import { useReferralAccount } from "../features/referrals/hooks/useReferralAccount";
 import { ActionIcon } from "../components/ActionIcon";
 
 type ReferralSnapshot = Pick<ReferralUpdate,
