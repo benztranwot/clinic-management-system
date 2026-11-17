@@ -1,3 +1,5 @@
+import type { ReferralAccount } from "../../../api/referrals";
+import { useOutletContext } from "react-router";
 import { useId, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -52,6 +54,7 @@ function ProviderServices({
 }) {
   const headingId = useId();
   const { getAccessTokenSilently } = useAuth0();
+  const isDemoAdmin = useOutletContext<ReferralAccount | undefined>()?.isDemoAdministrator === true;
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState("");
   const [notice, setNotice] = useState("");
@@ -66,7 +69,7 @@ function ProviderServices({
       const services = await getProviderServices(token.access_token, providerPublicId, signal);
       return {
         services,
-        canManage: token.scope?.split(/\s+/).includes("manage:provider-services") ?? false,
+        canManage: isDemoAdmin || (token.scope?.split(/\s+/).includes("manage:provider-services") ?? false),
       };
     },
     retry: false,

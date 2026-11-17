@@ -51,18 +51,26 @@ namespace HealthcareApp.Api.Migrations
                         .HasColumnType("nvarchar(255)")
                         .UseCollation("Latin1_General_100_BIN2");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
 
-                    b.HasIndex("PatientId")
-                        .IsUnique()
-                        .HasFilter("[PatientId] IS NOT NULL");
-
-                    b.HasIndex("ProviderId")
-                        .IsUnique()
-                        .HasFilter("[ProviderId] IS NOT NULL");
+                    b.HasIndex("WorkspaceId");
 
                     b.HasIndex("Issuer", "Subject")
                         .IsUnique();
+
+                    b.HasIndex("WorkspaceId", "PatientId")
+                        .IsUnique()
+                        .HasFilter("[PatientId] IS NOT NULL");
+
+                    b.HasIndex("WorkspaceId", "ProviderId")
+                        .IsUnique()
+                        .HasFilter("[ProviderId] IS NOT NULL");
 
                     b.ToTable("AppAccounts");
                 });
@@ -108,11 +116,13 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
-
-                    b.HasIndex("BookedByAppAccountId");
-
-                    b.HasIndex("ClinicalServiceId");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
@@ -121,6 +131,8 @@ namespace HealthcareApp.Api.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_Appointments_NonCancelledReferral")
                         .HasFilter("[ReferralId] IS NOT NULL AND [Status] <> 2");
+
+                    b.HasIndex("WorkspaceId");
 
                     b.HasIndex("PatientId", "StartUtc")
                         .IsUnique()
@@ -132,13 +144,21 @@ namespace HealthcareApp.Api.Migrations
                         .HasDatabaseName("UX_Appointments_ConfirmedProviderSlot")
                         .HasFilter("[Status] = 1");
 
-                    b.HasIndex("ReferralId", "PatientId", "ClinicalServiceId");
+                    b.HasIndex("WorkspaceId", "BookedByAppAccountId");
+
+                    b.HasIndex("WorkspaceId", "ClinicalServiceId");
+
+                    b.HasIndex("WorkspaceId", "PatientId");
+
+                    b.HasIndex("WorkspaceId", "ProviderId");
+
+                    b.HasIndex("WorkspaceId", "ReferralId", "PatientId", "ClinicalServiceId");
 
                     b.ToTable("Appointments", t =>
                         {
                             t.HasCheckConstraint("CK_Appointments_Status", "[Status] IN (1, 2, 3)");
 
-                            t.HasCheckConstraint("CK_Appointments_UtcSlot", "DATEPART(TZOFFSET, [StartUtc]) = 0\nAND DATEPART(MINUTE, [StartUtc]) % 30 = 0\nAND DATEPART(SECOND, [StartUtc]) = 0\nAND DATEPART(NANOSECOND, [StartUtc]) = 0");
+                            t.HasCheckConstraint("CK_Appointments_UtcSlot", "DATEPART(TZOFFSET, [StartUtc]) = 0\r\nAND DATEPART(MINUTE, [StartUtc]) % 30 = 0\r\nAND DATEPART(SECOND, [StartUtc]) = 0\r\nAND DATEPART(NANOSECOND, [StartUtc]) = 0");
                         });
                 });
 
@@ -168,10 +188,18 @@ namespace HealthcareApp.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
 
                     b.ToTable("Clinics");
                 });
@@ -187,9 +215,19 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("Role")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("AppAccountId", "ClinicId", "Role");
 
-                    b.HasIndex("ClinicId");
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "AppAccountId");
+
+                    b.HasIndex("WorkspaceId", "ClinicId");
 
                     b.ToTable("ClinicMemberships", t =>
                         {
@@ -221,15 +259,81 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
 
+                    b.HasIndex("WorkspaceId");
+
                     b.HasIndex("ClinicId", "Name")
                         .IsUnique();
 
+                    b.HasIndex("WorkspaceId", "ClinicId");
+
                     b.ToTable("ClinicalServices");
+                });
+
+            modelBuilder.Entity("HealthcareApp.Api.Models.DemoEmailChallenge", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<byte[]>("CodeSalt")
+                        .HasColumnType("binary(16)");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Issuer")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedAtUtc");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("Issuer", "Subject", "RequestedAtUtc");
+
+                    b.ToTable("DemoEmailChallenges");
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.Patient", b =>
@@ -256,10 +360,18 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
 
                     b.ToTable("Patients");
                 });
@@ -288,12 +400,20 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.HasKey("Id");
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
 
-                    b.HasIndex("ClinicId");
+                    b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "ClinicId");
 
                     b.ToTable("Providers");
                 });
@@ -309,11 +429,19 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("ClinicId")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("ProviderId", "ClinicalServiceId");
 
-                    b.HasIndex("ClinicalServiceId", "ClinicId");
+                    b.HasIndex("WorkspaceId");
 
-                    b.HasIndex("ProviderId", "ClinicId");
+                    b.HasIndex("WorkspaceId", "ClinicalServiceId", "ClinicId");
+
+                    b.HasIndex("WorkspaceId", "ProviderId", "ClinicId");
 
                     b.ToTable("ProviderServices");
                 });
@@ -338,12 +466,22 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<DateTimeOffset>("StartUtc")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
 
+                    b.HasIndex("WorkspaceId");
+
                     b.HasIndex("ProviderId", "StartUtc");
+
+                    b.HasIndex("WorkspaceId", "ProviderId");
 
                     b.ToTable("ProviderTimeOff", t =>
                         {
@@ -371,15 +509,25 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int?>("StartMinute")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("ProviderId", "DayOfWeek");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceId", "ProviderId");
 
                     b.ToTable("ProviderWeeklyHours", t =>
                         {
-                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Break", "([BreakStartMinute] IS NULL AND [BreakEndMinute] IS NULL)\nOR ([BreakStartMinute] IS NOT NULL AND [BreakEndMinute] IS NOT NULL\n    AND [StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\n    AND [StartMinute] < [BreakStartMinute]\n    AND [BreakStartMinute] < [BreakEndMinute]\n    AND [BreakEndMinute] < [EndMinute]\n    AND [BreakStartMinute] % 30 = 0\n    AND [BreakEndMinute] % 30 = 0)");
+                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Break", "([BreakStartMinute] IS NULL AND [BreakEndMinute] IS NULL)\r\nOR ([BreakStartMinute] IS NOT NULL AND [BreakEndMinute] IS NOT NULL\r\n    AND [StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\r\n    AND [StartMinute] < [BreakStartMinute]\r\n    AND [BreakStartMinute] < [BreakEndMinute]\r\n    AND [BreakEndMinute] < [EndMinute]\r\n    AND [BreakStartMinute] % 30 = 0\r\n    AND [BreakEndMinute] % 30 = 0)");
 
                             t.HasCheckConstraint("CK_ProviderWeeklyHours_Day", "[DayOfWeek] BETWEEN 0 AND 6");
 
-                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Window", "([StartMinute] IS NULL AND [EndMinute] IS NULL)\nOR ([StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\n    AND [StartMinute] >= 0 AND [EndMinute] <= 1440\n    AND [StartMinute] < [EndMinute]\n    AND [StartMinute] % 30 = 0 AND [EndMinute] % 30 = 0)");
+                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Window", "([StartMinute] IS NULL AND [EndMinute] IS NULL)\r\nOR ([StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\r\n    AND [StartMinute] >= 0 AND [EndMinute] <= 1440\r\n    AND [StartMinute] < [EndMinute]\r\n    AND [StartMinute] % 30 = 0 AND [EndMinute] % 30 = 0)");
                         });
                 });
 
@@ -423,18 +571,28 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.HasKey("Id");
+                    b.Property<Guid>("WorkspaceId")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
 
-                    b.HasIndex("ClinicalServiceId");
+                    b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
 
-                    b.HasIndex("AssignedProviderId", "ClinicalServiceId");
+                    b.HasIndex("WorkspaceId");
 
                     b.HasIndex("PatientId", "ClinicalServiceId")
                         .IsUnique()
                         .HasFilter("[Status] <> 4");
+
+                    b.HasIndex("WorkspaceId", "ClinicalServiceId");
+
+                    b.HasIndex("WorkspaceId", "PatientId");
+
+                    b.HasIndex("WorkspaceId", "AssignedProviderId", "ClinicalServiceId");
 
                     b.ToTable("Referrals", t =>
                         {
@@ -446,12 +604,14 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.Patient", null)
                         .WithOne()
-                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "PatientId")
+                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "WorkspaceId", "PatientId")
+                        .HasPrincipalKey("HealthcareApp.Api.Models.Patient", "WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithOne()
-                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "ProviderId")
+                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "WorkspaceId", "ProviderId")
+                        .HasPrincipalKey("HealthcareApp.Api.Models.Provider", "WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
@@ -459,32 +619,36 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.AppAccount", null)
                         .WithMany()
-                        .HasForeignKey("BookedByAppAccountId")
+                        .HasForeignKey("WorkspaceId", "BookedByAppAccountId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.ClinicalService", null)
                         .WithMany()
-                        .HasForeignKey("ClinicalServiceId")
+                        .HasForeignKey("WorkspaceId", "ClinicalServiceId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Patient", null)
                         .WithMany()
-                        .HasForeignKey("PatientId")
+                        .HasForeignKey("WorkspaceId", "PatientId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithMany()
-                        .HasForeignKey("ProviderId")
+                        .HasForeignKey("WorkspaceId", "ProviderId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Referral", null)
                         .WithMany()
-                        .HasForeignKey("ReferralId", "PatientId", "ClinicalServiceId")
-                        .HasPrincipalKey("Id", "PatientId", "ClinicalServiceId")
+                        .HasForeignKey("WorkspaceId", "ReferralId", "PatientId", "ClinicalServiceId")
+                        .HasPrincipalKey("WorkspaceId", "Id", "PatientId", "ClinicalServiceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_Appointments_Referrals_MatchingPatientService");
                 });
@@ -493,13 +657,15 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.AppAccount", null)
                         .WithMany()
-                        .HasForeignKey("AppAccountId")
+                        .HasForeignKey("WorkspaceId", "AppAccountId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Clinic", null)
                         .WithMany()
-                        .HasForeignKey("ClinicId")
+                        .HasForeignKey("WorkspaceId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -508,7 +674,8 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.Clinic", null)
                         .WithMany()
-                        .HasForeignKey("ClinicId")
+                        .HasForeignKey("WorkspaceId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -517,7 +684,8 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.Clinic", null)
                         .WithMany()
-                        .HasForeignKey("ClinicId")
+                        .HasForeignKey("WorkspaceId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -526,15 +694,15 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.ClinicalService", null)
                         .WithMany()
-                        .HasForeignKey("ClinicalServiceId", "ClinicId")
-                        .HasPrincipalKey("Id", "ClinicId")
+                        .HasForeignKey("WorkspaceId", "ClinicalServiceId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id", "ClinicId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithMany()
-                        .HasForeignKey("ProviderId", "ClinicId")
-                        .HasPrincipalKey("Id", "ClinicId")
+                        .HasForeignKey("WorkspaceId", "ProviderId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id", "ClinicId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -543,7 +711,8 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithMany()
-                        .HasForeignKey("ProviderId")
+                        .HasForeignKey("WorkspaceId", "ProviderId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -552,7 +721,8 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithMany()
-                        .HasForeignKey("ProviderId")
+                        .HasForeignKey("WorkspaceId", "ProviderId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -561,19 +731,22 @@ namespace HealthcareApp.Api.Migrations
                 {
                     b.HasOne("HealthcareApp.Api.Models.ClinicalService", null)
                         .WithMany()
-                        .HasForeignKey("ClinicalServiceId")
+                        .HasForeignKey("WorkspaceId", "ClinicalServiceId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Patient", null)
                         .WithMany()
-                        .HasForeignKey("PatientId")
+                        .HasForeignKey("WorkspaceId", "PatientId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.ProviderService", null)
                         .WithMany()
-                        .HasForeignKey("AssignedProviderId", "ClinicalServiceId")
+                        .HasForeignKey("WorkspaceId", "AssignedProviderId", "ClinicalServiceId")
+                        .HasPrincipalKey("WorkspaceId", "ProviderId", "ClinicalServiceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

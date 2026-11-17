@@ -10,6 +10,9 @@ public static class AuthorizationServiceExtensions
 
     public static IServiceCollection AddApiAuthorization(this IServiceCollection services)
     {
+        services.AddScoped<DemoWorkspaceAccess>();
+        services.AddScoped<IAuthorizationHandler, DemoWorkspacePermissionHandler>();
+
         return services.AddAuthorization(options =>
         {
             // Clinic access.
@@ -40,11 +43,13 @@ public static class AuthorizationServiceExtensions
             AddPermissionPolicy(options, "ManageReferrals", "manage:referrals");
             options.AddPolicy(ReadReferralReceivingOptions, policy => policy
                 .RequireAuthenticatedUser()
-                .RequireClaim("permissions", "manage:referrals")
-                .RequireClaim("permissions", "read:clinics")
-                .RequireClaim("permissions", "read:services")
-                .RequireClaim("permissions", "read:providers")
-                .RequireClaim("permissions", "read:provider-services"));
+                .AddRequirements(
+                    new WorkspacePermissionRequirement("manage:referrals"),
+                    new WorkspacePermissionRequirement("read:clinics"),
+                    new WorkspacePermissionRequirement("read:services"),
+                    new WorkspacePermissionRequirement("read:providers"),
+                    new WorkspacePermissionRequirement("read:provider-services")
+                ));
         });
     }
 
@@ -58,7 +63,7 @@ public static class AuthorizationServiceExtensions
         options.AddPolicy(policyName, policy =>
         {
             policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", permission);
+            policy.AddRequirements(new WorkspacePermissionRequirement(permission));
         });
     }
 }

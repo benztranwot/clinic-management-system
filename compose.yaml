@@ -38,6 +38,15 @@ services:
     environment:
       <<: *api-environment
       ASPNETCORE_HTTP_PORTS: "8080"
+      DemoWorkspaces__Enabled: "${DEMO_WORKSPACES_ENABLED:-false}"
+      DemoWorkspaces__MaximumWorkspaces: "${DEMO_MAX_WORKSPACES:-25}"
+      DemoEmail__MaximumDailyRequests: "${DEMO_MAX_DAILY_EMAILS:-40}"
+      DemoEmail__SmtpHost: "${DEMO_SMTP_HOST:-}"
+      DemoEmail__SmtpPort: "${DEMO_SMTP_PORT:-587}"
+      DemoEmail__RequireTls: "${DEMO_SMTP_REQUIRE_TLS:-true}"
+      DemoEmail__From: "${DEMO_SMTP_FROM:-}"
+      DemoEmail__SmtpUsername: "${DEMO_SMTP_USERNAME:-}"
+      DemoEmail__SmtpPassword: "${DEMO_SMTP_PASSWORD:-}"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -49,6 +58,7 @@ services:
         VITE_AUTH0_DOMAIN: ${AUTH0_DOMAIN}
         VITE_AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID:?Set AUTH0_CLIENT_ID in the root .env}
         VITE_AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+        VITE_DEMO_EMAIL_CONNECTION: ${DEMO_AUTH0_EMAIL_CONNECTION:-}
     ports:
       - "127.0.0.1:8080:80"
     depends_on:

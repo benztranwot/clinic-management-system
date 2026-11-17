@@ -1,6 +1,7 @@
+import type { ReferralAccount } from "../api/referrals";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router";
+import { useOutletContext, Link, useNavigate, useParams } from "react-router";
 import { ClinicRequestError, getClinic } from "../api/clinics";
 import ClinicForm from "../features/clinics/components/ClinicForm";
 import ClinicDirectories from "../features/clinics/components/ClinicDirectories";
@@ -9,6 +10,7 @@ import { ActionIcon } from "../components/ActionIcon";
 
 export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) {
   const { user, getAccessTokenSilently } = useAuth0();
+  const isDemoAdmin = useOutletContext<ReferralAccount | undefined>()?.isDemoAdministrator === true;
   const { clinicPublicId } = useParams();
   const navigate = useNavigate();
   const userId = user?.sub;
@@ -20,7 +22,7 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
       const token = await getAccessTokenSilently({ detailedResponse: true });
       if (!token?.access_token || !clinicPublicId) throw new Error("Unable to verify this session.");
       const clinic = await getClinic(token.access_token, clinicPublicId, signal);
-      return { clinic, canManage: token.scope?.split(/\s+/).includes("manage:clinics") ?? false };
+      return { clinic, canManage: isDemoAdmin || (token.scope?.split(/\s+/).includes("manage:clinics") ?? false) };
     },
     retry: false,
   });

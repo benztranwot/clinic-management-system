@@ -61,18 +61,18 @@ internal sealed class TestJwtIssuer : IDisposable
 
     public void AuthorizeSubject(HttpClient client, string? subject, params string[] permissions)
     {
-        // The token includes exactly the permissions requested by the test.
+        var claims = new Dictionary<string, object>
+        {
+            ["permissions"] = permissions,
+            ["https://clinic-management-api/claims/display_name"] = "Demo User",
+        };
         var now = DateTime.UtcNow;
         var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = Issuer,
             Audience = Audience,
             Subject = subject is null ? null : new ClaimsIdentity([new Claim("sub", subject)]),
-            Claims = new Dictionary<string, object>
-            {
-                ["permissions"] = permissions,
-                ["https://clinic-management-api/claims/display_name"] = "Demo User",
-            },
+            Claims = claims,
             IssuedAt = now,
             NotBefore = now.AddMinutes(-1),
             Expires = now.AddMinutes(5),

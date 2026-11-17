@@ -1,7 +1,8 @@
+import type { ReferralAccount } from "../api/referrals";
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { useOutletContext, Link, useLocation, useNavigate, useParams } from "react-router";
 import { deletePatient, getPatient, PatientRequestError, type PatientSummary } from "../api/patients";
 import PatientForm from "../features/patients/components/PatientForm";
 import { ActionIcon } from "../components/ActionIcon";
@@ -16,6 +17,7 @@ function PatientDetails({
   edit: boolean;
 }) {
   const { getAccessTokenSilently } = useAuth0();
+  const isDemoAdmin = useOutletContext<ReferralAccount | undefined>()?.isDemoAdministrator === true;
   const { state } = useLocation();
   const [showSaved, setShowSaved] = useState(state?.patientUpdated === true);
   const queryClient = useQueryClient();
@@ -31,7 +33,7 @@ function PatientDetails({
       const patient = await getPatient(token.access_token, publicId, signal);
       return {
         patient,
-        canManage: token.scope?.split(/\s+/).includes("manage:patients") ?? false,
+        canManage: isDemoAdmin || (token.scope?.split(/\s+/).includes("manage:patients") ?? false),
       };
     },
     retry: false,

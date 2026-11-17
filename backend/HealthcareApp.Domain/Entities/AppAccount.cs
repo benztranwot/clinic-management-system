@@ -1,8 +1,10 @@
 namespace HealthcareApp.Api.Models;
 
 // Links a verified sign-in to application records.
-public class AppAccount
+public class AppAccount : IWorkspaceRecord
 {
+    public Guid WorkspaceId { get; set; }
+
     public int Id { get; set; }
 
     // The issuer and subject together identify the sign-in.

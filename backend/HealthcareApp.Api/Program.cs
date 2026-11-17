@@ -52,10 +52,17 @@ builder
 
         // Preserve original claim names such as sub.
         options.MapInboundClaims = false;
+        options.SaveToken = true;
 
         // Accept the signing algorithm selected for our Auth0 API.
         options.TokenValidationParameters.ValidAlgorithms = ["RS256"];
     });
+
+builder.Services.AddHttpClient<IDemoConfirmationEmail, DemoConfirmationEmail>(client =>
+{
+    client.BaseAddress = new Uri(auth0Authority.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 // Register the application's permission-based authorization policies.
 builder.Services.AddApiAuthorization();
@@ -93,6 +100,23 @@ app.UseStatusCodePages(context =>
 
 // Authenticate the caller before evaluating authorization requirements.
 app.UseAuthentication();
+if (builder.Configuration.GetValue<bool>("DemoWorkspaces:Enabled"))
+{
+    var maximumWorkspaces = builder.Configuration.GetValue("DemoWorkspaces:MaximumWorkspaces", 25);
+    if (maximumWorkspaces < 0)
+    {
+        throw new InvalidOperationException("The maximum number of demo workspaces must be nonnegative.");
+    }
+
+    var maximumDailyEmails = builder.Configuration.GetValue("DemoEmail:MaximumDailyRequests", 40);
+    if (maximumDailyEmails < 0)
+    {
+        throw new InvalidOperationException("The daily demo email request limit must be nonnegative.");
+    }
+
+    app.UseMiddleware<DemoWorkspaceMiddleware>();
+    app.MapDemoOnboardingEndpoints(maximumWorkspaces, maximumDailyEmails);
+}
 app.UseAuthorization();
 
 // Define a simple response at the root URL.

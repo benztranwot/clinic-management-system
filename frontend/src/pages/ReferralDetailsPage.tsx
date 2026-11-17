@@ -1,7 +1,8 @@
+import type { ReferralAccount } from "../api/referrals";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useParams, useSearchParams } from "react-router";
+import { useOutletContext, Link, useLocation, useParams, useSearchParams } from "react-router";
 import {
   getEligibleProviders,
   getReferral,
@@ -276,6 +277,7 @@ function ReferralDetailsContent({
   clinicPublicId: string | null;
 }) {
   const { getAccessTokenSilently } = useAuth0();
+  const isDemoAdmin = useOutletContext<ReferralAccount | undefined>()?.isDemoAdministrator === true;
   const query = useQuery({
     queryKey: ["referral", userId, publicId, clinicPublicId],
     queryFn: async ({ signal }) => {
@@ -285,7 +287,7 @@ function ReferralDetailsContent({
 
       return {
         referral,
-        canManage: token.scope?.split(/\s+/).includes("manage:referrals") ?? false,
+        canManage: isDemoAdmin || (token.scope?.split(/\s+/).includes("manage:referrals") ?? false),
       };
     },
     retry: false,

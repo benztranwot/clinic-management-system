@@ -21,22 +21,32 @@ import ProviderSchedulePage from "./pages/ProviderSchedulePage";
 import { appointmentLists } from "./features/appointments/appointmentLists";
 import { GoogleLogo, MicrosoftLogo } from "./components/SignInLogos";
 import NotFoundPage from "./pages/NotFoundPage";
+import { ReferralRequestError, type ReferralAccount } from "./api/referrals";
+import { DemoEmailConfirmation } from "./auth/DemoEmailConfirmation";
 import "./App.css";
 import { ActionIcon } from "./components/ActionIcon";
 
+const emailConnection = import.meta.env.VITE_DEMO_EMAIL_CONNECTION?.trim();
+const legacySignIn = {
+  connection: "Clinic-Username",
+  label: emailConnection ? "Sign in with an existing demo role" : "Sign in with username and password",
+  primary: !emailConnection,
+  Logo: null,
+};
 const signInMethods = [
-  { connection: "Clinic-Username", label: "Sign in with username and password", primary: true, Logo: null },
+  emailConnection
+    ? { connection: emailConnection, label: "Sign in / sign up with email and password", primary: true, Logo: null }
+    : legacySignIn,
   { connection: "google-oauth2", label: "Continue with Google", primary: false, Logo: GoogleLogo },
   { connection: "windowslive", label: "Continue with Microsoft", primary: false, Logo: MicrosoftLogo },
-] as const;
-
-type SignInConnection = (typeof signInMethods)[number]["connection"];
+  ...(emailConnection ? [legacySignIn] : []),
+];
 
 const publicIdPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
-function WorkspaceAccess({ signedIn, signIn, homePath }: {
-  signedIn: boolean;
-  signIn: ReactNode;
+function WorkspaceAccess({ account, blocked, homePath }: {
+  account?: ReferralAccount;
+  blocked: ReactNode;
   homePath: string;
 }) {
   const { publicId, clinicPublicId } = useParams();
@@ -45,7 +55,7 @@ function WorkspaceAccess({ signedIn, signIn, homePath }: {
     return <NotFoundPage homePath={homePath} />;
   }
 
-  return signedIn ? <Outlet /> : signIn;
+  return blocked ?? <Outlet context={account} />;
 }
 
 function App() {
@@ -58,7 +68,7 @@ function App() {
   const [isRedirecting, setIsRedirecting] = useState(false);
 
   // Start the hosted Auth0 flow for the selected connection.
-  async function handleSignIn(connection: SignInConnection) {
+  async function handleSignIn(connection: string) {
     if (isRedirecting) return;
     setActionError(null);
     setIsRedirecting(true);
@@ -102,9 +112,46 @@ function App() {
   const userId = signedIn && !isRedirecting ? user?.sub : undefined;
   const accountQuery = useReferralAccount(userId);
   const account = accountQuery.isSuccess ? accountQuery.data.account : undefined;
-  const loadingWorkspace = accountQuery.isPending;
   const patientOnly = Boolean(account?.patientPublicId && !account.isAdministrator && account.memberships.length === 0);
   const homePath = accountQuery.isSuccess ? (patientOnly ? "/my-referrals" : "/referrals") : "/";
+
+  const signIn = (
+    <section className="w-full max-w-md space-y-4 text-center" aria-labelledby="welcome-heading">
+      <h1 id="welcome-heading" className="page-title">Welcome to Clinic Management System</h1>
+      <div className="workspace-panel space-y-3">
+        {signInMethods.map(({ connection, label, primary, Logo }) => (
+          <button
+            key={connection}
+            type="button"
+            className="sign-in-button w-full"
+            data-variant={primary ? undefined : "secondary"}
+            disabled={isRedirecting}
+            onClick={() => void handleSignIn(connection)}
+          >
+            {Logo ? <Logo /> : <ActionIcon name="login" />}
+            {label}
+          </button>
+        ))}
+        {isRedirecting && <p role="status">Opening sign-in…</p>}
+        {actionError && <p role="alert">{actionError}</p>}
+      </div>
+    </section>
+  );
+
+  const workspaceFeedback = !signedIn ? signIn : accountQuery.isPending ? (
+    <p role="status">Loading your workspace…</p>
+  ) : accountQuery.error instanceof ReferralRequestError && accountQuery.error.status === 403 && userId ? (
+    <DemoEmailConfirmation userId={userId} />
+  ) : accountQuery.isError ? (
+    <section className="workspace-panel space-y-3">
+      <h1 className="page-title">Unable to load your workspace</h1>
+      <p role="alert">We couldn’t load your account. Please try again.</p>
+      <button type="button" disabled={accountQuery.isFetching} onClick={() => void accountQuery.refetch()}>
+        <ActionIcon name="refresh" />
+        {accountQuery.isFetching ? "Retrying…" : "Retry"}
+      </button>
+    </section>
+  ) : null;
 
   return (
     <AppShell
@@ -127,44 +174,8 @@ function App() {
         </section>
       ) : (!signedIn || !isRedirecting) && (
         <Routes>
-          <Route element={<WorkspaceAccess signedIn={signedIn} homePath={homePath} signIn={(
-              <section className="w-full max-w-md space-y-4 text-center" aria-labelledby="welcome-heading">
-                <h1 id="welcome-heading" className="page-title">Welcome to Clinic Management System</h1>
-                <div className="workspace-panel space-y-3">
-                  {signInMethods.map(({ connection, label, primary, Logo }) => (
-                    <button
-                      key={connection}
-                      type="button"
-                      className="sign-in-button w-full"
-                      data-variant={primary ? undefined : "secondary"}
-                      disabled={isRedirecting}
-                      onClick={() => void handleSignIn(connection)}
-                    >
-                      {Logo ? <Logo /> : <ActionIcon name="login" />}
-                      {label}
-                    </button>
-                  ))}
-                  {isRedirecting && <p role="status">Opening sign-in…</p>}
-                  {actionError && <p role="alert">{actionError}</p>}
-                </div>
-              </section>
-          )} />}>
-            <Route path="/" element={loadingWorkspace
-              ? <p role="status">Loading your workspace…</p>
-              : accountQuery.isError
-                ? <section className="workspace-panel space-y-3">
-                    <h1 className="page-title">Unable to load your workspace</h1>
-                    <p role="alert">We couldn’t load your account. Please try again.</p>
-                    <button
-                      type="button"
-                      disabled={accountQuery.isFetching}
-                      onClick={() => void accountQuery.refetch()}
-                    >
-                      <ActionIcon name="refresh" />
-                      {accountQuery.isFetching ? "Retrying…" : "Retry"}
-                    </button>
-                  </section>
-                : <Navigate to={homePath} replace />} />
+          <Route element={<WorkspaceAccess account={account} homePath={homePath} blocked={workspaceFeedback} />}>
+            <Route path="/" element={<Navigate to={homePath} replace />} />
             <Route path="/my-referrals" element={<MyReferralsPage />} />
             <Route path="/my-appointments" element={<MyAppointmentsPage userId={userId} />} />
             <Route path="/clinics" element={<ClinicsPage />} />

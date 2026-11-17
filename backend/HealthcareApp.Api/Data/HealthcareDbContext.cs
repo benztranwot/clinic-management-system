@@ -8,6 +8,60 @@ public class HealthcareDbContext : DbContext
     public HealthcareDbContext(DbContextOptions<HealthcareDbContext> options)
         : base(options) { }
 
+    internal const string WorkspaceQueryFilter = "Workspace";
+
+    private Guid WorkspaceId { get; set; }
+
+    internal void SelectWorkspace(Guid workspaceId)
+    {
+        if (ChangeTracker.Entries().Any())
+        {
+            throw new InvalidOperationException("Select the workspace before loading or adding records.");
+        }
+
+        WorkspaceId = workspaceId;
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ApplyWorkspaceToChanges();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        ApplyWorkspaceToChanges();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void ApplyWorkspaceToChanges()
+    {
+        foreach (var entry in ChangeTracker.Entries<IWorkspaceRecord>())
+        {
+            if (entry.State == EntityState.Added)
+            {
+                entry.Entity.WorkspaceId = WorkspaceId;
+            }
+            else if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                var workspace = entry.Property(record => record.WorkspaceId);
+                if (workspace.CurrentValue != WorkspaceId || workspace.OriginalValue != WorkspaceId)
+                {
+                    throw new InvalidOperationException("A record outside the current workspace cannot be changed.");
+                }
+            }
+        }
+    }
+
+    private void ConfigureWorkspace<TRecord>(ModelBuilder modelBuilder) where TRecord : class, IWorkspaceRecord
+    {
+        var entity = modelBuilder.Entity<TRecord>();
+        // Existing records and development SQL scripts use the shared workspace.
+        entity.Property(record => record.WorkspaceId).HasDefaultValue(Guid.Empty).IsConcurrencyToken();
+        entity.HasIndex(record => record.WorkspaceId);
+        entity.HasQueryFilter(WorkspaceQueryFilter, record => record.WorkspaceId == WorkspaceId);
+    }
+
     // Expose the tables the API can query and update through EF Core.
     public DbSet<Patient> Patients => Set<Patient>();
     public DbSet<Clinic> Clinics => Set<Clinic>();
@@ -17,6 +71,7 @@ public class HealthcareDbContext : DbContext
     public DbSet<Referral> Referrals => Set<Referral>();
     public DbSet<Appointment> Appointments => Set<Appointment>();
     public DbSet<AppAccount> AppAccounts => Set<AppAccount>();
+    public DbSet<DemoEmailChallenge> DemoEmailChallenges => Set<DemoEmailChallenge>();
     public DbSet<ClinicMembership> ClinicMemberships => Set<ClinicMembership>();
     public DbSet<ProviderWeeklyHours> ProviderWeeklyHours => Set<ProviderWeeklyHours>();
     public DbSet<ProviderTimeOff> ProviderTimeOff => Set<ProviderTimeOff>();
@@ -24,6 +79,28 @@ public class HealthcareDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        ConfigureWorkspace<Appointment>(modelBuilder);
+        ConfigureWorkspace<AppAccount>(modelBuilder);
+        ConfigureWorkspace<Clinic>(modelBuilder);
+        ConfigureWorkspace<ClinicMembership>(modelBuilder);
+        ConfigureWorkspace<ClinicalService>(modelBuilder);
+        ConfigureWorkspace<DemoEmailChallenge>(modelBuilder);
+        ConfigureWorkspace<Patient>(modelBuilder);
+        ConfigureWorkspace<Provider>(modelBuilder);
+        ConfigureWorkspace<ProviderService>(modelBuilder);
+        ConfigureWorkspace<ProviderTimeOff>(modelBuilder);
+        ConfigureWorkspace<ProviderWeeklyHours>(modelBuilder);
+        ConfigureWorkspace<Referral>(modelBuilder);
+
+        var challenge = modelBuilder.Entity<DemoEmailChallenge>();
+        challenge.HasIndex(value => value.TokenHash).IsUnique();
+        challenge.HasIndex(value => value.RequestedAtUtc);
+        challenge.HasIndex(value => new { value.Issuer, value.Subject, value.RequestedAtUtc });
+        challenge.Property(value => value.Issuer).HasMaxLength(255).UseCollation("Latin1_General_100_BIN2");
+        challenge.Property(value => value.Subject).HasMaxLength(255).UseCollation("Latin1_General_100_BIN2");
+        challenge.Property(value => value.TokenHash).HasColumnType("binary(32)");
+        challenge.Property(value => value.CodeSalt).HasColumnType("binary(16)");
 
         // Configure the patient's unique public ID and required names.
         var patient = modelBuilder.Entity<Patient>();
@@ -48,7 +125,8 @@ public class HealthcareDbContext : DbContext
         provider
             .HasOne<Clinic>()
             .WithMany()
-            .HasForeignKey(p => p.ClinicId)
+            .HasForeignKey(p => new { p.WorkspaceId, p.ClinicId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         // Store a working window and an optional recurring break for each provider and day.
@@ -85,7 +163,8 @@ public class HealthcareDbContext : DbContext
         weeklyHours
             .HasOne<Provider>()
             .WithMany()
-            .HasForeignKey(hours => hours.ProviderId)
+            .HasForeignKey(hours => new { hours.WorkspaceId, hours.ProviderId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Cascade);
 
         // Keep time-off intervals in UTC and index each provider's start times.
@@ -102,7 +181,8 @@ public class HealthcareDbContext : DbContext
         timeOff
             .HasOne<Provider>()
             .WithMany()
-            .HasForeignKey(block => block.ProviderId)
+            .HasForeignKey(block => new { block.WorkspaceId, block.ProviderId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Cascade);
 
         // Require each service to belong to a clinic and give it a unique name within that clinic.
@@ -116,7 +196,8 @@ public class HealthcareDbContext : DbContext
         service
             .HasOne<Clinic>()
             .WithMany()
-            .HasForeignKey(s => s.ClinicId)
+            .HasForeignKey(s => new { s.WorkspaceId, s.ClinicId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         // Use the provider and service IDs together to identify an eligibility record.
@@ -127,16 +208,16 @@ public class HealthcareDbContext : DbContext
         eligibility
             .HasOne<Provider>()
             .WithMany()
-            .HasForeignKey(e => new { e.ProviderId, e.ClinicId })
-            .HasPrincipalKey(p => new { p.Id, p.ClinicId })
+            .HasForeignKey(e => new { e.WorkspaceId, e.ProviderId, e.ClinicId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id, principal.ClinicId })
             .OnDelete(DeleteBehavior.Restrict);
 
         // Link this eligibility record to a service at the same clinic.
         eligibility
             .HasOne<ClinicalService>()
             .WithMany()
-            .HasForeignKey(e => new { e.ClinicalServiceId, e.ClinicId })
-            .HasPrincipalKey(s => new { s.Id, s.ClinicId })
+            .HasForeignKey(e => new { e.WorkspaceId, e.ClinicalServiceId, e.ClinicId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id, principal.ClinicId })
             .OnDelete(DeleteBehavior.Restrict);
 
         // Configure referral fields, relationships, and rules for active referrals.
@@ -162,21 +243,24 @@ public class HealthcareDbContext : DbContext
         referral
             .HasOne<Patient>()
             .WithMany()
-            .HasForeignKey(r => r.PatientId)
+            .HasForeignKey(r => new { r.WorkspaceId, r.PatientId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         // Each referral requests one service, and a service can have many referrals.
         referral
             .HasOne<ClinicalService>()
             .WithMany()
-            .HasForeignKey(r => r.ClinicalServiceId)
+            .HasForeignKey(r => new { r.WorkspaceId, r.ClinicalServiceId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         // Every referral requires a provider who offers the requested service.
         referral
             .HasOne<ProviderService>()
             .WithMany()
-            .HasForeignKey(r => new { r.AssignedProviderId, r.ClinicalServiceId })
+            .HasForeignKey(r => new { r.WorkspaceId, r.AssignedProviderId, r.ClinicalServiceId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.ProviderId, principal.ClinicalServiceId })
             .OnDelete(DeleteBehavior.Restrict);
 
         // Reserve each provider and patient slot while the appointment is confirmed.
@@ -221,34 +305,38 @@ public class HealthcareDbContext : DbContext
         appointment
             .HasOne<Patient>()
             .WithMany()
-            .HasForeignKey(a => a.PatientId)
+            .HasForeignKey(a => new { a.WorkspaceId, a.PatientId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         appointment
             .HasOne<ClinicalService>()
             .WithMany()
-            .HasForeignKey(a => a.ClinicalServiceId)
+            .HasForeignKey(a => new { a.WorkspaceId, a.ClinicalServiceId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         appointment
             .HasOne<Provider>()
             .WithMany()
-            .HasForeignKey(a => a.ProviderId)
+            .HasForeignKey(a => new { a.WorkspaceId, a.ProviderId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         // A referred booking must match that referral's patient and service.
         appointment
             .HasOne<Referral>()
             .WithMany()
-            .HasForeignKey(a => new { a.ReferralId, a.PatientId, a.ClinicalServiceId })
-            .HasPrincipalKey(r => new { r.Id, r.PatientId, r.ClinicalServiceId })
+            .HasForeignKey(a => new { a.WorkspaceId, a.ReferralId, a.PatientId, a.ClinicalServiceId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id, principal.PatientId, principal.ClinicalServiceId })
             .HasConstraintName("FK_Appointments_Referrals_MatchingPatientService")
             .OnDelete(DeleteBehavior.Restrict);
 
         appointment
             .HasOne<AppAccount>()
             .WithMany()
-            .HasForeignKey(a => a.BookedByAppAccountId)
+            .HasForeignKey(a => new { a.WorkspaceId, a.BookedByAppAccountId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         // Identify sign-ins by the case-sensitive issuer and subject pair.
@@ -261,13 +349,15 @@ public class HealthcareDbContext : DbContext
         account
             .HasOne<Provider>()
             .WithOne()
-            .HasForeignKey<AppAccount>(a => a.ProviderId)
+            .HasForeignKey<AppAccount>(a => new { a.WorkspaceId, a.ProviderId })
+            .HasPrincipalKey<Provider>(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         account
             .HasOne<Patient>()
             .WithOne()
-            .HasForeignKey<AppAccount>(a => a.PatientId)
+            .HasForeignKey<AppAccount>(a => new { a.WorkspaceId, a.PatientId })
+            .HasPrincipalKey<Patient>(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         // An account can hold multiple staff roles, each granted for a specific clinic.
@@ -283,13 +373,15 @@ public class HealthcareDbContext : DbContext
         membership
             .HasOne<AppAccount>()
             .WithMany()
-            .HasForeignKey(m => m.AppAccountId)
+            .HasForeignKey(m => new { m.WorkspaceId, m.AppAccountId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         membership
             .HasOne<Clinic>()
             .WithMany()
-            .HasForeignKey(m => m.ClinicId)
+            .HasForeignKey(m => new { m.WorkspaceId, m.ClinicId })
+            .HasPrincipalKey(principal => new { principal.WorkspaceId, principal.Id })
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

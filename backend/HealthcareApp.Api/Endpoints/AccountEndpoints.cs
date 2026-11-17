@@ -43,6 +43,7 @@ public static class AccountEndpoints
             .Select(account => new
             {
                 account.IsAdministrator,
+                IsDemoAdministrator = account.IsAdministrator && account.WorkspaceId != Guid.Empty,
                 IsLinkedClinician = ownProviders.Any(),
                 ProviderPublicId = db.Providers
                     .Where(provider => provider.Id == account.ProviderId)
@@ -77,6 +78,7 @@ public static class AccountEndpoints
         return Results.Ok(new
         {
             account.IsAdministrator,
+            account.IsDemoAdministrator,
             CanCreateReferrals = (account.IsAdministrator || account.IsLinkedClinician)
                 && (await authorization.AuthorizeAsync(user, HealthcareApp.Api.Authorization.AuthorizationServiceExtensions.ReadReferralReceivingOptions)).Succeeded
                 && (await authorization.AuthorizeAsync(user, "ReadPatients")).Succeeded,

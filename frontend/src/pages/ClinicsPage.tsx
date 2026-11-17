@@ -1,5 +1,6 @@
+import type { ReferralAccount } from "../api/referrals";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useOutletContext, Link, useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ClinicRequestError, getClinics } from "../api/clinics";
 import WorkspaceTable from "../components/WorkspaceTable";
@@ -9,6 +10,7 @@ import { ActionIcon } from "../components/ActionIcon";
 function ClinicList({ userId, create }: { userId: string; create: boolean }) {
   const navigate = useNavigate();
   const { getAccessTokenSilently } = useAuth0();
+  const isDemoAdmin = useOutletContext<ReferralAccount | undefined>()?.isDemoAdministrator === true;
   const query = useQuery({
     // Keep cached clinic data separate for each signed-in user.
     queryKey: ["clinics", userId],
@@ -24,7 +26,7 @@ function ClinicList({ userId, create }: { userId: string; create: boolean }) {
       return {
         clinics,
         canManage:
-          token.scope?.split(/\s+/).includes("manage:clinics") ?? false,
+          isDemoAdmin || (token.scope?.split(/\s+/).includes("manage:clinics") ?? false),
       };
     },
     staleTime: 30_000,

@@ -1,6 +1,7 @@
+import type { ReferralAccount } from "../api/referrals";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useOutletContext, Link, useLocation, useNavigate } from "react-router";
 import { getPatients, PatientRequestError } from "../api/patients";
 import WorkspaceTable from "../components/WorkspaceTable";
 import PatientForm from "../features/patients/components/PatientForm";
@@ -11,6 +12,7 @@ const birthDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium"
 function PatientList({ userId, create }: { userId: string; create: boolean }) {
   const navigate = useNavigate();
   const { getAccessTokenSilently } = useAuth0();
+  const isDemoAdmin = useOutletContext<ReferralAccount | undefined>()?.isDemoAdministrator === true;
   const query = useQuery({
     // Isolate each user's records and cancel requests when this page unmounts.
     queryKey: ["patients", userId],
@@ -24,7 +26,7 @@ function PatientList({ userId, create }: { userId: string; create: boolean }) {
 
       return {
         patients,
-        canManage: token.scope?.split(/\s+/).includes("manage:patients") ?? false,
+        canManage: isDemoAdmin || (token.scope?.split(/\s+/).includes("manage:patients") ?? false),
       };
     },
     staleTime: 30_000,

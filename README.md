@@ -49,3 +49,23 @@ QUIT
 Sign in at `http://localhost:8080` and check that the referral queue and Northside Demo Clinic load. A request to `/api/me` without a token should return 401.
 
 Run `docker compose down` when finished. The named volume keeps the demo data and account links. The Windows development workflow with Vite, ASP.NET Core, and LocalDB is also available. See [local database setup](backend/database/README.md).
+
+## Test public demo onboarding
+
+The hosted demo is optional. Each verified account gets its own fictional referral and scheduling data and can change records in that workspace. Existing accounts keep their roles. Use a separate demo deployment and database when you put this feature online.
+
+For Compose, add the following settings to the root `.env` and supply an SMTP relay accessible from the API container. Keep relay credentials in your environment or secret store.
+
+| Setting | Value |
+| --- | --- |
+| `DEMO_WORKSPACES_ENABLED` | `true` |
+| `DEMO_SMTP_HOST` | SMTP relay hostname |
+| `DEMO_SMTP_FROM` | Sender address authorized by the relay |
+| `DEMO_SMTP_PORT` | Optional. Defaults to 587. |
+| `DEMO_SMTP_REQUIRE_TLS` | Defaults to `true`. Set to `false` only for a local mail catcher. |
+| `DEMO_SMTP_USERNAME`, `DEMO_SMTP_PASSWORD` | Set if the relay requires credentials. |
+| `DEMO_AUTH0_EMAIL_CONNECTION` | Optional name of an enabled, email-only Auth0 database connection. Shows the combined email sign-in and sign-up button. |
+
+Run `docker compose up --build`. Sign in with a test identity that has no existing app account and check the inbox and Spam folder for an eight-digit code at the address on its Auth0 profile. Enter the code in the original app tab and confirm that the referral queue shows the seeded records. Repeat with a second identity and confirm that edits from the first account do not appear there.
+
+The API defaults to 25 demo workspaces and 40 confirmation email attempts per rolling day. Set `DEMO_MAX_WORKSPACES` and `DEMO_MAX_DAILY_EMAILS` in the root `.env` to override those defaults. These limits apply after sign-in. Monitor Auth0 usage and hosting spend separately.
