@@ -172,6 +172,71 @@ public class ProviderAvailabilityTests
         }
     }
 
+    [Fact]
+    public async Task GetAvailability_AlignsKathmanduSlotsToUtcHalfHours()
+    {
+        const string subject = "auth0|kathmandu-front-desk";
+        var now = new DateTimeOffset(2030, 1, 6, 12, 0, 0, TimeSpan.Zero);
+        var firstStart = new DateTimeOffset(2030, 1, 7, 2, 30, 0, TimeSpan.Zero);
+
+        using var tokens = new TestJwtIssuer();
+        await using var factory = new HealthcareApiFactory();
+        await using var signedFactory = tokens.CreateFactory(factory);
+        await using var configuredFactory = signedFactory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<TimeProvider>(new FixedClock(now))
+            )
+        );
+        using var client = configuredFactory.CreateClient();
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+
+        try
+        {
+            await db.Database.MigrateAsync();
+
+            var clinic = new Clinic
+            {
+                Name = "Kathmandu Test Clinic", TimeZoneId = "Asia/Kathmandu",
+                Address = "100 Test Avenue",
+            };
+            var staff = new AppAccount { Issuer = TestJwtIssuer.Issuer, Subject = subject };
+            db.AddRange(clinic, staff);
+            await db.SaveChangesAsync();
+
+            var provider = new Provider
+            {
+                ClinicId = clinic.Id, FirstName = "Beth", LastName = "Demo",
+            };
+            db.AddRange(
+                provider,
+                new ClinicMembership
+                {
+                    AppAccountId = staff.Id, ClinicId = clinic.Id, Role = ClinicStaffRole.FrontDesk,
+                }
+            );
+            await db.SaveChangesAsync();
+
+            tokens.AuthorizeSubject(client, subject);
+            var result = await client.GetFromJsonAsync<JsonElement>(
+                $"/api/providers/{provider.PublicId}/availability?date=2030-01-07"
+            );
+            var starts = GetStarts(result);
+
+            Assert.Equal("Asia/Kathmandu", result.GetProperty("timeZoneId").GetString());
+            Assert.Equal(14, starts.Length);
+            Assert.Equal(firstStart, starts[0]); // 08:15 in Kathmandu.
+            Assert.Equal(firstStart.AddHours(3), starts[6]); // Last before the break.
+            Assert.Equal(firstStart.AddHours(5), starts[7]); // First after the break.
+            Assert.Equal(firstStart.AddHours(8), starts[^1]);
+            Assert.All(starts, start => Assert.Equal(0L, start.UtcTicks % TimeSpan.FromMinutes(30).Ticks));
+        }
+        finally
+        {
+            await db.Database.EnsureDeletedAsync();
+        }
+    }
+
     private static DateTimeOffset[] GetStarts(JsonElement result)
     {
         return result.GetProperty("slots").EnumerateArray()

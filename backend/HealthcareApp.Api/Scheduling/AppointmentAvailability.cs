@@ -85,7 +85,8 @@ internal static class AppointmentAvailability
         var localMidnight = date.ToDateTime(TimeOnly.MinValue);
         var slots = new List<AppointmentSlot>();
 
-        for (var minute = start; minute + duration <= end; minute += duration)
+        // A UTC slot boundary can fall between local half hours, and its offset can change during the day.
+        for (var minute = start; minute + duration <= end; minute++)
         {
             if (hours.BreakStartMinute is int breakStart
                 && hours.BreakEndMinute is int breakEnd
