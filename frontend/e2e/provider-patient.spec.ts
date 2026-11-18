@@ -93,6 +93,7 @@ async function mockApi(
 test("clinician completes a started appointment from their calendar", async ({ context, page }) => {
   const appointmentPath = "/api/appointments/" + appointmentId;
   let completionRequests = 0;
+  let detailRequests = 0;
   const appointment: AppointmentDetails = {
     ...conflict,
     providerPublicId: providerId,
@@ -118,11 +119,14 @@ test("clinician completes a started appointment from their calendar", async ({ c
   };
   const unexpected = await mockApi(context, provider, (route, method, path) => {
     if (method === "GET" && path === "/api/me/calendar") return route.fulfill({ json: calendar });
-    if (method === "GET" && path === appointmentPath) return route.fulfill({ json: appointment });
+    if (method === "GET" && path === appointmentPath) {
+      detailRequests += 1;
+      return route.fulfill({ json: appointment });
+    }
     if (method === "POST" && path === appointmentPath + "/complete") {
       completionRequests += 1;
       if (completionRequests === 1) {
-        return route.fulfill({ status: 409, json: { message: "The appointment changed. Refresh and try again." } });
+        return route.fulfill({ status: 409, json: { code: "appointment_changed", message: "The appointment changed. Refresh and try again." } });
       }
       appointment.status = "Completed";
       appointment.canComplete = false;
@@ -141,10 +145,13 @@ test("clinician completes a started appointment from their calendar", async ({ c
   await complete.click();
   expect(completionRequests).toBe(0);
 
+  const readsBeforeConflict = detailRequests;
   page.once("dialog", (dialog) => dialog.accept());
   await complete.click();
   await expect(page.getByRole("alert")).toHaveText("The appointment changed. Refresh and try again.");
+  await expect.poll(() => detailRequests).toBeGreaterThan(readsBeforeConflict);
   await expect(page.getByText("Confirmed", { exact: true })).toBeVisible();
+  await expect(complete).toBeEnabled();
 
   page.once("dialog", (dialog) => dialog.accept());
   await complete.click();
@@ -154,6 +161,81 @@ test("clinician completes a started appointment from their calendar", async ({ c
   await page.getByRole("link", { name: "Back to my schedule" }).click();
   await expect(page.getByText("No appointments booked.")).toBeVisible();
   expect(completionRequests).toBe(2);
+  expect(unexpected).toEqual([]);
+});
+
+test("completion conflict refreshes a cancelled appointment and preserves the error", async ({ context, page }) => {
+  const appointmentPath = "/api/appointments/" + appointmentId;
+  const message = "Only a confirmed appointment can be cancelled or completed.";
+  const appointment: AppointmentDetails = {
+    ...conflict,
+    providerPublicId: providerId,
+    status: "Confirmed",
+    canCancel: false,
+    canComplete: true,
+    canReschedule: false,
+    overlapsProviderTimeOff: false,
+  };
+  let completionRequests = 0;
+  const unexpected = await mockApi(context, provider, (route, method, path) => {
+    if (method === "GET" && path === appointmentPath) return route.fulfill({ json: appointment });
+    if (method === "POST" && path === appointmentPath + "/complete") {
+      completionRequests += 1;
+      appointment.status = "Cancelled";
+      appointment.canComplete = false;
+      return route.fulfill({ status: 409, json: { code: "appointment_not_confirmed", message } });
+    }
+  });
+
+  await page.clock.setFixedTime(new Date(conflict.endUtc));
+  await page.goto("/appointments/" + appointmentId);
+  const complete = page.getByRole("button", { name: "Complete appointment" });
+  await expect(complete).toBeEnabled();
+  page.once("dialog", (dialog) => dialog.accept());
+  await complete.click();
+  await expect(page.getByText("Cancelled", { exact: true })).toBeVisible();
+  await expect(complete).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveText(message);
+  expect(completionRequests).toBe(1);
+  expect(unexpected).toEqual([]);
+});
+
+test("refresh obtains completion eligibility from the server after the appointment starts", async ({ context, page }) => {
+  const appointmentPath = "/api/appointments/" + appointmentId;
+  const appointment: AppointmentDetails = {
+    ...conflict,
+    providerPublicId: providerId,
+    status: "Confirmed",
+    canCancel: false,
+    canComplete: false,
+    canReschedule: false,
+    overlapsProviderTimeOff: false,
+  };
+  let detailRequests = 0;
+  const unexpected = await mockApi(context, provider, (route, method, path) => {
+    if (method === "GET" && path === appointmentPath) {
+      detailRequests += 1;
+      return route.fulfill({ json: appointment });
+    }
+  });
+
+  await page.clock.setFixedTime(new Date(Date.parse(conflict.startUtc) - 60_000));
+  await page.goto("/appointments/" + appointmentId);
+  await expect(page.getByText("Confirmed", { exact: true })).toBeVisible();
+  const complete = page.getByRole("button", { name: "Complete appointment" });
+  const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+  await expect(complete).toHaveCount(0);
+
+  await page.clock.setFixedTime(new Date(conflict.endUtc));
+  const readsBeforeRefresh = detailRequests;
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  await expect.poll(() => detailRequests).toBeGreaterThan(readsBeforeRefresh);
+  await expect(complete).toHaveCount(0);
+
+  appointment.canComplete = true;
+  await refresh.click();
+  await expect(complete).toBeEnabled();
   expect(unexpected).toEqual([]);
 });
 
