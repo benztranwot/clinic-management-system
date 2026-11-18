@@ -7,7 +7,7 @@ export function appointmentWriteKey(userId: string, publicId: string) {
 export async function refreshAppointmentViews(queryClient: QueryClient, userId: string, publicId: string) {
   const views = [
     "appointment-attention", "upcoming-appointments", "provider-calendar",
-    "provider-availability", "referral", "referrals",
+    "provider-availability", "referral", "referrals", "my-appointments", "my-referrals",
   ];
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["appointment", userId, publicId] }),

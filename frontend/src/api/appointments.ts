@@ -15,6 +15,7 @@ export type AppointmentDetails = AppointmentSummary & {
   providerPublicId: string;
   status: "Confirmed" | "Cancelled" | "Completed";
   canCancel: boolean;
+  canComplete: boolean;
   canReschedule: boolean;
   overlapsProviderTimeOff: boolean;
 };
@@ -93,6 +94,11 @@ export async function searchUpcomingAppointments(
 export async function cancelAppointment(publicId: string, accessToken: string): Promise<void> {
   await requestAppointment("/api/appointments/" + encodeURIComponent(publicId) + "/cancel", accessToken,
     "Unable to cancel the appointment.", { method: "POST" });
+}
+
+export async function completeAppointment(publicId: string, accessToken: string): Promise<void> {
+  await requestAppointment("/api/appointments/" + encodeURIComponent(publicId) + "/complete", accessToken,
+    "Unable to complete the appointment.", { method: "POST" });
 }
 
 export async function rescheduleAppointment(

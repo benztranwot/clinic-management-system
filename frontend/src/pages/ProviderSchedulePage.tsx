@@ -9,6 +9,7 @@ import {
   type CalendarDay,
   type CalendarSlot,
 } from "../api/providerSchedule";
+import { Link } from "react-router";
 import { ActionIcon } from "../components/ActionIcon";
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -83,6 +84,15 @@ function DaySlotColumn({ title, slots, timeZone, now }: { title: string; slots: 
                   <>
                     <p className="wrap-break-word">{appointment.serviceName} · {appointment.patientName}</p>
                     {appointment.duringTimeOff && <p className="text-subtle">Booked during time off</p>}
+                    <Link
+                      className="workspace-button"
+                      data-variant="secondary"
+                      to={"/appointments/" + appointment.publicId}
+                      state={{ fromProviderSchedule: true }}
+                    >
+                      <ActionIcon name="eye" />
+                      View appointment
+                    </Link>
                   </>
                 ) : (
                   <p className="text-subtle">{ended ? "Time passed" : started ? "Time started" : "Open time"}</p>

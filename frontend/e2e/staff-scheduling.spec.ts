@@ -107,6 +107,7 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
             referralPublicId: referralId,
             status: "Confirmed",
             canCancel: true,
+            canComplete: false,
             canReschedule: true,
             overlapsProviderTimeOff: false,
           };
@@ -164,6 +165,7 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
     await expect(bookingPage.getByRole("region", { name: "Scheduled appointment" })).toBeVisible();
     await bookingPage.getByRole("link", { name: "View appointment" }).click();
     await expect(bookingPage.getByRole("heading", { name: "Appointment details" })).toBeVisible();
+    await expect(bookingPage.getByRole("button", { name: "Complete appointment" })).toHaveCount(0);
     const scheduledTime = bookingPage.locator("time[datetime]");
     await expect(scheduledTime).toHaveAttribute("datetime", originalSlot.startUtc);
 

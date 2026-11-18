@@ -1,17 +1,18 @@
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { useIsMutating, useQuery } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "react-router";
-import { getAppointment, type AppointmentDetails } from "../api/appointments";
+import { AppointmentRequestError, completeAppointment, getAppointment, type AppointmentDetails } from "../api/appointments";
 import CancelAppointmentButton from "../features/appointments/components/CancelAppointmentButton";
 import RescheduleAppointmentForm from "../features/appointments/components/RescheduleAppointmentForm";
 import { appointmentLists } from "../features/appointments/appointmentLists";
-import { appointmentWriteKey } from "../features/appointments/appointmentQueries";
+import { appointmentWriteKey, refreshAppointmentViews } from "../features/appointments/appointmentQueries";
 import { ActionIcon } from "../components/ActionIcon";
 
 function AppointmentRecord({ publicId, userId }: { publicId: string; userId: string }) {
   const { getAccessTokenSilently } = useAuth0();
   const location = useLocation();
+  const writing = useIsMutating({ mutationKey: appointmentWriteKey(userId, publicId) }) > 0;
   const details = useQuery({
     queryKey: ["appointment", userId, publicId],
     queryFn: async ({ signal }) => {
@@ -28,6 +29,7 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
     ? { pathname: "/referrals/" + referralId, search: new URLSearchParams({ clinic: appointment.clinicPublicId }).toString() }
     : null;
   const backToReferral = location.state?.fromReferral === true && referralLink;
+  const fromSchedule = location.state?.fromProviderSchedule === true;
   const originList = location.state?.appointmentList;
   const fromConflicts = originList === "conflicts"
     || (originList !== "upcoming" && !location.search && appointment?.overlapsProviderTimeOff);
@@ -40,9 +42,9 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
   return (
     <>
       <div className="page-heading">
-        <Link to={backToReferral || { pathname: backList.path, search: backSearch }} state={backState} className="workspace-button" data-variant="secondary">
+        <Link to={backToReferral || (fromSchedule ? "/my-schedule" : { pathname: backList.path, search: backSearch })} state={backState} className="workspace-button" data-variant="secondary">
           <ActionIcon name="back" />
-          {backToReferral ? "Back to referral" : "Back to " + backList.title.toLowerCase()}
+          {backToReferral ? "Back to referral" : fromSchedule ? "Back to my schedule" : "Back to " + backList.title.toLowerCase()}
         </Link>
         {referralLink && (
           <Link className="workspace-button ml-auto" to={referralLink}>
@@ -53,6 +55,12 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
       </div>
       <div className="page-heading">
         <h1 id="appointment-heading" className="page-title">Appointment details</h1>
+        {appointment && (
+          <button type="button" data-variant="secondary" disabled={details.isFetching || writing} onClick={() => void details.refetch()}>
+            <ActionIcon name="refresh" />
+            {details.isFetching ? "Refreshing…" : "Refresh"}
+          </button>
+        )}
         {appointment?.overlapsProviderTimeOff && (
           <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-sm font-medium">Overlaps provider time off</span>
         )}
@@ -80,7 +88,25 @@ function AppointmentInformation({
 }) {
   const [rescheduling, setRescheduling] = useState(false);
   const [notice, setNotice] = useState("");
-  const writing = useIsMutating({ mutationKey: appointmentWriteKey(userId, appointment.publicId) }) > 0;
+  const { getAccessTokenSilently } = useAuth0();
+  const queryClient = useQueryClient();
+  const mutationKey = appointmentWriteKey(userId, appointment.publicId);
+  const writing = useIsMutating({ mutationKey }) > 0;
+  const completion = useMutation({
+    mutationKey,
+    mutationFn: async () => {
+      const token = await getAccessTokenSilently();
+      if (!token) throw new Error("Unable to verify your session. Sign in again.");
+      await completeAppointment(appointment.publicId, token);
+    },
+    retry: false,
+    onSuccess: () => refreshAppointmentViews(queryClient, userId, appointment.publicId),
+    onError: async (error) => {
+      if (error instanceof AppointmentRequestError && error.status === 409) {
+        await refreshAppointmentViews(queryClient, userId, appointment.publicId);
+      }
+    },
+  });
   const timeZone = appointment.timeZoneId ?? "UTC";
   const date = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone });
   const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
@@ -112,8 +138,23 @@ function AppointmentInformation({
           </button>
         )}
         <CancelAppointmentButton publicId={appointment.publicId} userId={userId} canCancel={appointment.canCancel} />
-        {appointment.status === "Confirmed" && <button type="button" disabled><ActionIcon name="check" />Complete appointment</button>}
+        {appointment.canComplete && !completion.isSuccess && (
+          <button type="button" disabled={writing} onClick={() => {
+            const message = appointment.referralPublicId
+              ? "Complete this appointment and close its referral?"
+              : "Complete this appointment?";
+            if (window.confirm(message)) {
+              setNotice("");
+              completion.mutate();
+            }
+          }}>
+            <ActionIcon name="check" />
+            {completion.isPending ? "Completing…" : "Complete appointment"}
+          </button>
+        )}
       </div>
+      {completion.isSuccess && <p role="status">Appointment completed.</p>}
+      {completion.isError && <p role="alert">{completion.error.message}</p>}
       {rescheduling && appointment.canReschedule && (
         <RescheduleAppointmentForm
           appointment={appointment}
