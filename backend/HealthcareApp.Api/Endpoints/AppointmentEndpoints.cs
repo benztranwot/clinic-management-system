@@ -610,6 +610,8 @@ public static class AppointmentEndpoints
         var now = clock.GetUtcNow();
         var earliestStart = now.AddMinutes(-Appointment.DurationMinutes);
         var schedulingClinics = identity.QuerySchedulingClinics(db);
+        var administrators = identity.QueryAccounts(db).Where(account => account.IsAdministrator);
+        var ownProviders = identity.QueryOwnProviders(db);
         var booking = await (
             from row in WithTimeOffOverlap(db)
             let appointment = row.Appointment
@@ -631,6 +633,7 @@ public static class AppointmentEndpoints
                 ProviderName = provider.FirstName + " " + provider.LastName,
                 ServiceName = service.Name,
                 CanSchedule = schedulingClinics.Any(allowed => allowed.Id == clinic.Id),
+                CanComplete = administrators.Any() || ownProviders.Any(own => own.Id == provider.Id),
                 ReferralPublicId = db.Referrals.Where(referral => referral.Id == appointment.ReferralId)
                     .Select(referral => (Guid?)referral.PublicId).FirstOrDefault(),
                 appointment.StartUtc,
@@ -660,6 +663,8 @@ public static class AppointmentEndpoints
             CanReschedule = booking.CanSchedule && booking.Status == AppointmentStatus.Confirmed
                 && booking.StartUtc > now,
             CanCancel = booking.CanSchedule && booking.Status == AppointmentStatus.Confirmed,
+            CanComplete = booking.CanComplete && booking.Status == AppointmentStatus.Confirmed
+                && booking.StartUtc <= now,
             booking.OverlapsProviderTimeOff,
             booking.ReferralPublicId,
             booking.StartUtc,

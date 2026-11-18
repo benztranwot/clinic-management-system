@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Route } from "@playwright/test";
-import type { AppointmentSummary, PatientAppointment } from "../src/api/appointments";
+import type { AppointmentDetails, AppointmentSummary, PatientAppointment } from "../src/api/appointments";
 import type { ProviderCalendar } from "../src/api/providerSchedule";
 import type { PatientReferralSummary, ReferralAccount } from "../src/api/referrals";
 
@@ -20,6 +20,14 @@ const patientAccount: ReferralAccount = {
   providerPublicId: null,
   patientPublicId: patientId,
   memberships: [],
+};
+
+const provider: ReferralAccount = {
+  ...patientAccount,
+  canCreateReferrals: true,
+  providerPublicId: providerId,
+  patientPublicId: null,
+  memberships: [{ clinicPublicId: clinicId, clinicName, role: "Clinician" }],
 };
 
 const patientReferral: PatientReferralSummary = {
@@ -82,17 +90,77 @@ async function mockApi(
   return unexpected;
 }
 
+test("clinician completes a started appointment from their calendar", async ({ context, page }) => {
+  const appointmentPath = "/api/appointments/" + appointmentId;
+  let completionRequests = 0;
+  const appointment: AppointmentDetails = {
+    ...conflict,
+    providerPublicId: providerId,
+    status: "Confirmed",
+    canCancel: false,
+    canComplete: true,
+    canReschedule: false,
+    overlapsProviderTimeOff: false,
+  };
+  const calendar: ProviderCalendar = {
+    today: bookedDate,
+    timeZoneId,
+    days: [{
+      date: bookedDate,
+      openSlots: 0,
+      availableSlots: [],
+      startedSlots: [],
+      dayOff: false,
+      dayOffPublicId: null,
+      canMarkUnavailable: true,
+      appointments: [{ ...conflict, duringTimeOff: false }],
+    }],
+  };
+  const unexpected = await mockApi(context, provider, (route, method, path) => {
+    if (method === "GET" && path === "/api/me/calendar") return route.fulfill({ json: calendar });
+    if (method === "GET" && path === appointmentPath) return route.fulfill({ json: appointment });
+    if (method === "POST" && path === appointmentPath + "/complete") {
+      completionRequests += 1;
+      if (completionRequests === 1) {
+        return route.fulfill({ status: 409, json: { message: "The appointment changed. Refresh and try again." } });
+      }
+      appointment.status = "Completed";
+      appointment.canComplete = false;
+      calendar.days[0].appointments = [];
+      return route.fulfill({ json: { publicId: appointmentId, status: "Completed" } });
+    }
+  });
+
+  await page.clock.setFixedTime(new Date(conflict.endUtc));
+  await page.goto("/my-schedule");
+  await page.getByRole("link", { name: "View appointment" }).click();
+  await expect(page.getByRole("heading", { name: "Appointment details" })).toBeVisible();
+
+  const complete = page.getByRole("button", { name: "Complete appointment" });
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await complete.click();
+  expect(completionRequests).toBe(0);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await complete.click();
+  await expect(page.getByRole("alert")).toHaveText("The appointment changed. Refresh and try again.");
+  await expect(page.getByText("Confirmed", { exact: true })).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await complete.click();
+  await expect(page.getByRole("status")).toHaveText("Appointment completed.");
+  await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(complete).toHaveCount(0);
+  await page.getByRole("link", { name: "Back to my schedule" }).click();
+  await expect(page.getByText("No appointments booked.")).toBeVisible();
+  expect(completionRequests).toBe(2);
+  expect(unexpected).toEqual([]);
+});
+
 test("provider time off preserves the booking and appears in the front-desk conflict queue", async ({ context, page, browser, baseURL }) => {
   let dayOff = false;
   let timeOffRequests = 0;
   const timeOffPath = "/api/me/calendar/" + bookedDate + "/time-off";
-  const provider: ReferralAccount = {
-    ...patientAccount,
-    canCreateReferrals: true,
-    providerPublicId: providerId,
-    patientPublicId: null,
-    memberships: [{ clinicPublicId: clinicId, clinicName, role: "Clinician" }],
-  };
   const providerRequests = await mockApi(context, provider, (route, method, path) => {
     if (method === "GET" && path === "/api/me/calendar") {
       const calendar: ProviderCalendar = {

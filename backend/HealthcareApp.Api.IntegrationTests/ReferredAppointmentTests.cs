@@ -262,6 +262,8 @@ public class ReferredAppointmentTests
             Assert.Equal(account.Id, saved.BookedByAppAccountId);
             Assert.Equal(firstProvider.Id, saved.ProviderId);
 
+            var upcomingDetail = await client.GetFromJsonAsync<JsonElement>(appointmentUrl);
+            Assert.False(upcomingDetail.GetProperty("canComplete").GetBoolean());
             using var earlyCompletion = await client.PostAsync($"{appointmentUrl}/complete", null);
             await AssertConflictAsync(earlyCompletion, "appointment_not_started");
 
@@ -280,9 +282,18 @@ public class ReferredAppointmentTests
             Assert.NotNull(rebookedUrl);
 
             clock.UtcNow = body.GetProperty("endUtc").GetDateTimeOffset();
+            var frontDeskDetail = await client.GetFromJsonAsync<JsonElement>(rebookedUrl);
+            Assert.False(frontDeskDetail.GetProperty("canComplete").GetBoolean());
+
             tokens.AuthorizeSubject(client, clinicianSubject, "read:referrals", "manage:referrals");
+            var startedDetail = await client.GetFromJsonAsync<JsonElement>(rebookedUrl);
+            Assert.True(startedDetail.GetProperty("canComplete").GetBoolean());
+
             using var completion = await client.PostAsync($"{rebookedUrl}/complete", null);
             Assert.Equal(HttpStatusCode.OK, completion.StatusCode);
+            var completedDetail = await client.GetFromJsonAsync<JsonElement>(rebookedUrl);
+            Assert.Equal("Completed", completedDetail.GetProperty("status").GetString());
+            Assert.False(completedDetail.GetProperty("canComplete").GetBoolean());
             var afterCompletion = await client.GetFromJsonAsync<JsonElement>(referralUrl);
             Assert.Equal("Closed", afterCompletion.GetProperty("stage").GetString());
 
