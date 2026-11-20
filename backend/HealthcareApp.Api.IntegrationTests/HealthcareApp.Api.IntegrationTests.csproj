@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HealthcareApp.Api\HealthcareApp.Api.csproj" />
+    <None Include="..\database\SeedScaleData.sql" Link="SeedScaleData.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

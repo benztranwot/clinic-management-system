@@ -1,15 +1,20 @@
 # Local database setup
 
+For the larger fictional demo dataset and automated API timing baseline,
+see [scale testing](ScaleTesting.md).
+
 From the repository root, apply the migrations before seeding the LocalDB development database.
 
 ```powershell
 $connection = 'Server=(localdb)\MSSQLLocalDB;Database=HealthcareApp_Dev;Integrated Security=True;Encrypt=True;TrustServerCertificate=True'
 
 dotnet ef database update --project backend/HealthcareApp.Api --context HealthcareDbContext --connection $connection -- --environment Development
-sqlcmd -S '(localdb)\MSSQLLocalDB' -E -d HealthcareApp_Dev -b -i backend/database/SeedDemoData.sql
+sqlcmd -S '(localdb)\MSSQLLocalDB' -E -C -b -I -d HealthcareApp_Dev -i backend/database/SeedDemoData.sql,backend/database/SeedScaleData.sql
 ```
 
-The seed contains fictional patients, providers, referrals, and a confirmed appointment. Use it for local development.
+The seed keeps the original Northside workflow examples and adds 5 clinics, 25
+providers, 20 services, 250 patients, 300 referrals, and 1,000 appointments to the
+same development database. Existing account links and edited records are preserved.
 
 ## Upgrading referrals created before provider assignment was required
 

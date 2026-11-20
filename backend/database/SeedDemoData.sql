@@ -36,8 +36,14 @@ BEGIN TRANSACTION;
 IF NOT EXISTS (SELECT 1 FROM dbo.Clinics WHERE PublicId = @ClinicPublicId)
 BEGIN
     INSERT INTO dbo.Clinics (PublicId, Name, Address, TimeZoneId)
-    VALUES (@ClinicPublicId, N'Northside Demo Clinic', N'100 Demo Avenue', N'America/Chicago');
+    VALUES (@ClinicPublicId, N'Northside Family Clinic', N'1840 Cedar Lane', N'America/Chicago');
 END;
+
+-- Upgrade the original sample labels only when they still have their seeded values.
+UPDATE dbo.Clinics SET Name = N'Northside Family Clinic'
+WHERE PublicId = @ClinicPublicId AND Name = N'Northside Demo Clinic';
+UPDATE dbo.Clinics SET Address = N'1840 Cedar Lane'
+WHERE PublicId = @ClinicPublicId AND Address = N'100 Demo Avenue';
 
 -- Find the clinic's internal ID for the provider and service foreign keys.
 DECLARE @ClinicId int = (SELECT Id FROM dbo.Clinics WHERE PublicId = @ClinicPublicId);
@@ -46,20 +52,37 @@ DECLARE @ClinicId int = (SELECT Id FROM dbo.Clinics WHERE PublicId = @ClinicPubl
 INSERT INTO dbo.Patients (PublicId, FirstName, LastName, DateOfBirth)
 SELECT demo.PublicId, demo.FirstName, demo.LastName, demo.DateOfBirth
 FROM (VALUES
-    (@AlexPublicId, N'Alex', N'Demo', DATEFROMPARTS(2000, 1, 1)),
-    (@JamiePublicId, N'Jamie', N'Demo', DATEFROMPARTS(1998, 4, 12)),
-    (@RileyPublicId, N'Riley', N'Demo', DATEFROMPARTS(1994, 6, 18))
+    (@AlexPublicId, N'Alex', N'Morgan', DATEFROMPARTS(2000, 1, 1)),
+    (@JamiePublicId, N'Jamie', N'Reed', DATEFROMPARTS(1998, 4, 12)),
+    (@RileyPublicId, N'Riley', N'Campbell', DATEFROMPARTS(1994, 6, 18))
 ) AS demo (PublicId, FirstName, LastName, DateOfBirth)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.Patients AS p WHERE p.PublicId = demo.PublicId);
 
--- Insert Beth and John as providers at Northside.
+UPDATE patient SET LastName = names.LastName
+FROM dbo.Patients patient
+JOIN (VALUES
+    (@AlexPublicId, N'Alex', N'Morgan'),
+    (@JamiePublicId, N'Jamie', N'Reed'),
+    (@RileyPublicId, N'Riley', N'Campbell')
+) names(PublicId, FirstName, LastName) ON names.PublicId = patient.PublicId
+WHERE patient.FirstName = names.FirstName AND patient.LastName = N'Demo';
+
+-- Insert Elizabeth and Jonathan as providers at Northside.
 INSERT INTO dbo.Providers (PublicId, ClinicId, FirstName, LastName)
 SELECT demo.PublicId, @ClinicId, demo.FirstName, demo.LastName
 FROM (VALUES
-    (@BethPublicId, N'Beth', N'Demo'),
-    (@JohnPublicId, N'John', N'Demo')
+    (@BethPublicId, N'Elizabeth', N'Hart'),
+    (@JohnPublicId, N'Jonathan', N'Reed')
 ) AS demo (PublicId, FirstName, LastName)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.Providers AS p WHERE p.PublicId = demo.PublicId);
+
+UPDATE provider SET FirstName = names.FirstName, LastName = names.LastName
+FROM dbo.Providers provider
+JOIN (VALUES
+    (@BethPublicId, N'Beth', N'Elizabeth', N'Hart'),
+    (@JohnPublicId, N'John', N'Jonathan', N'Reed')
+) names(PublicId, PreviousFirstName, FirstName, LastName) ON names.PublicId = provider.PublicId
+WHERE provider.FirstName = names.PreviousFirstName AND provider.LastName = N'Demo';
 
 -- Insert the physical exam and therapy services at Northside.
 INSERT INTO dbo.ClinicalServices (PublicId, ClinicId, Name, AllowsDirectBooking)
@@ -81,7 +104,7 @@ DECLARE @JohnId int = (SELECT Id FROM dbo.Providers WHERE PublicId = @JohnPublic
 DECLARE @ExamId int = (SELECT Id FROM dbo.ClinicalServices WHERE PublicId = @ExamPublicId);
 DECLARE @TherapyId int = (SELECT Id FROM dbo.ClinicalServices WHERE PublicId = @TherapyPublicId);
 
--- Beth offers both services. John offers physical exams.
+-- Elizabeth offers both services. Jonathan offers physical exams.
 INSERT INTO dbo.ProviderServices (ProviderId, ClinicalServiceId, ClinicId)
 SELECT demo.ProviderId, demo.ClinicalServiceId, @ClinicId
 FROM (VALUES
@@ -110,7 +133,7 @@ INSERT INTO dbo.Referrals (
 )
 SELECT
     demo.PublicId, demo.PatientId, demo.ClinicalServiceId, demo.AssignedProviderId,
-    N'Dr. Demo', demo.Reason, demo.Status, demo.Note, demo.CreatedAtUtc
+    N'Dr. Amelia Warren', demo.Reason, demo.Status, demo.Note, demo.CreatedAtUtc
 FROM (VALUES
     (@ClosedReferralPublicId, @AlexId, @ExamId, @JohnId,
         N'Routine physical exam', @Closed, NULL, DATEADD(day, -7, @CreatedAtUtc)),
@@ -131,6 +154,11 @@ WHERE NOT EXISTS (SELECT 1 FROM dbo.Referrals AS r WHERE r.PublicId = demo.Publi
             AND r.Status <> @Closed
       )
   );
+
+UPDATE dbo.Referrals SET ReferringProviderName = N'Dr. Amelia Warren'
+WHERE PublicId IN (@ClosedReferralPublicId, @PendingReferralPublicId, @ReadyReferralPublicId,
+    @MissingInfoReferralPublicId, @ScheduledReferralPublicId)
+    AND ReferringProviderName = N'Dr. Demo';
 
 -- Attribute the fictional booking to an account with no application privileges.
 DECLARE @SeedIssuer nvarchar(255) = N'https://seed.invalid/';
@@ -179,4 +207,4 @@ WHERE r.PublicId = @ScheduledReferralPublicId
 
 COMMIT TRANSACTION;
 
-PRINT N'Demo data ready: Northside, three patients, two providers, two services, and referral workflow examples.';
+PRINT N'Sample data ready: Northside Family Clinic, three patients, two providers, and referral workflow examples.';
