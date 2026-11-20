@@ -22,10 +22,16 @@ Use Docker Desktop with Linux containers on an Intel or AMD x86-64 machine. The 
    docker compose up --build -d --wait --wait-timeout 180
    docker compose ps -a
    Invoke-RestMethod http://localhost:8080/api/health
-   docker compose exec db sh -c 'SQLCMDPASSWORD=$MSSQL_SA_PASSWORD /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -d HealthcareApp_Dev -i /seed/SeedDemoData.sql'
+   docker compose exec db sh -c 'SQLCMDPASSWORD=$MSSQL_SA_PASSWORD /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -I -d HealthcareApp_Dev -i /seed/SeedDemoData.sql,/seed/SeedScaleData.sql'
    ```
 
    Compose runs EF Core migrations after SQL Server becomes ready. The `migrate` service should exit with code 0. If startup fails, inspect `docker compose logs db migrate api web`. Rebuild the web image when you change the Auth0 settings in `.env`.
+
+   The seed keeps the Northside workflow examples and adds 5 clinics, 25 providers,
+   20 services, 250 patients, 300 referrals, and 1,000 appointments to the same demo
+   database. Rerunning it adds missing fictional rows and preserves existing edits
+   and account links. See [scale testing](backend/database/ScaleTesting.md) for the
+   automated API baseline.
 
 ### Link a demo administrator
 
@@ -46,6 +52,6 @@ GO
 QUIT
 ```
 
-Sign in at `http://localhost:8080` and check that the referral queue and Northside Demo Clinic load. A request to `/api/me` without a token should return 401.
+Sign in at `http://localhost:8080` and check that the referral queue and Northside Family Clinic load. A request to `/api/me` without a token should return 401.
 
 Run `docker compose down` when finished. The named volume keeps the demo data and account links. The Windows development workflow with Vite, ASP.NET Core, and LocalDB is also available. See [local database setup](backend/database/README.md).
