@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../../../components/LoadingStatus";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -115,7 +116,7 @@ export default function RescheduleAppointmentForm({
           />
         </label>
         {date && !validDate && <p role="alert">Choose a date from tomorrow through 30 days ahead in the clinic’s time zone.</p>}
-        {validDate && availability.isPending && <p role="status">Checking available times…</p>}
+        {validDate && availability.isPending && <LoadingStatus>Checking available times…</LoadingStatus>}
         {validDate && availability.isError && (
           <div className="space-y-2">
             <p role="alert">{availability.error.message}</p>
@@ -152,7 +153,7 @@ export default function RescheduleAppointmentForm({
         ))}
         <div className="flex flex-wrap gap-2">
           <button type="submit" disabled={!canSave || writing}>
-            <ActionIcon name="save" />
+            {change.isPending ? <Spinner /> : <ActionIcon name="save" />}
             {change.isPending ? "Saving…" : "Save new time"}
           </button>
           <button type="button" data-variant="secondary" onClick={onClose}><ActionIcon name="close" />Close reschedule form</button>

@@ -47,8 +47,8 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
       const method = request.method();
 
       if (method === "GET" && path === "/api/me") return route.fulfill({ json: account });
-      if (method === "GET" && path === "/api/appointments/needs-attention") {
-        return route.fulfill({ json: [] });
+      if (method === "GET" && path === "/api/appointments/needs-attention/count") {
+        return route.fulfill({ json: { count: 0 } });
       }
       if (method === "GET" && path === clinicReferralPath) {
         const confirmed = appointment?.status === "Confirmed" ? appointment : null;

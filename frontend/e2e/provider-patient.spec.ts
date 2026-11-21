@@ -200,7 +200,7 @@ test("completion conflict refreshes a cancelled appointment and preserves the er
   expect(unexpected).toEqual([]);
 });
 
-test("refresh obtains completion eligibility from the server after the appointment starts", async ({ context, page }) => {
+test("completion eligibility refreshes automatically after the appointment starts", async ({ context, page }) => {
   const appointmentPath = "/api/appointments/" + appointmentId;
   const appointment: AppointmentDetails = {
     ...conflict,
@@ -219,22 +219,25 @@ test("refresh obtains completion eligibility from the server after the appointme
     }
   });
 
-  await page.clock.setFixedTime(new Date(Date.parse(conflict.startUtc) - 60_000));
+  await page.clock.install({ time: new Date(Date.parse(conflict.startUtc) - 60_000) });
   await page.goto("/appointments/" + appointmentId);
   await expect(page.getByText("Confirmed", { exact: true })).toBeVisible();
   const complete = page.getByRole("button", { name: "Complete appointment" });
-  const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
   await expect(complete).toHaveCount(0);
 
-  await page.clock.setFixedTime(new Date(conflict.endUtc));
-  const readsBeforeRefresh = detailRequests;
-  await refresh.click();
-  await expect(refresh).toBeEnabled();
-  await expect.poll(() => detailRequests).toBeGreaterThan(readsBeforeRefresh);
+  const readsBeforeStart = detailRequests;
+  const startCheck = page.waitForResponse(response => new URL(response.url()).pathname === appointmentPath);
+  await page.clock.runFor(60_300);
+  await (await startCheck).finished();
+  await expect.poll(() => detailRequests).toBeGreaterThan(readsBeforeStart);
+  // Passing the start time must not override a negative server capability.
   await expect(complete).toHaveCount(0);
 
   appointment.canComplete = true;
-  await refresh.click();
+  const eligibilityCheck = page.waitForResponse(response => new URL(response.url()).pathname === appointmentPath);
+  await page.clock.runFor(15_100);
+  await (await eligibilityCheck).finished();
   await expect(complete).toBeEnabled();
   expect(unexpected).toEqual([]);
 });
@@ -282,12 +285,17 @@ test("provider time off preserves the booking and appears in the front-desk conf
       patientPublicId: null,
       memberships: [{ clinicPublicId: clinicId, clinicName, role: "FrontDesk" }],
     }, (route, method, path) => {
-      if (method === "GET" && path === "/api/appointments/needs-attention") {
-        return route.fulfill({ json: dayOff ? [conflict] : [] });
+      if (method === "GET" && path === "/api/appointments/needs-attention/count") {
+        return route.fulfill({ json: { count: dayOff ? 1 : 0 } });
+      }
+      if (method === "POST" && path === "/api/appointments/needs-attention/search") {
+        return route.fulfill({ json: { items: dayOff ? [conflict] : [], page: 1, pageSize: 8,
+          totalCount: dayOff ? 1 : 0, hasMore: false } });
       }
     });
 
     const frontDeskPage = await frontDesk.newPage();
+    await frontDeskPage.clock.install();
     await frontDeskPage.goto("/appointments/availability-conflicts");
     await expect(frontDeskPage.getByText("No confirmed appointments overlap provider time off.")).toBeVisible();
 
@@ -311,7 +319,8 @@ test("provider time off preserves the booking and appears in the front-desk conf
     await expect(page.getByText("Therapy · Alex Demo")).toBeVisible();
     await expect(page.getByText("Booked during time off")).toBeVisible();
 
-    await frontDeskPage.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(frontDeskPage.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
+    await frontDeskPage.clock.runFor(30_000);
     const card = frontDeskPage.getByRole("listitem").filter({ hasText: "Alex Demo" });
     await expect(card.getByText("Overlaps provider time off")).toBeVisible();
     await expect(card.getByRole("link", { name: "View appointment" }))

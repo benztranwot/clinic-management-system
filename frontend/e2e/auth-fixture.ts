@@ -5,7 +5,7 @@ const session = {
   isLoading: false,
   user: { sub: "auth0|demo-admin", name: "Demo Administrator" },
   getAccessTokenSilently: async (options?: { detailedResponse?: boolean }) => options?.detailedResponse
-    ? { access_token: "browser-test-token", scope: "manage:referrals" }
+    ? { access_token: "browser-test-token", scope: (globalThis as typeof globalThis & { __testScopes?: string }).__testScopes ?? "manage:referrals" }
     : "browser-test-token",
 };
 

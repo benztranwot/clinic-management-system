@@ -48,4 +48,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run API integration tests
-        run: dotnet test HealthcareApp.slnx --configuration Release --no-build --no-restore
+        run: dotnet test HealthcareApp.slnx --configuration Release --no-build --no-restore --logger "trx;LogFileName=backend.trx" --results-directory TestResults/backend-ci
+
+      - name: Upload backend test timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-test-results
+          path: TestResults/backend-ci/
+          if-no-files-found: ignore
+          retention-days: 7

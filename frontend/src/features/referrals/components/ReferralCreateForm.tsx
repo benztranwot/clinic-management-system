@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../../../components/LoadingStatus";
 import { useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -104,7 +105,7 @@ function ReferralCreateForm({ userId, account, onCancel }: {
       if (validationError) setValidationError("");
       if (creation.isError) creation.reset();
     }}>
-      {choices.isPending && <p role="status">Loading patients and receiving providers…</p>}
+      {choices.isPending && <LoadingStatus>Loading patients and receiving providers…</LoadingStatus>}
       {choices.isError && (
         <div className="space-y-2">
           <p role="alert">{referralErrorMessage(choices.error, "Unable to load referral options.")}</p>
@@ -178,7 +179,7 @@ function ReferralCreateForm({ userId, account, onCancel }: {
         </button>
         {choices.isSuccess && (
           <button className="flex-1" type="submit" disabled={creation.isPending || !destination || choices.data.patients.length === 0}>
-            <ActionIcon name="plus" />{creation.isPending ? "Creating…" : "Create referral"}
+            {creation.isPending ? <Spinner /> : <ActionIcon name="plus" />}{creation.isPending ? "Creating…" : "Create referral"}
           </button>
         )}
       </div>

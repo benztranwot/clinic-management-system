@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -172,7 +173,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
     },
   });
 
-  if (calendar.isPending) return <p role="status">Loading your calendar…</p>;
+  if (calendar.isPending) return <LoadingStatus>Loading your calendar…</LoadingStatus>;
   if (calendar.isError) return (
     <div className="space-y-3">
       <p role="alert">{calendar.error.message}</p>
@@ -280,7 +281,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
               disabled={change.isPending}
               onClick={updateDay}
             >
-              <ActionIcon name={selected.dayOffPublicId ? "calendarCheck" : "calendarX"} />
+              {change.isPending ? <Spinner /> : <ActionIcon name={selected.dayOffPublicId ? "calendarCheck" : "calendarX"} />}
               {change.isPending ? "Saving…" : selected.dayOffPublicId ? "Remove day off" : "Mark day unavailable"}
             </button>
           )}

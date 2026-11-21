@@ -12,6 +12,7 @@ public static class PatientEndpoints
     {
         // Require read:patients permission before listing patients.
         app.MapGet("/api/patients", GetPatientsAsync).RequireAuthorization("ReadPatients");
+        app.MapPost("/api/patients/search", SearchAsync).RequireAuthorization("ReadPatients");
 
         // Require manage:patients permission before registering a patient.
         app.MapPost("/api/patients", CreatePatientAsync).RequireAuthorization("ManagePatients");
@@ -27,6 +28,21 @@ public static class PatientEndpoints
         // Require manage:patients permission before deleting a patient.
         app.MapDelete("/api/patients/{publicId:guid}", DeletePatientAsync)
             .RequireAuthorization("ManagePatients");
+    }
+
+    private static async Task<IResult> SearchAsync(
+        PatientSearch request, HttpContext http, HealthcareDbContext db, CancellationToken cancellationToken)
+    {
+        if (!ListPaging.IsValid(request.Page, ListPaging.DirectorySize, request.FirstName, request.LastName))
+            return Results.BadRequest(new { message = "Check the search terms and page number." });
+        var query = db.Patients.AsNoTracking();
+        if (request.FirstName?.Trim() is { Length: > 0 } first) query = query.Where(item => item.FirstName.Contains(first));
+        if (request.LastName?.Trim() is { Length: > 0 } last) query = query.Where(item => item.LastName.Contains(last));
+        if (request.DateOfBirth is { } birth) query = query.Where(item => item.DateOfBirth == birth);
+        http.Response.Headers.CacheControl = "no-store";
+        return Results.Ok(await ListPaging.ReadAsync(
+            query.OrderBy(item => item.LastName).ThenBy(item => item.FirstName).ThenBy(item => item.Id)
+                .Select(item => new { item.PublicId, item.FirstName, item.LastName, item.DateOfBirth }), request.Page, ListPaging.DirectorySize, cancellationToken));
     }
 
     private static async Task<IResult> GetPatientsAsync(

@@ -1,9 +1,10 @@
+import LoadingStatus from "../../../components/LoadingStatus";
 import { referralErrorMessage, ReferralRequestError } from "../../../api/referrals";
 import type { useReferralAccount } from "../hooks/useReferralAccount";
 import { ActionIcon } from "../../../components/ActionIcon";
 
 export default function ReferralAccountFeedback({ query }: { query: ReturnType<typeof useReferralAccount> }) {
-  if (query.isPending) return <p role="status">Checking referral access…</p>;
+  if (query.isPending) return <LoadingStatus>Checking referral access…</LoadingStatus>;
   if (!query.isError) return null;
 
   const accessDenied = query.error instanceof ReferralRequestError && query.error.status === 403;

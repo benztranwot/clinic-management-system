@@ -1,3 +1,4 @@
+import { Spinner } from "../../../components/LoadingStatus";
 import { useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -43,7 +44,6 @@ function PatientForm({
       // Keep the list and the open patient record in sync with the API.
       const refreshList = queryClient.invalidateQueries({
         queryKey: ["patients", userId],
-        exact: true,
       });
 
       if (patient) {
@@ -158,7 +158,7 @@ function PatientForm({
 
         <div className="flex flex-wrap gap-2">
           <button type="submit">
-            <ActionIcon name={patient ? "save" : "plus"} />
+            {mutation.isPending ? <Spinner /> : <ActionIcon name={patient ? "save" : "plus"} />}
             {mutation.isPending ? "Saving…" : patient ? "Save changes" : "Register patient"}
           </button>
           {onCancel && (

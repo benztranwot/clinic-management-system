@@ -1,3 +1,4 @@
+import LoadingStatus from "../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { AppointmentRequestError, getMyAppointments, type PatientAppointment } from "../api/appointments";
@@ -10,7 +11,7 @@ function AppointmentCard({ appointment }: { appointment: PatientAppointment }) {
   const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
 
   return (
-    <li className="space-y-2 rounded-lg border border-panel-border p-4">
+    <li className="appointment-card">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h2 className="wrap-break-word font-semibold">{appointment.serviceName}</h2>
         <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-sm font-medium">
@@ -43,7 +44,7 @@ export default function MyAppointmentsPage({ userId }: { userId?: string }) {
   const forbidden = query.error instanceof AppointmentRequestError && query.error.status === 403;
 
   return (
-    <section className="workspace-panel mx-auto w-full max-w-4xl space-y-4" aria-labelledby="my-appointments-heading">
+    <section className="workspace-panel mx-auto w-full max-w-6xl space-y-4" aria-labelledby="my-appointments-heading">
       <div className="page-heading">
         <h1 id="my-appointments-heading" className="page-title">My appointments</h1>
         {userId && !forbidden && (
@@ -56,7 +57,7 @@ export default function MyAppointmentsPage({ userId }: { userId?: string }) {
       {!userId ? (
         <p role="alert">Unable to verify your session. Sign in again.</p>
       ) : query.isPending ? (
-        <p role="status">Loading your appointments…</p>
+        <LoadingStatus>Loading your appointments…</LoadingStatus>
       ) : query.isError ? (
         <p role="alert">
           {forbidden
@@ -68,7 +69,7 @@ export default function MyAppointmentsPage({ userId }: { userId?: string }) {
       ) : query.data.length === 0 ? (
         <p className="text-sm text-subtle">You have no appointments yet.</p>
       ) : (
-        <ul className="space-y-3" aria-labelledby="my-appointments-heading">
+        <ul className="appointment-grid" aria-labelledby="my-appointments-heading">
           {query.data.map((appointment) => <AppointmentCard key={appointment.publicId} appointment={appointment} />)}
         </ul>
       )}

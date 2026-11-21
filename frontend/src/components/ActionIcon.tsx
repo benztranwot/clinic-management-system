@@ -16,7 +16,7 @@ const paths = {
   pencil: "m4 16-1 5 5-1L20 8l-4-4L4 16Zm10-10 4 4",
   people: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m20 0v-2a4 4 0 0 0-3-4m-6-7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm3-4a4 4 0 0 1 0 8",
   plus: "M12 5v14M5 12h14",
-  refresh: "M20 7v5h-5M4 17v-5h5m-5 0a8 8 0 0 1 13-6l3 3m0 3a8 8 0 0 1-13 6l-3-3",
+  refresh: "M20 4v6h-6m6 0a8 8 0 1 0 .3 5M20 10l-5-5",
   reset: "M4 4v6h6m-6 0a8 8 0 1 1 1 8",
   save: "M4 3h13l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm3 0v6h9V3M7 21v-7h10v7",
   trash: "M3 6h18M9 6V3h6v3m4 0-1 14H6L5 6m5 4v6m4-6v6",

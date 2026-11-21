@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../../../components/LoadingStatus";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -170,7 +171,7 @@ function ReferralAppointmentPanel({
             </label>
             <p className="text-sm text-subtle">Times are shown in the receiving clinic’s time zone ({timeZone}).</p>
             {date && !dateInRange && <p role="alert">Choose a date from tomorrow through 30 days ahead in the clinic’s time zone.</p>}
-            {dateInRange && availability.isPending && <p role="status">Checking available times…</p>}
+            {dateInRange && availability.isPending && <LoadingStatus>Checking available times…</LoadingStatus>}
             {dateInRange && availability.isError && (
               <div className="space-y-2">
                 <p role="alert">{referralErrorMessage(availability.error, "Unable to load available times.")}</p>
@@ -204,7 +205,7 @@ function ReferralAppointmentPanel({
               ) : <p>No open times on this date. Choose another day.</p>
             )}
             <button type="submit" disabled={!dateInRange || !selectedSlot || !availability.isSuccess}>
-              <ActionIcon name="calendarCheck" />
+              {change.isPending ? <Spinner /> : <ActionIcon name="calendarCheck" />}
               {change.isPending ? "Booking…" : "Book appointment"}
             </button>
           </fieldset>

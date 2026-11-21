@@ -14,6 +14,9 @@ public static class ReferralEndpoints
     {
         // Require permission to list referrals.
         app.MapGet("/api/referrals", GetReferralsAsync).RequireAuthorization("ReadReferrals");
+        app.MapPost("/api/referrals/search", SearchReferralsAsync).RequireAuthorization("ReadReferrals");
+        app.MapPost("/api/clinics/{clinicPublicId:guid}/referrals/search", SearchClinicReferralsAsync)
+            .RequireAuthorization();
 
         // Staff can list referrals for a clinic where they have a membership.
         app.MapGet("/api/clinics/{clinicPublicId:guid}/referrals", GetClinicReferralsAsync)
@@ -55,6 +58,25 @@ public static class ReferralEndpoints
             .RequireAuthorization("ManageReferrals");
     }
 
+    private static Task<IResult> SearchReferralsAsync(
+        ReferralSearch request, HttpContext http, HealthcareDbContext db, CancellationToken cancellationToken)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        return ListReferralsAsync(db, db.Clinics, cancellationToken, request);
+    }
+
+    private static async Task<IResult> SearchClinicReferralsAsync(
+        Guid clinicPublicId, ReferralSearch request, ClaimsPrincipal user, HttpContext http,
+        HealthcareDbContext db, CancellationToken cancellationToken)
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null) return Results.Challenge();
+        var clinics = identity.QueryStaffClinics(db).Where(clinic => clinic.PublicId == clinicPublicId);
+        if (!await clinics.AnyAsync(cancellationToken)) return Results.Forbid();
+        http.Response.Headers.CacheControl = "no-store";
+        return await ListReferralsAsync(db, clinics, cancellationToken, request);
+    }
+
     private static Task<IResult> GetReferralsAsync(
         HealthcareDbContext db,
         CancellationToken cancellationToken
@@ -90,11 +112,12 @@ public static class ReferralEndpoints
     private static async Task<IResult> ListReferralsAsync(
         HealthcareDbContext db,
         IQueryable<Clinic> clinics,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        ReferralSearch? search = null
     )
     {
         // Join each referral to its patient and service, with newest referrals first.
-        var referrals = await (
+        var query = (
             from referral in db.Referrals
             join patient in db.Patients on referral.PatientId equals patient.Id
             join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
@@ -102,6 +125,7 @@ public static class ReferralEndpoints
             orderby referral.CreatedAtUtc descending, referral.Id descending
             select new
             {
+                referral.Id,
                 referral.PublicId,
                 PatientFirstName = patient.FirstName,
                 PatientLastName = patient.LastName,
@@ -112,11 +136,35 @@ public static class ReferralEndpoints
                     appointment.ReferralId == referral.Id && appointment.Status == AppointmentStatus.Confirmed),
                 referral.CreatedAtUtc,
             }
-        ).ToListAsync(cancellationToken);
+        );
+        if (search is not null)
+        {
+            if (!ListPaging.IsValid(search.Page, ListPaging.ReferralSize, search.Patient, search.Service, search.Clinic)
+                || search.Stage is not (null or "all" or "PendingReview" or "MissingInformation" or "ReadyToSchedule" or "Scheduled" or "Closed"))
+                return Results.BadRequest(new { message = "Check the filters and page number." });
+            if (search.Patient?.Trim() is { Length: > 0 } patient)
+                query = query.Where(item => (item.PatientFirstName + " " + item.PatientLastName).Contains(patient));
+            if (search.Service?.Trim() is { Length: > 0 } service)
+                query = query.Where(item => item.ServiceName.Contains(service));
+            if (search.Clinic?.Trim() is { Length: > 0 } clinic)
+                query = query.Where(item => item.ClinicName.Contains(clinic));
+            query = search.Stage switch
+            {
+                "MissingInformation" => query.Where(item => item.Status == ReferralStatus.MissingInformation),
+                "Closed" => query.Where(item => item.Status == ReferralStatus.Closed),
+                "Scheduled" => query.Where(item => item.Status != ReferralStatus.Closed && item.HasConfirmedAppointment),
+                "ReadyToSchedule" => query.Where(item => item.Status == ReferralStatus.ReadyToSchedule && !item.HasConfirmedAppointment),
+                "PendingReview" => query.Where(item => item.Status != ReferralStatus.Closed && item.Status != ReferralStatus.ReadyToSchedule && !item.HasConfirmedAppointment),
+                _ => query,
+            };
+        }
+        var totalCount = search is null ? 0 : await query.CountAsync(cancellationToken);
+        var ordered = query.OrderByDescending(item => item.CreatedAtUtc).ThenByDescending(item => item.Id);
+        var referrals = await (search is null ? ordered : ordered.Skip((search.Page - 1) * ListPaging.ReferralSize).Take(ListPaging.ReferralSize))
+            .ToListAsync(cancellationToken);
 
         // Return readable status names in the list.
-        return Results.Ok(
-            referrals.Select(referral => new
+        var items = referrals.Select(referral => new
             {
                 referral.PublicId,
                 referral.PatientFirstName,
@@ -126,8 +174,10 @@ public static class ReferralEndpoints
                 Status = referral.Status.ToString(),
                 Stage = GetStage(referral.Status, referral.HasConfirmedAppointment),
                 referral.CreatedAtUtc,
-            })
-        );
+            }).ToArray();
+        return search is null ? Results.Ok(items)
+            : Results.Ok(new { Items = items, search.Page, PageSize = ListPaging.ReferralSize, TotalCount = totalCount,
+                HasMore = (long)search.Page * ListPaging.ReferralSize < totalCount });
     }
 
     private sealed record ReferralCreator(bool IsAdministrator, string? ProviderName);

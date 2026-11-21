@@ -56,13 +56,23 @@ test("canceling a referral draft restores the queue filters without submitting",
     ["/api/referrals", referrals],
     ["/api/referrals/receiving-options", receivingOptions],
     ["/api/patients", [alex]],
-    ["/api/appointments/needs-attention", []],
+    ["/api/appointments/needs-attention/count", { count: 0 }],
   ]);
   const unexpectedRequests: string[] = [];
 
   await page.route((url) => url.pathname.startsWith("/api/"), async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (request.method() === "POST" && path === "/api/referrals/search") {
+      const filters = request.postDataJSON();
+      const items = referrals.filter(item =>
+        (filters.stage === "all" || (filters.stage === "MissingInformation" ? item.status : item.stage) === filters.stage)
+        && (item.patientFirstName + " " + item.patientLastName).toLowerCase().includes(filters.patient.toLowerCase())
+        && item.serviceName.toLowerCase().includes(filters.service.toLowerCase())
+        && item.clinicName.toLowerCase().includes(filters.clinic.toLowerCase()));
+      return route.fulfill({ json: { items: items.slice((filters.page - 1) * 10, filters.page * 10),
+        totalCount: items.length, page: filters.page, pageSize: 10, hasMore: filters.page * 10 < items.length } });
+    }
     if (request.method() === "GET" && responses.has(path)) {
       await route.fulfill({ json: responses.get(path) });
       return;
@@ -123,7 +133,7 @@ test("submitting a referral sends one request and opens the new record", async (
     ["/api/me", account],
     ["/api/referrals/receiving-options", receivingOptions],
     ["/api/patients", [alex]],
-    ["/api/appointments/needs-attention", []],
+    ["/api/appointments/needs-attention/count", { count: 0 }],
   ]);
   const submissions: unknown[] = [];
 
@@ -139,6 +149,16 @@ test("submitting a referral sends one request and opens the new record", async (
     if (request.method() === "GET" && path === `/api/referrals/${createdReferral.publicId}` && submissions.length > 0) {
       await route.fulfill({ json: createdReferral });
       return;
+    }
+    if (request.method() === "POST" && path === "/api/referrals/search") {
+      const filters = request.postDataJSON();
+      const items = referrals.filter(item =>
+        (filters.stage === "all" || (filters.stage === "MissingInformation" ? item.status : item.stage) === filters.stage)
+        && (item.patientFirstName + " " + item.patientLastName).toLowerCase().includes(filters.patient.toLowerCase())
+        && item.serviceName.toLowerCase().includes(filters.service.toLowerCase())
+        && item.clinicName.toLowerCase().includes(filters.clinic.toLowerCase()));
+      return route.fulfill({ json: { items: items.slice((filters.page - 1) * 10, filters.page * 10),
+        totalCount: items.length, page: filters.page, pageSize: 10, hasMore: filters.page * 10 < items.length } });
     }
     if (request.method() === "GET" && responses.has(path)) {
       await route.fulfill({ json: responses.get(path) });

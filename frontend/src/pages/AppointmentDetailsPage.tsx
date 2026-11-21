@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,11 +8,13 @@ import CancelAppointmentButton from "../features/appointments/components/CancelA
 import RescheduleAppointmentForm from "../features/appointments/components/RescheduleAppointmentForm";
 import { appointmentLists } from "../features/appointments/appointmentLists";
 import { appointmentWriteKey, refreshAppointmentViews } from "../features/appointments/appointmentQueries";
+import { useReferralAccount } from "../features/referrals/hooks/useReferralAccount";
 import { ActionIcon } from "../components/ActionIcon";
 
 function AppointmentRecord({ publicId, userId }: { publicId: string; userId: string }) {
   const { getAccessTokenSilently } = useAuth0();
   const location = useLocation();
+  const account = useReferralAccount(userId).data?.account;
   const writing = useIsMutating({ mutationKey: appointmentWriteKey(userId, publicId) }) > 0;
   const details = useQuery({
     queryKey: ["appointment", userId, publicId],
@@ -21,6 +24,15 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
       return getAppointment(publicId, token, signal);
     },
     retry: false,
+    refetchInterval: query => {
+      const appointment = query.state.data;
+      const canCompleteHere = account?.isAdministrator || (account?.providerPublicId === appointment?.providerPublicId
+        && account?.memberships.some(membership => membership.role === "Clinician"));
+      if (writing || !canCompleteHere || !appointment || appointment.status !== "Confirmed" || appointment.canComplete) return false;
+      // The clock schedules a server check; it never grants completion eligibility.
+      const untilStart = Date.parse(appointment.startUtc) - Date.now();
+      return untilStart > 0 ? Math.min(untilStart + 250, 2_147_483_647) : 15_000;
+    },
   });
 
   const appointment = details.isSuccess ? details.data : undefined;
@@ -34,38 +46,33 @@ function AppointmentRecord({ publicId, userId }: { publicId: string; userId: str
   const fromConflicts = originList === "conflicts"
     || (originList !== "upcoming" && !location.search && appointment?.overlapsProviderTimeOff);
   const backList = fromConflicts ? appointmentLists.conflicts : appointmentLists.upcoming;
-  const backSearch = fromConflicts ? "" : location.search;
-  const backState = originList === "upcoming" && location.state?.filterOwner === userId
+  const backSearch = location.search;
+  const backState = (originList === "upcoming" || originList === "conflicts") && location.state?.filterOwner === userId
     ? { patientFilter: location.state.patientFilter, filterOwner: userId }
     : undefined;
 
   return (
     <>
       <div className="page-heading">
-        <Link to={backToReferral || (fromSchedule ? "/my-schedule" : { pathname: backList.path, search: backSearch })} state={backState} className="workspace-button" data-variant="secondary">
-          <ActionIcon name="back" />
-          {backToReferral ? "Back to referral" : fromSchedule ? "Back to my schedule" : "Back to " + backList.title.toLowerCase()}
-        </Link>
-        {referralLink && (
-          <Link className="workspace-button ml-auto" to={referralLink}>
-            <ActionIcon name="eye" />
-            View referral
-          </Link>
-        )}
-      </div>
-      <div className="page-heading">
         <h1 id="appointment-heading" className="page-title">Appointment details</h1>
-        {appointment && (
-          <button type="button" data-variant="secondary" disabled={details.isFetching || writing} onClick={() => void details.refetch()}>
-            <ActionIcon name="refresh" />
-            {details.isFetching ? "Refreshing…" : "Refresh"}
-          </button>
-        )}
-        {appointment?.overlapsProviderTimeOff && (
-          <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-sm font-medium">Overlaps provider time off</span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link to={backToReferral || (fromSchedule ? "/my-schedule" : { pathname: backList.path, search: backSearch })} state={backState} className="workspace-button" data-variant="secondary">
+            <ActionIcon name="back" />
+            {backToReferral ? "Back to referral" : fromSchedule ? "Back to my schedule" : "Back to " + backList.title.toLowerCase()}
+          </Link>
+          {referralLink && (
+            <Link className="workspace-button ml-auto" to={referralLink}>
+              <ActionIcon name="eye" />
+              View referral
+            </Link>
+          )}
+
+          {appointment?.overlapsProviderTimeOff && (
+            <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-sm font-medium">Overlaps provider time off</span>
+          )}
+        </div>
       </div>
-      {details.isPending && <p role="status">Loading appointment…</p>}
+      {details.isPending && <LoadingStatus>Loading appointment…</LoadingStatus>}
       {details.isError && (
         <div className="space-y-2">
           <p role="alert">{details.error.message}</p>
@@ -148,7 +155,7 @@ function AppointmentInformation({
               completion.mutate();
             }
           }}>
-            <ActionIcon name="check" />
+            {completion.isPending ? <Spinner /> : <ActionIcon name="check" />}
             {completion.isPending ? "Completing…" : "Complete appointment"}
           </button>
         )}

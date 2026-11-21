@@ -1,3 +1,4 @@
+import { Spinner } from "../../../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cancelAppointment } from "../../../api/appointments";
@@ -39,7 +40,7 @@ export default function CancelAppointmentButton({
             if (window.confirm("Cancel this appointment and release its time slot?")) cancel.mutate();
           }}
         >
-          <ActionIcon name="calendarX" />
+          {cancel.isPending ? <Spinner /> : <ActionIcon name="calendarX" />}
           {cancel.isPending ? "Canceling…" : "Cancel appointment"}
         </button>
       )}

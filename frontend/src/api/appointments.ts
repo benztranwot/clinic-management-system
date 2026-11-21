@@ -1,3 +1,6 @@
+import { searchPage } from "./paging";
+import type { PatientSummary } from "./patients";
+import type { PageResult } from "./paging";
 export type AppointmentSummary = {
   publicId: string;
   startUtc: string;
@@ -85,9 +88,10 @@ export async function searchUpcomingAppointments(
   accessToken: string,
   search: UpcomingAppointmentSearch,
   signal: AbortSignal,
-): Promise<{ items: AppointmentSummary[]; hasMore: boolean }> {
-  const response = await requestAppointment("/api/appointments/upcoming/search", accessToken,
-    "Unable to load upcoming appointments.", { method: "POST", body: JSON.stringify(search), signal });
+  view: "upcoming" | "conflicts" = "upcoming",
+): Promise<PageResult<AppointmentSummary>> {
+  const response = await requestAppointment(`/api/appointments/${view === "conflicts" ? "needs-attention" : "upcoming"}/search`, accessToken,
+    view === "conflicts" ? "Unable to load availability conflicts." : "Unable to load upcoming appointments.", { method: "POST", body: JSON.stringify(search), signal });
   return response.json();
 }
 
@@ -112,4 +116,35 @@ export async function rescheduleAppointment(
       method: "PUT",
       body: JSON.stringify({ expectedStartUtc, startUtc }),
     });
+}
+
+export async function getAppointmentConflictCount(accessToken: string, signal: AbortSignal): Promise<{ count: number }> {
+  const response = await requestAppointment("/api/appointments/needs-attention/count", accessToken,
+    "Unable to load availability conflicts.", { signal });
+  return response.json();
+}
+
+export type BookingOption = {
+  clinicPublicId: string; clinicName: string; timeZoneId: string | null;
+  clinicalServicePublicId: string; serviceName: string; providerPublicId: string; providerName: string;
+};
+
+export async function getBookingOptions(token: string, signal: AbortSignal): Promise<BookingOption[]> {
+  const response = await requestAppointment("/api/appointments/booking-options", token,
+    "Unable to load direct-booking options.", { signal });
+  return response.json();
+}
+
+export function searchBookingPatients(token: string, search: { firstName: string; lastName: string; page: number }, signal: AbortSignal) {
+  return searchPage<PatientSummary>("/api/patients/search", token, search, signal,
+    status => new AppointmentRequestError(status, status === 403 ? "Your account cannot look up patients. Contact an administrator." : "Unable to load patients."));
+}
+
+export async function createDirectAppointment(token: string, input: {
+  patientPublicId: string; clinicalServicePublicId: string; providerPublicId: string; startUtc: string;
+}): Promise<{ publicId: string }> {
+  const response = await requestAppointment("/api/appointments", token,
+    "Unable to confirm the booking. Check upcoming appointments before trying again.",
+    { method: "POST", body: JSON.stringify(input) });
+  return response.json();
 }

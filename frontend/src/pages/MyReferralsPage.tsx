@@ -1,3 +1,4 @@
+import LoadingStatus from "../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { getMyReferrals, referralErrorMessage, ReferralRequestError } from "../api/referrals";
@@ -32,7 +33,7 @@ function MyReferrals({ userId }: { userId: string }) {
         )}
       </div>
       {query.isPending ? (
-        <p role="status">Loading your referrals…</p>
+        <LoadingStatus>Loading your referrals…</LoadingStatus>
       ) : query.isError ? (
         <p role="alert">
           {unlinked
@@ -42,9 +43,9 @@ function MyReferrals({ userId }: { userId: string }) {
       ) : query.data.length === 0 ? (
         <p className="text-sm text-subtle">You have no referrals yet.</p>
       ) : (
-        <ul className="space-y-3" aria-labelledby="my-referrals-heading">
+        <ul className="appointment-grid" aria-labelledby="my-referrals-heading">
           {query.data.map((referral) => (
-            <li key={referral.publicId} className="space-y-2 rounded-lg border border-panel-border p-4">
+            <li key={referral.publicId} className="appointment-card">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <h2 className="wrap-break-word font-semibold">{referral.serviceName}</h2>
@@ -68,7 +69,7 @@ export default function MyReferralsPage() {
   const { user } = useAuth0();
 
   return (
-    <section className="workspace-panel mx-auto w-full max-w-4xl space-y-4" aria-labelledby="my-referrals-heading">
+    <section className="workspace-panel mx-auto w-full max-w-6xl space-y-4" aria-labelledby="my-referrals-heading">
       {user?.sub ? <MyReferrals key={user.sub} userId={user.sub} /> : (
         <>
           <h1 id="my-referrals-heading" className="page-title">My referrals</h1>

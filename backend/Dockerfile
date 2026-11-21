@@ -1,6 +1,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Restore migration tooling before application sources invalidate the build layer.
+COPY dotnet-tools.json .
+RUN dotnet tool restore
+
 COPY backend/HealthcareApp.Api/HealthcareApp.Api.csproj backend/HealthcareApp.Api/
 COPY backend/HealthcareApp.Domain/HealthcareApp.Domain.csproj backend/HealthcareApp.Domain/
 RUN dotnet restore backend/HealthcareApp.Api/HealthcareApp.Api.csproj
@@ -11,8 +15,6 @@ RUN dotnet publish backend/HealthcareApp.Api/HealthcareApp.Api.csproj \
     --configuration Release --no-restore --output /app/publish
 
 FROM build AS migrations
-COPY dotnet-tools.json .
-RUN dotnet tool restore
 ENTRYPOINT ["dotnet", "ef", "database", "update", "--project", "backend/HealthcareApp.Api", "--configuration", "Release", "--no-build"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime

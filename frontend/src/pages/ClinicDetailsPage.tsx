@@ -1,6 +1,7 @@
+import LoadingStatus from "../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { ClinicRequestError, getClinic } from "../api/clinics";
 import ClinicForm from "../features/clinics/components/ClinicForm";
 import ClinicDirectories from "../features/clinics/components/ClinicDirectories";
@@ -11,6 +12,7 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
   const { user, getAccessTokenSilently } = useAuth0();
   const { clinicPublicId } = useParams();
   const navigate = useNavigate();
+  const { state } = useLocation();
   const userId = user?.sub;
   const detailsPath = "/clinics/" + clinicPublicId;
   const query = useQuery({
@@ -29,17 +31,19 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
 
   return (
     <section className="workspace-panel mx-auto w-full max-w-4xl space-y-4" aria-labelledby="clinic-details-heading">
-      <Link to={edit ? detailsPath : "/clinics"} className="workspace-button" data-variant="secondary">
-        <ActionIcon name="back" />
-        {edit ? "Back to clinic" : "Back to clinics"}
-      </Link>
-      <h1 id="clinic-details-heading" className="page-title">
-        {edit ? "Edit clinic" : query.data?.clinic.name ?? "Clinic details"}
-      </h1>
+      <div className="page-heading">
+        <h1 id="clinic-details-heading" className="page-title">
+          {edit ? "Edit clinic" : query.data?.clinic.name ?? "Clinic details"}
+        </h1>
+        <Link state={edit ? state : state?.listReturn?.state} to={edit ? detailsPath : { pathname: "/clinics", search: state?.listReturn?.search }} className="workspace-button" data-variant="secondary">
+          <ActionIcon name="back" />
+          {edit ? "Back to clinic" : "Back to clinics"}
+        </Link>
+      </div>
       {!userId || !clinicPublicId ? (
         <p role="alert">Unable to open this clinic record.</p>
       ) : query.isPending ? (
-        <p role="status">Loading clinic…</p>
+        <LoadingStatus>Loading clinic…</LoadingStatus>
       ) : query.isError ? (
         <div className="space-y-2">
           <p role="alert">{status === 404 ? "Clinic not found." : status === 403
@@ -52,8 +56,8 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
       ) : edit ? (
         query.data.canManage ? (
           <ClinicForm key={clinicPublicId} userId={userId} clinic={query.data.clinic}
-            onCancel={() => void navigate(detailsPath)}
-            onSaved={() => void navigate(detailsPath, { replace: true })} />
+            onCancel={() => void navigate(detailsPath, { state })}
+            onSaved={() => void navigate(detailsPath, { replace: true, state })} />
         ) : <p role="alert">Your account doesn’t have permission to edit clinics.</p>
       ) : (
         <div className="space-y-4">
@@ -70,7 +74,7 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
           <ClinicDirectories userId={userId} clinicId={clinicPublicId} />
           {query.data.canManage && (
             <div className="flex flex-wrap items-start gap-2 border-t border-panel-border pt-4">
-              <Link className="workspace-button" to={detailsPath + "/edit"}><ActionIcon name="pencil" />Edit clinic</Link>
+              <Link className="workspace-button" state={state} to={detailsPath + "/edit"}><ActionIcon name="pencil" />Edit clinic</Link>
               <DeleteClinicButton clinic={query.data.clinic} userId={userId} disabled={false}
                 onNotice={(message) => {
                   if (message === "Clinic deleted.") void navigate("/clinics", { replace: true, state: { clinicDeleted: true } });

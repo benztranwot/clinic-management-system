@@ -1,3 +1,4 @@
+import { Spinner } from "../../../components/LoadingStatus";
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -36,7 +37,6 @@ function DeleteClinicButton({
       // Refresh the list after SQL Server confirms the deletion.
       await queryClient.invalidateQueries({
         queryKey: ["clinics", userId],
-        exact: true,
       });
       onNotice("Clinic deleted.");
     },
@@ -58,7 +58,7 @@ function DeleteClinicButton({
     try {
       // Report success only after the clinic list finishes reloading.
       await queryClient.invalidateQueries(
-        { queryKey: ["clinics", userId], exact: true },
+        { queryKey: ["clinics", userId] },
         { throwOnError: true },
       );
       mutation.reset();
@@ -96,7 +96,7 @@ function DeleteClinicButton({
         aria-label={`Delete ${clinic.name}`}
         onClick={handleDelete}
       >
-        <ActionIcon name="trash" />
+        {mutation.isPending ? <Spinner /> : <ActionIcon name="trash" />}
         {mutation.isPending ? "Deleting…" : "Delete"}
       </button>
 

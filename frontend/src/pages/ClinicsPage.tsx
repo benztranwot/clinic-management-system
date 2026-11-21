@@ -1,17 +1,23 @@
+import LoadingStatus from "../components/LoadingStatus";
+import DirectoryFilters from "../components/DirectoryFilters";
+import WorkspacePagination from "../components/WorkspacePagination";
+import { useListSearch } from "../components/useListSearch";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ClinicRequestError, getClinics } from "../api/clinics";
+import { ClinicRequestError, searchClinics } from "../api/clinics";
 import WorkspaceTable from "../components/WorkspaceTable";
 import ClinicForm from "../features/clinics/components/ClinicForm";
 import { ActionIcon } from "../components/ActionIcon";
 
 function ClinicList({ userId, create }: { userId: string; create: boolean }) {
+  const location = useLocation();
+  const list = useListSearch("clinics", userId, { name: "", address: "", timeZone: "" });
   const navigate = useNavigate();
   const { getAccessTokenSilently } = useAuth0();
   const query = useQuery({
     // Keep cached clinic data separate for each signed-in user.
-    queryKey: ["clinics", userId],
+    queryKey: ["clinics", userId, list.filters, list.page],
     queryFn: async ({ signal }) => {
       const token = await getAccessTokenSilently({ detailedResponse: true });
 
@@ -19,7 +25,7 @@ function ClinicList({ userId, create }: { userId: string; create: boolean }) {
         throw new Error("Auth0 did not return an access token.");
       }
 
-      const clinics = await getClinics(token.access_token, signal);
+      const clinics = await searchClinics(token.access_token, { ...list.filters, page: list.page }, signal);
 
       return {
         clinics,
@@ -33,9 +39,7 @@ function ClinicList({ userId, create }: { userId: string; create: boolean }) {
 
   if (query.isPending) {
     return (
-      <p className="mt-3" role="status">
-        Loading clinics…
-      </p>
+      <LoadingStatus className="mt-3">Loading clinics…</LoadingStatus>
     );
   }
 
@@ -77,7 +81,8 @@ function ClinicList({ userId, create }: { userId: string; create: boolean }) {
     );
   }
 
-  const { clinics, canManage } = query.data;
+  const { clinics: results, canManage } = query.data;
+  const clinics = results.items;
 
   if (create) {
     return canManage ? (
@@ -91,7 +96,10 @@ function ClinicList({ userId, create }: { userId: string; create: boolean }) {
     <>
       <div className="page-heading">
         <h1 id="clinics-heading" className="page-title">Clinics</h1>
-        {canManage && <Link className="workspace-button" to="/clinics/new"><ActionIcon name="plus" />New clinic</Link>}
+        <div className="flex flex-wrap gap-2">
+          <DirectoryFilters title="Filter clinics" fields={[["name", "Clinic name"], ["address", "Address"], ["timeZone", "Time zone"]]} filters={list.filters} onApply={list.setFilters} />
+          {canManage && <Link className="workspace-button" to="/clinics/new"><ActionIcon name="plus" />New clinic</Link>}
+        </div>
       </div>
       {clinics.length === 0 ? (
         <p className="queue-empty">No clinics found.</p>
@@ -99,13 +107,15 @@ function ClinicList({ userId, create }: { userId: string; create: boolean }) {
         <WorkspaceTable label="Clinics" columns={["Clinic name", "Address", "Time zone"]}>
           {clinics.map((clinic) => (
             <tr key={clinic.publicId} className="workspace-action-row">
-              <td><Link className="workspace-row-action" to={"/clinics/" + clinic.publicId}>{clinic.name}</Link></td>
+              <td><Link className="workspace-row-action" state={{ listReturn: { search: location.search, state: location.state } }} to={"/clinics/" + clinic.publicId}>{clinic.name}</Link></td>
               <td>{clinic.address}</td>
               <td>{clinic.timeZoneId}</td>
             </tr>
           ))}
         </WorkspaceTable>
       )}
+      <WorkspacePagination itemCount={results.items.length} page={list.page} pageSize={results.pageSize} count={results.totalCount} hasMore={results.hasMore}
+        busy={query.isFetching} onPage={list.goToPage} label="Clinics pages" />
     </>
   );
 }
@@ -115,7 +125,7 @@ function ClinicsPage({ create = false }: { create?: boolean }) {
   const { state } = useLocation();
 
   return (
-    <section aria-label="Clinics" className="workspace-panel mx-auto w-full max-w-4xl space-y-4">
+    <section aria-label="Clinics" className="workspace-panel workspace-list-panel mx-auto w-full max-w-4xl space-y-4">
       {create && <h1 className="page-title">New clinic</h1>}
       {!create && state?.clinicDeleted === true && <p role="status">Clinic deleted.</p>}
       {user?.sub ? (
