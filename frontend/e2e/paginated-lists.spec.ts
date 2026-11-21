@@ -32,7 +32,9 @@ async function expectPanelHeight(page: Page, full: boolean) {
   else await expect.poll(gap).toBeGreaterThan(8);
 }
 
-async function mockLists(page: Page) {
+async function mockLists(page: Page, patientCount = rows.length) {
+  let patients = rows.slice(0, patientCount);
+  const deletions: string[] = [];
   const requests: { path: string; body: Record<string, string | number> }[] = [];
   const unexpected: string[] = [];
   await page.route(url => url.pathname.startsWith("/api/"), async route => {
@@ -45,16 +47,27 @@ async function mockLists(page: Page) {
       requests.push({ path, body });
       // A filtered match comes from outside the initial ten records.
       const term = body.firstName || body.name || body.patient;
-      const filtered = term === "almost-full" ? rows.slice(0, 15) : term ? [rows[22]] : rows;
+      const source = path === "/api/patients/search" ? patients : rows;
+      const filtered = term === "almost-full" ? source.slice(0, 15) : term ? source.filter(row => row.publicId === id(23)) : source;
       const pageSize = path.includes("/appointments/") ? 8 : path === "/api/referrals/search" ? 10 : 16;
       return route.fulfill({ json: { items: filtered.slice((body.page - 1) * pageSize, body.page * pageSize),
         page: body.page, pageSize, totalCount: filtered.length, hasMore: body.page * pageSize < filtered.length } });
     }
-    if (request.method() === "GET" && path === `/api/patients/${id(17)}`) return route.fulfill({ json: rows[16] });
+    if (path === `/api/patients/${id(17)}`) {
+      if (request.method() === "GET") {
+        const patient = patients.find(row => row.publicId === id(17));
+        return patient ? route.fulfill({ json: patient }) : route.fulfill({ status: 404, json: {} });
+      }
+      if (request.method() === "DELETE") {
+        deletions.push(id(17));
+        patients = patients.filter(row => row.publicId !== id(17));
+        return route.fulfill({ status: 204 });
+      }
+    }
     unexpected.push(request.method() + " " + path);
     return route.fulfill({ status: 500, json: {} });
   });
-  return { requests, unexpected };
+  return { requests, unexpected, deletions };
 }
 
 for (const list of [
@@ -181,3 +194,51 @@ test("patient details Back restores the selected page and filters", async ({ pag
   expect(requests.at(-1)?.body.lastName).toBe("Morgan");
   expect(unexpected).toEqual([]);
 });
+
+for (const patientCount of [23, 17]) {
+  test(`patient deletion preserves page and filters with ${patientCount === 17 ? "an empty" : "a populated"} last page`, async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as Window & { __testScopes?: string }).__testScopes = "manage:patients";
+    });
+    const { requests, unexpected, deletions } = await mockLists(page, patientCount);
+    await page.goto("/patients");
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+    const filters = page.getByRole("dialog", { name: "Filter patients" });
+    await filters.getByLabel("Last name", { exact: true }).fill("Morgan");
+    await filters.getByLabel("Date of birth", { exact: true }).fill("1990-06-01");
+    await filters.getByRole("button", { name: "Apply filters" }).click();
+    await expect(page.getByRole("table", { name: "Patients" }).getByRole("row")).toHaveCount(17);
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.getByRole("link", { name: "View patient: Patient 17 Morgan", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Patient details", exact: true })).toBeVisible();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "Delete patient", exact: true }).click();
+
+    await expect(page).toHaveURL(/patients\?page=2$/);
+    await expect(page.getByText("Patient deleted.", { exact: true })).toBeVisible();
+    await expect.poll(() => requests.at(-1)?.body).toMatchObject({
+      page: 2, firstName: "", lastName: "Morgan", dateOfBirth: "1990-06-01",
+    });
+    await expect(page.getByRole("button", { name: "Next", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Previous", exact: true })).toBeEnabled();
+    if (patientCount === 17) {
+      await expect(page.getByText("No patients found.", { exact: true })).toBeVisible();
+      await expect(page.getByRole("navigation", { name: "Patients pages" })).toContainText("No results on page 2");
+    } else {
+      await expect(page.getByRole("table", { name: "Patients" }).getByRole("row")).toHaveCount(7);
+      await expect(page.getByRole("link", { name: "View patient: Patient 17 Morgan", exact: true })).toHaveCount(0);
+    }
+
+    await page.getByRole("button", { name: "Previous", exact: true }).click();
+    await expect(page).toHaveURL(/\/patients$/);
+    await expect(page.getByRole("table", { name: "Patients" }).getByRole("row")).toHaveCount(17);
+    await expect.poll(() => requests.at(-1)?.body).toMatchObject({
+      page: 1, firstName: "", lastName: "Morgan", dateOfBirth: "1990-06-01",
+    });
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+    await expect(page.getByRole("dialog").getByLabel("Last name", { exact: true })).toHaveValue("Morgan");
+    await expect(page.getByRole("dialog").getByLabel("Date of birth", { exact: true })).toHaveValue("1990-06-01");
+    expect(deletions).toEqual([id(17)]);
+    expect(unexpected).toEqual([]);
+  });
+}

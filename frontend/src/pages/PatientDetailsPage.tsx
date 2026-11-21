@@ -129,9 +129,9 @@ function PatientDetails({
     setShowSaved(false);
     deletion.mutate(patient.publicId, {
       onSuccess: () => {
-        void navigate("/patients", {
+        void navigate({ pathname: "/patients", search: state?.listReturn?.search }, {
           replace: true,
-          state: { patientDeleted: true },
+          state: { ...state?.listReturn?.state, patientDeleted: true },
         });
       },
     });
