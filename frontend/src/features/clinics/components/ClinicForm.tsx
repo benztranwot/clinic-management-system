@@ -1,3 +1,4 @@
+import { Spinner } from "../../../components/LoadingStatus";
 import { useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -63,7 +64,6 @@ function ClinicForm({
       // Reload this user's list after the API saves the clinic.
       await queryClient.invalidateQueries({
         queryKey: ["clinics", userId],
-        exact: true,
       });
     },
   });
@@ -147,7 +147,7 @@ function ClinicForm({
 
       <div className="flex flex-wrap gap-2">
         <button type="submit" disabled={isManaging}>
-          <ActionIcon name="save" />
+          {mutation.isPending ? <Spinner /> : <ActionIcon name="save" />}
           {mutation.isPending ? "Saving…" : "Save clinic"}
         </button>
         <button type="button" data-variant="secondary" onClick={onCancel} disabled={isManaging}><ActionIcon name="close" />Cancel</button>

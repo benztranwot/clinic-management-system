@@ -11,6 +11,7 @@ using Xunit.Abstractions;
 
 namespace HealthcareApp.Api.IntegrationTests;
 
+[Collection(ScaleMeasurementCollection.Name)]
 public class ScaleWorkflowTests(ITestOutputHelper output)
 {
     [Fact]
@@ -135,6 +136,76 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
             Assert.Equal(expectedClinicReferrals, clinicQueue.EnumerateArray()
                 .Select(item => item.GetProperty("publicId").GetGuid()));
 
+            tokens.AuthorizeSubject(client, "auth0|scale-admin", "read:clinics", "read:patients", "read:referrals");
+            var patientIds = await db.Patients.OrderBy(item => item.LastName).ThenBy(item => item.FirstName)
+                .ThenBy(item => item.Id).Select(item => item.PublicId).ToArrayAsync();
+            var patientPages = new List<Guid>();
+            for (var page = 1; page <= 16; page++)
+            {
+                using var response = await client.PostAsJsonAsync("/api/patients/search", new { page });
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+                Assert.Equal(16, result.GetProperty("pageSize").GetInt32());
+                Assert.Equal(page < 16 ? 16 : 10, PageIds(result).Length);
+                Assert.Equal(250, result.GetProperty("totalCount").GetInt32());
+                Assert.Equal(page < 16, result.GetProperty("hasMore").GetBoolean());
+                patientPages.AddRange(PageIds(result));
+            }
+            Assert.Equal(patientIds, patientPages);
+            using var exactPatient = await client.PostAsJsonAsync("/api/patients/search", new
+            {
+                seededPatient.FirstName, seededPatient.LastName, seededPatient.DateOfBirth,
+            });
+            exactPatient.EnsureSuccessStatusCode();
+            var exactResult = await exactPatient.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(seededPatient.PublicId, Assert.Single(PageIds(exactResult)));
+
+            using var clinicSearch = await client.PostAsJsonAsync("/api/clinics/search", new
+            {
+                name = "Maple Grove", address = "Willow", timeZone = seededClinic.TimeZoneId,
+            });
+            clinicSearch.EnsureSuccessStatusCode();
+            var clinicResult = await clinicSearch.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(seededClinic.PublicId, Assert.Single(PageIds(clinicResult)));
+
+            var referralPages = new List<Guid>();
+            for (var page = 1; page <= 30; page++)
+            {
+                using var response = await client.PostAsJsonAsync("/api/referrals/search", new { page });
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+                Assert.Equal(300, result.GetProperty("totalCount").GetInt32());
+                Assert.Equal(10, PageIds(result).Length);
+                referralPages.AddRange(PageIds(result));
+            }
+            Assert.Equal(queue.EnumerateArray().Select(item => item.GetProperty("publicId").GetGuid()), referralPages);
+            foreach (var stage in new[] { "PendingReview", "MissingInformation", "ReadyToSchedule", "Scheduled", "Closed" })
+            {
+                var matching = queue.EnumerateArray().Where(item => item.GetProperty(stage == "MissingInformation" ? "status" : "stage").GetString() == stage).ToArray();
+                using var response = await client.PostAsJsonAsync("/api/referrals/search", new { stage });
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+                Assert.Equal(matching.Length, result.GetProperty("totalCount").GetInt32());
+                Assert.Equal(matching.Take(10).Select(item => item.GetProperty("publicId").GetGuid()), PageIds(result));
+            }
+            using var clinicPage = await client.PostAsJsonAsync($"/api/clinics/{clinicId}/referrals/search", new { page = 2 });
+            clinicPage.EnsureSuccessStatusCode();
+            var clinicPageResult = await clinicPage.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(expectedClinicReferrals.Length, clinicPageResult.GetProperty("totalCount").GetInt32());
+            Assert.Equal(expectedClinicReferrals.Skip(10).Take(10), PageIds(clinicPageResult));
+            foreach (var path in new[] { "/api/clinics/search", "/api/patients/search", "/api/referrals/search" })
+            {
+                using var invalid = await client.PostAsJsonAsync(path, new { page = 0 });
+                Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+                using var overflow = await client.PostAsJsonAsync(path, new { page = int.MaxValue });
+                Assert.Equal(HttpStatusCode.BadRequest, overflow.StatusCode);
+            }
+            tokens.AuthorizeSubject(client, "auth0|scale-provider");
+            using var deniedClinic = await client.PostAsJsonAsync("/api/clinics/55000001-0000-4000-8000-000000000005/referrals/search", new { });
+            Assert.Equal(HttpStatusCode.Forbidden, deniedClinic.StatusCode);
+            using var deniedDirectory = await client.PostAsJsonAsync("/api/patients/search", new { });
+            Assert.Equal(HttpStatusCode.Forbidden, deniedDirectory.StatusCode);
+
             // Match the route's confirmed, upcoming, non-conflicting appointment contract.
             var expected = await (
                 from appointment in db.Appointments
@@ -162,11 +233,11 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
             const string searchUrl = "/api/appointments/upcoming/search";
             var firstPage = await MeasureAsync("Appointment search page 1", () =>
                 client.PostAsJsonAsync(searchUrl, new { page = 1 }));
-            Assert.Equal(expected.Take(20).Select(item => item.PublicId), PageIds(firstPage));
+            Assert.Equal(expected.Take(8).Select(item => item.PublicId), PageIds(firstPage));
 
             var secondPage = await MeasureAsync("Appointment search page 2", () =>
                 client.PostAsJsonAsync(searchUrl, new { page = 2 }));
-            Assert.Equal(expected.Skip(20).Take(20).Select(item => item.PublicId), PageIds(secondPage));
+            Assert.Equal(expected.Skip(8).Take(8).Select(item => item.PublicId), PageIds(secondPage));
 
             var sample = expected[0];
             var until = sample.StartUtc.AddDays(1);
@@ -181,12 +252,12 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
                     && item.StartUtc >= sample.StartUtc && item.StartUtc < until)
                 .Select(item => item.PublicId).ToArray();
             Assert.NotEmpty(filteredIds);
-            Assert.Equal(filteredIds.Take(20), PageIds(filtered));
-            Assert.Equal(filteredIds.Length > 20, filtered.GetProperty("hasMore").GetBoolean());
+            Assert.Equal(filteredIds.Take(8), PageIds(filtered));
+            Assert.Equal(filteredIds.Length > 8, filtered.GetProperty("hasMore").GetBoolean());
 
             var descending = await MeasureAsync("Appointment search newest first", () =>
                 client.PostAsJsonAsync(searchUrl, new { latestFirst = true, page = 1 }));
-            Assert.Equal(expected.Reverse().Take(20).Select(item => item.PublicId), PageIds(descending));
+            Assert.Equal(expected.Reverse().Take(8).Select(item => item.PublicId), PageIds(descending));
 
             var allPageIds = new List<Guid>();
             for (var page = 1; allPageIds.Count < expected.Length; page++)
@@ -195,16 +266,28 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);
                 var result = await response.Content.ReadFromJsonAsync<JsonElement>();
                 var ids = PageIds(result);
-                Assert.InRange(ids.Length, 1, 20);
+                Assert.InRange(ids.Length, 1, 8);
                 allPageIds.AddRange(ids);
                 Assert.Equal(allPageIds.Count < expected.Length, result.GetProperty("hasMore").GetBoolean());
             }
             Assert.Equal(expected.Select(item => item.PublicId), allPageIds);
-            using var pastLastPage = await client.PostAsJsonAsync(searchUrl, new { page = (expected.Length + 19) / 20 + 1 });
+            using var pastLastPage = await client.PostAsJsonAsync(searchUrl, new { page = (expected.Length + 7) / 8 + 1 });
             Assert.Equal(HttpStatusCode.OK, pastLastPage.StatusCode);
             var emptyPage = await pastLastPage.Content.ReadFromJsonAsync<JsonElement>();
             Assert.Empty(PageIds(emptyPage));
             Assert.False(emptyPage.GetProperty("hasMore").GetBoolean());
+
+            var conflicts = await client.GetFromJsonAsync<JsonElement>("/api/appointments/needs-attention");
+            var count = await client.GetFromJsonAsync<JsonElement>("/api/appointments/needs-attention/count");
+            Assert.Equal(conflicts.GetArrayLength(), count.GetProperty("count").GetInt32());
+            using var conflictResponse = await client.PostAsJsonAsync("/api/appointments/needs-attention/search", new { page = 1 });
+            conflictResponse.EnsureSuccessStatusCode();
+            var conflictPage = await conflictResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(conflicts.GetArrayLength(), conflictPage.GetProperty("totalCount").GetInt32());
+            Assert.Equal(conflicts.EnumerateArray().Take(8).Select(item => item.GetProperty("publicId").GetGuid()), PageIds(conflictPage));
+            using var noConflictMatch = await client.PostAsJsonAsync("/api/appointments/needs-attention/search", new { patient = "No such patient" });
+            noConflictMatch.EnsureSuccessStatusCode();
+            Assert.Empty(PageIds(await noConflictMatch.Content.ReadFromJsonAsync<JsonElement>()));
 
             tokens.AuthorizeSubject(client, "auth0|scale-provider");
             var calendar = await MeasureAsync("Provider 90-day calendar", () => client.GetAsync("/api/me/calendar"));

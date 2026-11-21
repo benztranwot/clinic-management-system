@@ -1,3 +1,6 @@
+import LoadingStatus from "../components/LoadingStatus";
+import WorkspacePagination from "../components/WorkspacePagination";
+import { readPage } from "../components/useListSearch";
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import WorkspaceFilterDialog from "../components/WorkspaceFilterDialog";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -6,7 +9,7 @@ import { Link, useLocation, useSearchParams } from "react-router";
 import { searchUpcomingAppointments, type AppointmentSummary, type UpcomingAppointmentSearch } from "../api/appointments";
 import CancelAppointmentButton from "../features/appointments/components/CancelAppointmentButton";
 import { appointmentLists, type AppointmentListView } from "../features/appointments/appointmentLists";
-import { useAppointmentAttention } from "../features/appointments/hooks/useAppointmentAttention";
+import { useReferralAccount } from "../features/referrals/hooks/useReferralAccount";
 import { ActionIcon } from "../components/ActionIcon";
 
 function AppointmentCard({
@@ -20,15 +23,16 @@ function AppointmentCard({
 }) {
   const timeZone = appointment.timeZoneId ?? "UTC";
   const start = new Date(appointment.startUtc);
-  const date = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone });
+  const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone });
   const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
 
   return (
-    <li className="space-y-3 rounded-lg border border-panel-border p-4">
+    <li className="appointment-card">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="wrap-break-word font-semibold">{appointment.patientName}</p>
-          <p className="text-sm text-subtle">{appointment.serviceName}</p>
+          <p className="wrap-break-word font-semibold">{appointment.patientName}
+            <span className="ml-2 text-sm font-normal text-subtle">{appointment.serviceName}</span>
+          </p>
         </div>
         <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-sm font-medium">
           {appointmentLists[view].badge}
@@ -57,14 +61,13 @@ function AppointmentCard({
 }
 
 function AppointmentList({
-  userId, view, appointments, isFetching, error, refresh, controls, pagination, returnSearch, patientFilter,
+  userId, view, appointments, error, retry, controls, pagination, returnSearch, patientFilter,
 }: {
   userId: string;
   view: AppointmentListView;
   appointments?: AppointmentSummary[];
-  isFetching: boolean;
   error: Error | null;
-  refresh: () => void;
+  retry: () => void;
   controls?: ReactNode;
   pagination?: ReactNode;
   returnSearch?: string;
@@ -73,25 +76,21 @@ function AppointmentList({
   const { title, empty } = appointmentLists[view];
 
   return (
-    <section className="workspace-panel mx-auto w-full max-w-4xl space-y-4" aria-labelledby="appointment-list-heading">
+    <section className="workspace-panel workspace-list-panel mx-auto w-full max-w-6xl space-y-4" aria-labelledby="appointment-list-heading">
       <div className="page-heading">
         <h1 id="appointment-list-heading" className="page-title">{title}</h1>
         <div className="flex flex-wrap gap-2">
           {controls}
-          <button type="button" data-variant="secondary" disabled={isFetching} onClick={refresh}>
-            <ActionIcon name="refresh" />
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </button>
         </div>
       </div>
       {error ? (
-        <p role="alert">{error.message}</p>
+        <div className="space-y-2"><p role="alert">{error.message}</p><button type="button" data-variant="secondary" onClick={retry}>Try again</button></div>
       ) : !appointments ? (
-        <p role="status">Loading appointments…</p>
+        <LoadingStatus>Loading appointments…</LoadingStatus>
       ) : appointments.length === 0 ? (
         <p className="text-sm text-subtle">{empty}</p>
       ) : (
-        <ul className="space-y-3" aria-labelledby="appointment-list-heading">
+        <ul className="appointment-grid" aria-labelledby="appointment-list-heading">
           {appointments.map((appointment) => (
             <AppointmentCard key={appointment.publicId} appointment={appointment} userId={userId} view={view}
               returnSearch={returnSearch} patientFilter={patientFilter} />
@@ -101,12 +100,6 @@ function AppointmentList({
       {pagination}
     </section>
   );
-}
-
-function AvailabilityConflicts({ userId }: { userId: string }) {
-  const query = useAppointmentAttention(userId);
-  return <AppointmentList userId={userId} view="conflicts" appointments={query.data}
-    isFetching={query.isFetching} error={query.error} refresh={() => void query.refetch()} />;
 }
 
 const nameFields = [
@@ -126,14 +119,15 @@ function localMidnight(date: string, nextDay = false) {
   return midnight.toISOString();
 }
 
-function UpcomingAppointments({ userId }: { userId: string }) {
+function SchedulingAppointments({ userId, view }: { userId: string; view: AppointmentListView }) {
   const { getAccessTokenSilently } = useAuth0();
+  const account = useReferralAccount(userId).data?.account;
+  const canSchedule = account?.isAdministrator || account?.memberships.some(membership => membership.role === "FrontDesk");
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const from = dateParameter(params.get("from"));
   const end = dateParameter(params.get("through"));
   const through = end === "9999-12-31" || (from && end < from) ? "" : end;
-  const requestedPage = Number(params.get("page"));
   // Keep patient search text out of URLs and referrer headers.
   const patientFilter = location.state?.filterOwner === userId && typeof location.state.patientFilter === "string"
     ? location.state.patientFilter
@@ -146,18 +140,17 @@ function UpcomingAppointments({ userId }: { userId: string }) {
     fromUtc: from ? localMidnight(from) : undefined,
     untilUtc: through ? localMidnight(through, true) : undefined,
     latestFirst: params.get("sort") === "latest",
-    page: Number.isInteger(requestedPage) && requestedPage >= 1 && requestedPage <= Math.floor(2147483647 / 20)
-      ? requestedPage
-      : 1,
+    page: readPage(params.get("page"), 8),
   };
   const [dateError, setDateError] = useState("");
   const filtersDialog = useRef<HTMLDialogElement>(null);
   const query = useQuery({
-    queryKey: ["upcoming-appointments", userId, search],
+    queryKey: [view === "conflicts" ? "appointment-attention" : "upcoming-appointments", userId, search],
+    refetchInterval: 30_000,
     queryFn: async ({ signal }) => {
       const token = await getAccessTokenSilently();
       if (!token) throw new Error("Unable to verify your session. Sign in again.");
-      return searchUpcomingAppointments(token, search, signal);
+      return searchUpcomingAppointments(token, search, signal, view);
     },
     retry: false,
   });
@@ -192,13 +185,13 @@ function UpcomingAppointments({ userId }: { userId: string }) {
 
   return (
     <AppointmentList
-      userId={userId} view="upcoming" appointments={query.data?.items}
+      userId={userId} view={view} appointments={query.data?.items}
       returnSearch={location.search} patientFilter={patientFilter}
-      isFetching={query.isFetching} error={query.error} refresh={() => void query.refetch()}
-      controls={
-        <WorkspaceFilterDialog dialogRef={filtersDialog} title="Filter upcoming appointments">
+      error={query.error} retry={() => void query.refetch()}
+      controls={<>
+        <WorkspaceFilterDialog dialogRef={filtersDialog} title={"Filter " + appointmentLists[view].title.toLowerCase()}>
           <form key={location.key} className="space-y-4"
-            aria-label="Filter upcoming appointments" onSubmit={applyFilters}
+            aria-label={"Filter " + appointmentLists[view].title.toLowerCase()} onSubmit={applyFilters}
             onReset={() => { setDateError(""); setParams({}, { state: null }); }}>
             <div className="grid gap-3 sm:grid-cols-2">
               {nameFields.map(([name, label]) => (
@@ -235,16 +228,15 @@ function UpcomingAppointments({ userId }: { userId: string }) {
             </div>
           </form>
         </WorkspaceFilterDialog>
-      }
-      pagination={(search.page > 1 || query.data?.hasMore) && (
-        <nav className="flex flex-wrap items-center gap-3" aria-label="Upcoming appointment pages">
-          <button type="button" data-variant="secondary" disabled={search.page === 1 || query.isFetching}
-            onClick={() => goToPage(search.page - 1)}><ActionIcon name="back" />Previous</button>
-          <span role="status">Page {search.page}</span>
-          <button type="button" data-variant="secondary" disabled={!query.data?.hasMore || query.isFetching}
-            onClick={() => goToPage(search.page + 1)}><ActionIcon name="forward" />Next</button>
-        </nav>
-      )}
+        {view === "upcoming" && canSchedule && <Link to="/appointments/new" className="workspace-button"
+          state={{ appointmentReturn: { search: location.search, patientFilter, filterOwner: userId } }}>
+          <ActionIcon name="plus" />Create appointment
+        </Link>}
+      </>}
+      pagination={<WorkspacePagination itemCount={query.isSuccess ? query.data.items.length : 0} page={search.page} pageSize={query.data?.pageSize ?? 8} count={query.data?.totalCount}
+        hasMore={query.data?.hasMore ?? false} busy={query.isFetching}
+        onPage={goToPage} label={appointmentLists[view].title + " pages"} />}
+
     />
   );
 }
@@ -254,5 +246,5 @@ export default function AppointmentListPage({ view }: { view: AppointmentListVie
   const userId = user?.sub;
   if (!userId) return <p role="alert">We couldn’t identify your session.</p>;
 
-  return view === "conflicts" ? <AvailabilityConflicts userId={userId} /> : <UpcomingAppointments userId={userId} />;
+  return <SchedulingAppointments key={userId + view} userId={userId} view={view} />;
 }

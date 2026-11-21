@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useState, type FormEvent } from "react";
 import { ClinicProvidersTable } from "../features/clinics/components/ClinicDirectoryTables";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -99,7 +100,7 @@ function ProviderForm({
         </label>
         {nameError && <p role="alert">{nameError}</p>}
         <div className="flex flex-wrap gap-2">
-          <button type="submit"><ActionIcon name="save" />{isSaving ? "Saving…" : "Save provider"}</button>
+          <button type="submit">{isSaving ? <Spinner /> : <ActionIcon name="save" />}{isSaving ? "Saving…" : "Save provider"}</button>
           <button type="button" onClick={onCancel}><ActionIcon name="close" />Cancel</button>
         </div>
       </fieldset>
@@ -225,7 +226,7 @@ function ProviderDirectory({
   }
 
   if (directory.isPending) {
-    return <p className="mt-3" role="status">Loading providers…</p>;
+    return <LoadingStatus className="mt-3">Loading providers…</LoadingStatus>;
   }
   if (directory.isError) {
     return (
@@ -271,7 +272,7 @@ function ProviderDirectory({
         <p role="alert">This provider was not found at this clinic.</p>
       ) : (
         <div className="mt-4 space-y-3">
-          {detail.isPending && <p role="status">Loading provider details…</p>}
+          {detail.isPending && <LoadingStatus>Loading provider details…</LoadingStatus>}
           {detail.isError && (
             <div>
               <p role="alert">{providerError(detail.error, "Unable to load provider details.")}</p>
@@ -330,7 +331,7 @@ function ProviderDirectory({
                       }
                     }}
                   >
-                    <ActionIcon name="trash" />
+                    {change.isPending ? <Spinner /> : <ActionIcon name="trash" />}
                     {change.isPending ? "Deleting…" : "Delete provider"}
                   </button>
                 </div>

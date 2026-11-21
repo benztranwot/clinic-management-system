@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -193,7 +194,7 @@ function ReferralRecord({
                         ))}
                       </select>
                     </label>
-                    {eligible.isPending && <p role="status">Loading eligible providers…</p>}
+                    {eligible.isPending && <LoadingStatus>Loading eligible providers…</LoadingStatus>}
                     {eligible.isError && (
                       <div className="space-y-2">
                         <p role="alert">{referralErrorMessage(eligible.error, "Unable to load eligible providers.")}</p>
@@ -240,7 +241,7 @@ function ReferralRecord({
                 <button type="button" data-variant="secondary" disabled={change.isPending}
                   onClick={() => { setSnapshot(null); change.reset(); }}><ActionIcon name="close" />Cancel changes</button>
                 <button type="submit" disabled={disabled || stale || (!providerChanged && !statusChanged)}>
-                  <ActionIcon name="pencil" />
+                  {change.isPending ? <Spinner /> : <ActionIcon name="pencil" />}
                   {change.isPending ? "Saving…" : "Update referral"}
                 </button>
               </div>
@@ -297,7 +298,7 @@ function ReferralDetailsContent({
   return (
     <>
       <ReferralDetailsHeader appointmentPublicId={result?.referral.confirmedAppointment?.publicId} />
-      {query.isPending && <p className="mt-3" role="status">Loading referral…</p>}
+      {query.isPending && <LoadingStatus className="mt-3">Loading referral…</LoadingStatus>}
       {query.isError && (
         notFound ? (
           <p className="mt-3" role="alert">Referral not found.</p>
@@ -323,23 +324,25 @@ function ReferralDetailsHeader({ appointmentPublicId }: { appointmentPublicId?: 
   return (
     <>
       <div className="page-heading">
-        <Link to={{ pathname: "/referrals", search: backSearch }} state={queueState}
-          className="workspace-button" data-variant="secondary">
-          <ActionIcon name="back" />
-          Back to referrals
-        </Link>
-        {appointmentPublicId && (
-          <Link
-            className="workspace-button ml-auto"
-            to={"/appointments/" + appointmentPublicId}
-            state={{ fromReferral: true }}
-          >
-            <ActionIcon name="eye" />
-            View appointment
+        <h1 id="referral-details-heading" className="page-title">Referral details</h1>
+        <div className="flex flex-wrap gap-2">
+          <Link to={{ pathname: "/referrals", search: backSearch }} state={queueState}
+            className="workspace-button" data-variant="secondary">
+            <ActionIcon name="back" />
+            Back to referrals
           </Link>
-        )}
+          {appointmentPublicId && (
+            <Link
+              className="workspace-button ml-auto"
+              to={"/appointments/" + appointmentPublicId}
+              state={{ fromReferral: true }}
+            >
+              <ActionIcon name="eye" />
+              View appointment
+            </Link>
+          )}
+        </div>
       </div>
-      <h1 id="referral-details-heading" className="page-title mt-3">Referral details</h1>
     </>
   );
 }

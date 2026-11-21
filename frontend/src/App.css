@@ -196,11 +196,11 @@
   width: min(100%, 76rem);
   min-width: 0;
   margin-inline: auto;
-  padding: clamp(1rem, 3vw, 2.5rem);
+  padding: clamp(0.75rem, 2vw, 1.5rem);
 }
 
 .workspace-panel {
-  padding: clamp(1rem, 2.5vw, 1.75rem);
+  padding: clamp(0.85rem, 2vw, 1.25rem);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   background: var(--card);
@@ -342,7 +342,7 @@
 }
 
 .queue-table th, .queue-table td {
-  padding: 0.75rem 0.85rem;
+  padding: 0.55rem 0.85rem;
   vertical-align: top;
 }
 
@@ -420,7 +420,7 @@
   font-weight: 600;
 }
 
-@media (max-width: 48rem) {
+@media (max-width: 63.999rem) {
   .app .workspace-menu-toggle {
     display: inline-block;
   }
@@ -454,3 +454,129 @@
   }
 }
 
+
+/* Compact lists remain readable at zoom and on narrow screens. */
+.workspace-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+.appointment-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+.appointment-card {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  overflow-wrap: anywhere;
+}
+.appointment-card .workspace-button, .appointment-card button {
+  padding: 0.35rem 0.65rem;
+}
+@media (min-width: 64rem) {
+  .appointment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 64rem) {
+  .workspace {
+    grid-template-columns: 14.5rem minmax(0, 1fr);
+    grid-template-rows: minmax(100dvh, auto);
+    grid-template-areas: "header content";
+  }
+
+  .workspace .workspace-header {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100dvh;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 1.5rem;
+    padding: 1rem;
+    overflow-y: auto;
+    border-bottom: 0;
+    border-right: 1px solid var(--border);
+    background: var(--sidebar);
+  }
+
+  .workspace .workspace-brand { font-size: 0.9375rem; }
+  .workspace .workspace-nav {
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+  .workspace .workspace-nav a { padding: 0.65rem; }
+  .workspace .workspace-tools {
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+  .workspace .header-dropdown {
+    inset-block-start: auto;
+    inset-block-end: calc(100% + 0.5rem);
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+    width: 12rem;
+    max-width: 12rem;
+  }
+  .workspace .workspace-tools > .header-disclosure:last-child .header-dropdown {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+  }
+}
+
+/* Full result pages fill the content area; short pages retain their natural height. */
+.workspace .workspace-main {
+  display: flex;
+  flex-direction: column;
+}
+.workspace .workspace-main > .workspace-panel {
+  flex: 0 0 auto;
+}
+.workspace .workspace-main > .workspace-list-panel:has(> .workspace-pagination[data-full-page="true"]) {
+  flex-grow: 1;
+}
+.workspace-list-panel {
+  display: flex;
+  flex-direction: column;
+}
+.workspace-list-panel > .workspace-pagination {
+  margin-block-start: 0;
+  margin-block-end: 0;
+}
+.workspace-list-panel > .workspace-pagination[data-full-page="true"] {
+  margin-block-start: auto;
+  padding-block-start: 1rem;
+}
+
+.loading-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted-foreground);
+}
+.loading-spinner {
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  flex: none;
+  vertical-align: -0.15em;
+  animation: loading-spin 0.9s linear infinite;
+}
+button .loading-spinner { margin-inline-end: 0.4rem; }
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner { animation: none; }
+}

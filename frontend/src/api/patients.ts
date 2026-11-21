@@ -1,3 +1,4 @@
+import { searchPage } from "./paging";
 export type PatientSummary = {
   publicId: string;
   firstName: string;
@@ -111,4 +112,9 @@ export async function deletePatient(
   if (!response.ok) {
     throw new PatientRequestError(response.status);
   }
+}
+
+export function searchPatients(token: string, search: { firstName: string; lastName: string; dateOfBirth: string; page: number }, signal: AbortSignal) {
+  return searchPage<PatientSummary>("/api/patients/search", token,
+    { ...search, dateOfBirth: search.dateOfBirth || undefined }, signal, status => new PatientRequestError(status));
 }

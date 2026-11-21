@@ -1,3 +1,4 @@
+import { searchPage } from "./paging";
 import { ClinicRequestError } from "./clinics";
 import { PatientRequestError } from "./patients";
 import { ProviderRequestError, type Provider } from "./providers";
@@ -245,4 +246,10 @@ export async function bookReferralAppointment(
     method: "POST",
     body: { providerPublicId, startUtc },
   });
+}
+
+export function searchReferrals(token: string, search: { patient: string; service: string; clinic: string; stage: string; page: number },
+  signal: AbortSignal, clinicId?: string) {
+  const path = clinicId ? `/api/clinics/${encodeURIComponent(clinicId)}/referrals/search` : "/api/referrals/search";
+  return searchPage<ReferralSummary>(path, token, search, signal, status => new ReferralRequestError(status, "Unable to load referrals."));
 }

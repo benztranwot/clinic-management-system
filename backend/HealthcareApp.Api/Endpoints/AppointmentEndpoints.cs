@@ -16,9 +16,12 @@ public static class AppointmentEndpoints
     {
         var routes = app.MapGroup("/api/appointments").RequireAuthorization();
         routes.MapPost("", BookDirectAsync);
+        routes.MapGet("/booking-options", GetBookingOptionsAsync);
         routes.MapGet("/needs-attention", GetNeedsAttentionAsync);
+        routes.MapGet("/needs-attention/count", GetAttentionCountAsync);
         routes.MapGet("/upcoming", GetUpcomingAsync);
         routes.MapPost("/upcoming/search", SearchUpcomingAsync);
+        routes.MapPost("/needs-attention/search", SearchConflictsAsync);
         routes.MapGet("/{publicId:guid}", GetByIdAsync);
         routes.MapPut("/{publicId:guid}/reschedule", RescheduleAsync);
         routes.MapPost("/{publicId:guid}/cancel", CancelAsync);
@@ -26,6 +29,33 @@ public static class AppointmentEndpoints
 
         app.MapPost("/api/referrals/{referralPublicId:guid}/appointments", BookReferredAsync)
             .RequireAuthorization();
+    }
+
+    private static async Task<bool> CanScheduleAsync(AccountIdentity identity, HealthcareDbContext db, CancellationToken cancellationToken) =>
+        await identity.QuerySchedulingClinics(db).AnyAsync(cancellationToken)
+        || await identity.QueryAccounts(db).AnyAsync(account => account.IsAdministrator, cancellationToken);
+
+    private static async Task<IResult> GetBookingOptionsAsync(
+        ClaimsPrincipal user, HttpContext http, HealthcareDbContext db, CancellationToken cancellationToken)
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null) return Results.Challenge();
+        if (!await CanScheduleAsync(identity, db, cancellationToken)) return Results.Forbid();
+        var options = await (
+            from clinic in identity.QuerySchedulingClinics(db)
+            join service in db.ClinicalServices on clinic.Id equals service.ClinicId
+            join link in db.ProviderServices on service.Id equals link.ClinicalServiceId
+            join provider in db.Providers on link.ProviderId equals provider.Id
+            where service.AllowsDirectBooking
+            orderby clinic.Name, service.Name, provider.LastName, provider.FirstName, service.Id, provider.Id
+            select new
+            {
+                ClinicPublicId = clinic.PublicId, ClinicName = clinic.Name, clinic.TimeZoneId,
+                ClinicalServicePublicId = service.PublicId, ServiceName = service.Name,
+                ProviderPublicId = provider.PublicId, ProviderName = provider.FirstName + " " + provider.LastName,
+            }).ToListAsync(cancellationToken);
+        http.Response.Headers.CacheControl = "no-store";
+        return Results.Ok(options);
     }
 
     private static Task<IResult> BookDirectAsync(
@@ -673,6 +703,10 @@ public static class AppointmentEndpoints
         });
     }
 
+    private static Task<IResult> GetAttentionCountAsync(
+        ClaimsPrincipal user, HttpContext http, HealthcareDbContext db, TimeProvider clock, CancellationToken cancellationToken
+    ) => GetSchedulingAppointmentsAsync(user, http, db, clock, true, cancellationToken, countOnly: true);
+
     private static Task<IResult> GetNeedsAttentionAsync(
         ClaimsPrincipal user,
         HttpContext http,
@@ -688,6 +722,11 @@ public static class AppointmentEndpoints
         TimeProvider clock,
         CancellationToken cancellationToken
     ) => GetSchedulingAppointmentsAsync(user, http, db, clock, false, cancellationToken);
+
+    private static Task<IResult> SearchConflictsAsync(
+        SearchUpcomingAppointmentsRequest request, ClaimsPrincipal user, HttpContext http,
+        HealthcareDbContext db, TimeProvider clock, CancellationToken cancellationToken
+    ) => GetSchedulingAppointmentsAsync(user, http, db, clock, true, cancellationToken, request);
 
     private static Task<IResult> SearchUpcomingAsync(
         SearchUpcomingAppointmentsRequest request,
@@ -705,7 +744,8 @@ public static class AppointmentEndpoints
         TimeProvider clock,
         bool needsAttention,
         CancellationToken cancellationToken,
-        SearchUpcomingAppointmentsRequest? search = null
+        SearchUpcomingAppointmentsRequest? search = null,
+        bool countOnly = false
     )
     {
         var identity = AccountIdentity.FromPrincipal(user);
@@ -749,7 +789,12 @@ public static class AppointmentEndpoints
                     .Select(referral => (Guid?)referral.PublicId).FirstOrDefault(),
             };
 
-        const int pageSize = 20;
+        if (countOnly)
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(new { Count = await query.CountAsync(cancellationToken) });
+        }
+        const int pageSize = ListPaging.AppointmentSize;
         if (search is not null)
         {
             if (search.Page < 1 || search.Page > int.MaxValue / pageSize
@@ -778,8 +823,10 @@ public static class AppointmentEndpoints
             ? query.OrderByDescending(item => item.StartUtc).ThenByDescending(item => item.Id)
             : query.OrderBy(item => item.StartUtc).ThenBy(item => item.Id);
 
-        // Fetch one extra row to tell the caller whether there is another page.
-        var appointments = await (search is null ? ordered : ordered.Skip((search.Page - 1) * pageSize).Take(pageSize + 1))
+        var totalCount = search is null ? 0 : await query.CountAsync(cancellationToken);
+
+        // Fetch only the requested page after applying access and search filters.
+        var appointments = await (search is null ? ordered : ordered.Skip((search.Page - 1) * pageSize).Take(pageSize))
             .ToListAsync(cancellationToken);
 
         http.Response.Headers.CacheControl = "no-store";
@@ -800,7 +847,8 @@ public static class AppointmentEndpoints
         if (search is null)
             return Results.Ok(items);
 
-        return Results.Ok(new { Items = items, HasMore = appointments.Count > pageSize });
+        return Results.Ok(new { Items = items, search.Page, PageSize = pageSize, TotalCount = totalCount,
+            HasMore = (long)search.Page * pageSize < totalCount });
     }
 
     private static IQueryable<AppointmentWithOverlap> WithTimeOffOverlap(HealthcareDbContext db) =>

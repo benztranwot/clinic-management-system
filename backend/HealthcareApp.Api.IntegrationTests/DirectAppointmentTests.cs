@@ -28,6 +28,8 @@ public class DirectAppointmentTests
         );
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        using var options = await client.GetAsync(AppointmentsUrl + "/booking-options");
+        Assert.Equal(HttpStatusCode.Unauthorized, options.StatusCode);
     }
 
     [Fact]
@@ -119,6 +121,35 @@ public class DirectAppointmentTests
                 }
             );
             await db.SaveChangesAsync();
+
+            var outsideClinic = new Clinic { Name = "Other booking clinic", Address = "Other street", TimeZoneId = "America/Chicago" };
+            db.Clinics.Add(outsideClinic);
+            await db.SaveChangesAsync();
+            var outsideProvider = new Provider { ClinicId = outsideClinic.Id, FirstName = "Outside", LastName = "Provider" };
+            var outsideService = new ClinicalService { ClinicId = outsideClinic.Id, Name = "Outside service", AllowsDirectBooking = true };
+            db.AddRange(outsideProvider, outsideService);
+            await db.SaveChangesAsync();
+            db.AddRange(new ProviderService { ClinicId = outsideClinic.Id, ProviderId = outsideProvider.Id, ClinicalServiceId = outsideService.Id },
+                new ProviderService { ClinicId = clinic.Id, ProviderId = provider.Id, ClinicalServiceId = referralOnly.Id });
+            await db.SaveChangesAsync();
+            tokens.AuthorizeSubject(client, subject);
+            using var optionsResponse = await client.GetAsync(AppointmentsUrl + "/booking-options");
+            optionsResponse.EnsureSuccessStatusCode();
+            Assert.Equal("no-store", optionsResponse.Headers.CacheControl?.ToString());
+            var options = await optionsResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(2, options.GetArrayLength());
+            Assert.All(options.EnumerateArray(), option =>
+            {
+                Assert.Equal(clinic.PublicId, option.GetProperty("clinicPublicId").GetGuid());
+                Assert.Equal(physical.PublicId, option.GetProperty("clinicalServicePublicId").GetGuid());
+                Assert.Contains(option.GetProperty("providerPublicId").GetGuid(), new[] { provider.PublicId, otherProvider.PublicId });
+            });
+            tokens.AuthorizeSubject(client, clinicianSubject);
+            using var deniedOptions = await client.GetAsync(AppointmentsUrl + "/booking-options");
+            Assert.Equal(HttpStatusCode.Forbidden, deniedOptions.StatusCode);
+            tokens.AuthorizeSubject(client, "auth0|unknown-scheduler");
+            using var unlinkedOptions = await client.GetAsync(AppointmentsUrl + "/booking-options");
+            Assert.Equal(HttpStatusCode.Forbidden, unlinkedOptions.StatusCode);
 
             var request = new CreateDirectAppointmentRequest(
                 firstPatient.PublicId, physical.PublicId, provider.PublicId, StartUtc
@@ -264,6 +295,21 @@ public class DirectAppointmentTests
             Assert.Empty(upcoming.EnumerateArray());
             var beforeMove = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/needs-attention");
             Assert.Equal(saved.PublicId, Assert.Single(beforeMove.EnumerateArray()).GetProperty("publicId").GetGuid());
+
+            using var conflictSearch = await client.PostAsJsonAsync(AppointmentsUrl + "/needs-attention/search", new
+            {
+                patient = afterConflict.GetProperty("patientName").GetString(),
+                clinic = afterConflict.GetProperty("clinicName").GetString(),
+                service = afterConflict.GetProperty("serviceName").GetString(),
+                provider = afterConflict.GetProperty("providerName").GetString(),
+                fromUtc = start, untilUtc = start.AddMinutes(30),
+            });
+            conflictSearch.EnsureSuccessStatusCode();
+            var conflictPage = await conflictSearch.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(1, conflictPage.GetProperty("totalCount").GetInt32());
+            Assert.Equal(saved.PublicId, Assert.Single(conflictPage.GetProperty("items").EnumerateArray()).GetProperty("publicId").GetGuid());
+            var attentionCount = await client.GetFromJsonAsync<JsonElement>(AppointmentsUrl + "/needs-attention/count");
+            Assert.Equal(1, attentionCount.GetProperty("count").GetInt32());
 
             // The original visit starts after availability is checked and before the update.
             clock.EnqueueReads(now, now, start);

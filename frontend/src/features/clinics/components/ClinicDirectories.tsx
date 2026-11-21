@@ -1,3 +1,4 @@
+import LoadingStatus from "../../../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -36,7 +37,7 @@ export default function ClinicDirectories({ userId, clinicId }: { userId: string
           {providers.isSuccess && <Link className="workspace-button" data-variant="secondary"
             to={path + "/providers"}><ActionIcon name="people" />View providers</Link>}
         </div>
-        {providers.isPending && <p role="status">Loading providers…</p>}
+        {providers.isPending && <LoadingStatus>Loading providers…</LoadingStatus>}
         {providers.isError && (providers.error instanceof ProviderRequestError && providers.error.status === 403
           ? <p>You don’t have permission to view providers.</p>
           : <button type="button" data-variant="secondary" disabled={providers.isFetching}
@@ -49,7 +50,7 @@ export default function ClinicDirectories({ userId, clinicId }: { userId: string
           {services.isSuccess && <Link className="workspace-button" data-variant="secondary"
             to={path + "/services"}><ActionIcon name="list" />View services</Link>}
         </div>
-        {services.isPending && <p role="status">Loading services…</p>}
+        {services.isPending && <LoadingStatus>Loading services…</LoadingStatus>}
         {services.isError && (services.error instanceof ServiceRequestError && services.error.status === 403
           ? <p>You don’t have permission to view services.</p>
           : <button type="button" data-variant="secondary" disabled={services.isFetching}

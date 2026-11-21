@@ -1,3 +1,4 @@
+import { searchPage } from "./paging";
 export type ClinicInput = {
   name: string;
   address: string;
@@ -115,4 +116,9 @@ export async function deleteClinic(
   if (!response.ok) {
     throw new ClinicRequestError(response.status);
   }
+}
+
+export function searchClinics(token: string, search: { name: string; address: string; timeZone: string; page: number }, signal: AbortSignal) {
+  return searchPage<Clinic>("/api/clinics/search", token,
+    { ...search }, signal, status => new ClinicRequestError(status));
 }

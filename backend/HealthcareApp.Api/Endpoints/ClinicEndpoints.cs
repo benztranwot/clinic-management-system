@@ -12,6 +12,7 @@ public static class ClinicEndpoints
     {
         // Require read:clinics permission before listing clinics.
         app.MapGet("/api/clinics", GetClinicsAsync).RequireAuthorization("ReadClinics");
+        app.MapPost("/api/clinics/search", SearchAsync).RequireAuthorization("ReadClinics");
 
         // Require manage:clinics permission before creating a clinic.
         app.MapPost("/api/clinics", CreateClinicAsync).RequireAuthorization("ManageClinics");
@@ -31,6 +32,21 @@ public static class ClinicEndpoints
         // Require manage:clinics permission before deleting a clinic.
         app.MapDelete("/api/clinics/{publicId:guid}", DeleteClinicAsync)
             .RequireAuthorization("ManageClinics");
+    }
+
+    private static async Task<IResult> SearchAsync(
+        ClinicSearch request, HttpContext http, HealthcareDbContext db, CancellationToken cancellationToken)
+    {
+        if (!ListPaging.IsValid(request.Page, ListPaging.DirectorySize, request.Name, request.Address, request.TimeZone))
+            return Results.BadRequest(new { message = "Check the search terms and page number." });
+        var query = db.Clinics.AsNoTracking();
+        if (request.Name?.Trim() is { Length: > 0 } name) query = query.Where(item => item.Name.Contains(name));
+        if (request.Address?.Trim() is { Length: > 0 } address) query = query.Where(item => item.Address.Contains(address));
+        if (request.TimeZone?.Trim() is { Length: > 0 } zone) query = query.Where(item => item.TimeZoneId.Contains(zone));
+        http.Response.Headers.CacheControl = "no-store";
+        return Results.Ok(await ListPaging.ReadAsync(
+            query.OrderBy(item => item.Name).ThenBy(item => item.Id)
+                .Select(item => new { item.PublicId, item.Name, item.Address, item.TimeZoneId }), request.Page, ListPaging.DirectorySize, cancellationToken));
     }
 
     private static async Task<IResult> GetClinicsAsync(

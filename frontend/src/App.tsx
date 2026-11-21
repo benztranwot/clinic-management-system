@@ -1,28 +1,31 @@
-import { useState, type ReactNode } from "react";
+import LoadingStatus from "./components/LoadingStatus";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Navigate, Outlet, Route, Routes, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import ClinicsPage from "./pages/ClinicsPage";
-import ClinicDetailsPage from "./pages/ClinicDetailsPage";
-import ProvidersPage from "./pages/ProvidersPage";
-import ServicesPage from "./pages/ServicesPage";
-import PatientsPage from "./pages/PatientsPage";
-import PatientDetailsPage from "./pages/PatientDetailsPage";
-import ReferralsPage from "./pages/ReferralsPage";
-import ReferralDetailsPage from "./pages/ReferralDetailsPage";
 import AppShell from "./components/AppShell";
-import MyReferralsPage from "./pages/MyReferralsPage";
-import MyAppointmentsPage from "./pages/MyAppointmentsPage";
 import { useReferralAccount } from "./features/referrals/hooks/useReferralAccount";
-import NewReferralPage from "./pages/NewReferralPage";
-import AppointmentListPage from "./pages/AppointmentAttentionPage";
-import AppointmentDetailsPage from "./pages/AppointmentDetailsPage";
-import ProviderSchedulePage from "./pages/ProviderSchedulePage";
 import { appointmentLists } from "./features/appointments/appointmentLists";
 import { GoogleLogo, MicrosoftLogo } from "./components/SignInLogos";
-import NotFoundPage from "./pages/NotFoundPage";
 import "./App.css";
 import { ActionIcon } from "./components/ActionIcon";
+
+const ClinicsPage = lazy(() => import("./pages/ClinicsPage"));
+const ClinicDetailsPage = lazy(() => import("./pages/ClinicDetailsPage"));
+const ProvidersPage = lazy(() => import("./pages/ProvidersPage"));
+const ServicesPage = lazy(() => import("./pages/ServicesPage"));
+const PatientsPage = lazy(() => import("./pages/PatientsPage"));
+const PatientDetailsPage = lazy(() => import("./pages/PatientDetailsPage"));
+const ReferralsPage = lazy(() => import("./pages/ReferralsPage"));
+const ReferralDetailsPage = lazy(() => import("./pages/ReferralDetailsPage"));
+const MyReferralsPage = lazy(() => import("./pages/MyReferralsPage"));
+const MyAppointmentsPage = lazy(() => import("./pages/MyAppointmentsPage"));
+const NewReferralPage = lazy(() => import("./pages/NewReferralPage"));
+const AppointmentListPage = lazy(() => import("./pages/AppointmentAttentionPage"));
+const NewAppointmentPage = lazy(() => import("./pages/NewAppointmentPage"));
+const AppointmentDetailsPage = lazy(() => import("./pages/AppointmentDetailsPage"));
+const ProviderSchedulePage = lazy(() => import("./pages/ProviderSchedulePage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 const signInMethods = [
   { connection: "Clinic-Username", label: "Sign in with username and password", primary: true, Logo: null },
@@ -118,7 +121,7 @@ function App() {
       onSignOut={() => void handleSignOut()}
     >
       {isLoading ? (
-        <p role="status">Checking sign-in…</p>
+        <LoadingStatus>Checking sign-in…</LoadingStatus>
       ) : error ? (
         <section className="workspace-panel space-y-3">
           <h1 className="page-title">Sign-in error</h1>
@@ -126,6 +129,7 @@ function App() {
           <a className="workspace-link" href="/">Return to the homepage</a>
         </section>
       ) : (!signedIn || !isRedirecting) && (
+        <Suspense fallback={<LoadingStatus>Loading page...</LoadingStatus>}>
         <Routes>
           <Route element={<WorkspaceAccess signedIn={signedIn} homePath={homePath} signIn={(
               <section className="w-full max-w-md space-y-4 text-center" aria-labelledby="welcome-heading">
@@ -144,13 +148,13 @@ function App() {
                       {label}
                     </button>
                   ))}
-                  {isRedirecting && <p role="status">Opening sign-in…</p>}
+                  {isRedirecting && <LoadingStatus>Opening sign-in…</LoadingStatus>}
                   {actionError && <p role="alert">{actionError}</p>}
                 </div>
               </section>
           )} />}>
             <Route path="/" element={loadingWorkspace
-              ? <p role="status">Loading your workspace…</p>
+              ? <LoadingStatus>Loading your workspace…</LoadingStatus>
               : accountQuery.isError
                 ? <section className="workspace-panel space-y-3">
                     <h1 className="page-title">Unable to load your workspace</h1>
@@ -184,12 +188,14 @@ function App() {
             <Route path={appointmentLists.upcoming.path} element={<AppointmentListPage view="upcoming" />} />
             <Route path={appointmentLists.conflicts.path} element={<AppointmentListPage view="conflicts" />} />
             <Route path="/appointments/needs-attention" element={<Navigate to={appointmentLists.conflicts.path} replace />} />
+            <Route path="/appointments/new" element={<NewAppointmentPage />} />
             <Route path="/appointments/:publicId" element={<AppointmentDetailsPage />} />
             <Route path="/referrals/new" element={<NewReferralPage />} />
             <Route path="/referrals/:publicId" element={<ReferralDetailsPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage homePath={homePath} />} />
         </Routes>
+        </Suspense>
       )}
       {signedIn && actionError && <p role="alert" className="mt-3">{actionError}</p>}
     </AppShell>

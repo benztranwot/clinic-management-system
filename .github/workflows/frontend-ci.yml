@@ -37,6 +37,9 @@ jobs:
       - name: Lint the frontend
         run: npm run lint
 
+      - name: Type-check browser tests
+        run: npm run test:typecheck
+
       - name: Build the frontend
         run: npm run build
 

@@ -115,9 +115,9 @@ function SchedulingLinks({ userId, account }: { userId: string; account?: Referr
             {attention.isSuccess && (
               <>
                 <span aria-hidden="true" className="rounded-full bg-[var(--muted)] px-2 text-xs tabular-nums">
-                  {attention.data.length}
+                  {attention.data.count}
                 </span>
-                <span className="sr-only">{attention.data.length} appointments with availability conflicts</span>
+                <span className="sr-only">{attention.data.count} appointments with availability conflicts</span>
               </>
             )}
           </NavLink>

@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../../../components/LoadingStatus";
 import { useId, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -141,7 +142,7 @@ function ProviderServices({
     <section aria-labelledby={headingId} className="space-y-3 border-t border-[var(--border)] pt-4">
       <h4 id={headingId} className="font-semibold">Assigned services</h4>
 
-      {assignments.isPending && <p role="status">Loading assigned services…</p>}
+      {assignments.isPending && <LoadingStatus>Loading assigned services…</LoadingStatus>}
       {assignments.isError && (
         <div className="space-y-2">
           <p role="alert">{assignmentError(assignments.error)}</p>
@@ -173,7 +174,7 @@ function ProviderServices({
                         }
                       }}
                     >
-                      <ActionIcon name="minus" />
+                      {change.isPending && change.variables.action === "remove" && change.variables.serviceId === service.publicId ? <Spinner /> : <ActionIcon name="minus" />}
                       {change.isPending && change.variables.action === "remove" &&
                         change.variables.serviceId === service.publicId ? "Removing…" : "Remove"}
                     </button>
@@ -184,7 +185,7 @@ function ProviderServices({
           )}
 
           {assignments.data.canManage && clinicServices.isPending && (
-            <p role="status">Loading clinic services…</p>
+            <LoadingStatus>Loading clinic services…</LoadingStatus>
           )}
           {assignments.data.canManage && clinicServices.isError && (
             <div className="space-y-2">
@@ -220,7 +221,7 @@ function ProviderServices({
                   </select>
                 </label>
                 <button type="submit" disabled={isBusy || !selectedService}>
-                  <ActionIcon name="plus" />
+                  {change.isPending && change.variables.action === "assign" ? <Spinner /> : <ActionIcon name="plus" />}
                   {change.isPending && change.variables.action === "assign" ? "Assigning…" : "Assign service"}
                 </button>
               </form>

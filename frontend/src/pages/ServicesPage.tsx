@@ -1,3 +1,4 @@
+import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useState, type FormEvent } from "react";
 import { ClinicServicesTable } from "../features/clinics/components/ClinicDirectoryTables";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -94,7 +95,7 @@ function ServiceForm({
         </label>
         {nameError && <p role="alert">{nameError}</p>}
         <div className="flex flex-wrap gap-2">
-          <button type="submit"><ActionIcon name="save" />{isSaving ? "Saving…" : "Save service"}</button>
+          <button type="submit">{isSaving ? <Spinner /> : <ActionIcon name="save" />}{isSaving ? "Saving…" : "Save service"}</button>
           <button type="button" onClick={onCancel}><ActionIcon name="close" />Cancel</button>
         </div>
       </fieldset>
@@ -216,7 +217,7 @@ function ServiceDirectory({
   }
 
   if (directory.isPending) {
-    return <p className="mt-3" role="status">Loading services…</p>;
+    return <LoadingStatus className="mt-3">Loading services…</LoadingStatus>;
   }
   if (directory.isError) {
     return (
@@ -262,7 +263,7 @@ function ServiceDirectory({
         <p role="alert">This service was not found at this clinic.</p>
       ) : (
         <div className="mt-4 space-y-3">
-          {detail.isPending && <p role="status">Loading service details…</p>}
+          {detail.isPending && <LoadingStatus>Loading service details…</LoadingStatus>}
           {detail.isError && (
             <div>
               <p role="alert">{serviceError(detail.error, "Unable to load service details.")}</p>
@@ -311,7 +312,7 @@ function ServiceDirectory({
                       }
                     }}
                   >
-                    <ActionIcon name="trash" />
+                    {change.isPending ? <Spinner /> : <ActionIcon name="trash" />}
                     {change.isPending ? "Deleting…" : "Delete service"}
                   </button>
                 </div>

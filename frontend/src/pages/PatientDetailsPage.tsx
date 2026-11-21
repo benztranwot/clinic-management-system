@@ -1,8 +1,9 @@
+import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { deletePatient, getPatient, PatientRequestError, type PatientSummary } from "../api/patients";
+import { deletePatient, getPatient, PatientRequestError } from "../api/patients";
 import PatientForm from "../features/patients/components/PatientForm";
 import { ActionIcon } from "../components/ActionIcon";
 
@@ -47,28 +48,19 @@ function PatientDetails({
       await deletePatient(accessToken, patientId);
     },
     retry: false,
-    onSuccess: async (_, patientId) => {
+    onSuccess: async () => {
       // Drop the deleted record from the cache only after the API confirms it.
       queryClient.removeQueries({
         queryKey: ["patient", userId, publicId],
         exact: true,
       });
-      queryClient.setQueryData<{ patients: PatientSummary[]; canManage: boolean }>(
-        ["patients", userId],
-        (current) => current && {
-          ...current,
-          patients: current.patients.filter((patient) => patient.publicId !== patientId),
-        },
-      );
-      await queryClient.invalidateQueries({
-        queryKey: ["patients", userId],
-        exact: true,
-      });
+      // Deletion can shift every page; discard list caches and reload on return.
+      queryClient.removeQueries({ queryKey: ["patients", userId] });
     },
   });
 
   if (query.isPending) {
-    return <p className="mt-3" role="status">Loading patient details…</p>;
+    return <LoadingStatus className="mt-3">Loading patient details…</LoadingStatus>;
   }
 
   if (query.isError) {
@@ -151,8 +143,8 @@ function PatientDetails({
     const detailsPath = "/patients/" + publicId;
     return (
       <PatientForm userId={userId} patient={patient}
-        onCancel={() => void navigate(detailsPath)}
-        onSaved={() => void navigate(detailsPath, { replace: true, state: { patientUpdated: true } })} />
+        onCancel={() => void navigate(detailsPath, { state })}
+        onSaved={() => void navigate(detailsPath, { replace: true, state: { ...state, patientUpdated: true } })} />
     );
   }
   return (
@@ -164,14 +156,14 @@ function PatientDetails({
       </dl>
       {canManage && (
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link className="workspace-button" to={"/patients/" + publicId + "/edit"}><ActionIcon name="pencil" />Edit patient</Link>
+          <Link className="workspace-button" state={state} to={"/patients/" + publicId + "/edit"}><ActionIcon name="pencil" />Edit patient</Link>
           <button
             type="button"
             disabled={deletion.isPending}
             data-variant="danger"
             onClick={handleDelete}
           >
-            <ActionIcon name="trash" />
+            {deletion.isPending ? <Spinner /> : <ActionIcon name="trash" />}
             {deletion.isPending ? "Deleting…" : "Delete patient"}
           </button>
         </div>
@@ -195,6 +187,7 @@ function PatientDetails({
 }
 
 function PatientDetailsPage({ edit = false }: { edit?: boolean }) {
+  const { state } = useLocation();
   const { user } = useAuth0();
   const { publicId } = useParams<"publicId">();
 
@@ -203,11 +196,13 @@ function PatientDetailsPage({ edit = false }: { edit?: boolean }) {
       aria-labelledby="patient-details-heading"
       className="workspace-panel mx-auto w-full max-w-4xl space-y-4"
     >
-      <Link to={edit && publicId ? "/patients/" + publicId : "/patients"} className="workspace-button" data-variant="secondary">
-        <ActionIcon name="back" />
-        {edit ? "Back to patient" : "Back to patients"}
-      </Link>
-      <h1 id="patient-details-heading" className="page-title">{edit ? "Edit patient" : "Patient details"}</h1>
+      <div className="page-heading">
+        <h1 id="patient-details-heading" className="page-title">{edit ? "Edit patient" : "Patient details"}</h1>
+        <Link state={edit ? state : state?.listReturn?.state} to={edit && publicId ? "/patients/" + publicId : { pathname: "/patients", search: state?.listReturn?.search }} className="workspace-button" data-variant="secondary">
+          <ActionIcon name="back" />
+          {edit ? "Back to patient" : "Back to patients"}
+        </Link>
+      </div>
       {user?.sub && publicId ? (
         <PatientDetails key={publicId + ":" + edit} userId={user.sub} publicId={publicId} edit={edit} />
       ) : (
