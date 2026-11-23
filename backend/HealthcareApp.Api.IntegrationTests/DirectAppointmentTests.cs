@@ -226,6 +226,56 @@ public class DirectAppointmentTests
                 Assert.Single(upcoming.EnumerateArray()).GetProperty("publicId").GetGuid());
 
             var searchUrl = AppointmentsUrl + "/upcoming/search";
+
+            // Another clinic's booking must not appear in either search rows or totals.
+            var outsideBooking = new Appointment
+            {
+                PatientId = firstPatient.Id,
+                ClinicalServiceId = outsideService.Id,
+                ProviderId = outsideProvider.Id,
+                BookedByAppAccountId = staff.Id,
+                StartUtc = start.AddHours(2),
+                CreatedAtUtc = now,
+            };
+            db.Appointments.Add(outsideBooking);
+            await db.SaveChangesAsync();
+
+            using var scopedSearch = await client.PostAsJsonAsync(searchUrl, new { page = 1 });
+            Assert.Equal(HttpStatusCode.OK, scopedSearch.StatusCode);
+            var scopedPage = await scopedSearch.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(1, scopedPage.GetProperty("totalCount").GetInt32());
+            Assert.Equal(body.GetProperty("publicId").GetGuid(),
+                Assert.Single(scopedPage.GetProperty("items").EnumerateArray()).GetProperty("publicId").GetGuid());
+
+            using var outsideSearch = await client.PostAsJsonAsync(searchUrl, new { clinic = outsideClinic.Name });
+            Assert.Equal(HttpStatusCode.OK, outsideSearch.StatusCode);
+            var outsidePage = await outsideSearch.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(0, outsidePage.GetProperty("totalCount").GetInt32());
+            Assert.Empty(outsidePage.GetProperty("items").EnumerateArray());
+
+            // An inaccessible clinic's conflict must not leak through the badge count.
+            var outsideBlock = new ProviderTimeOff
+            {
+                ProviderId = outsideProvider.Id,
+                StartUtc = outsideBooking.StartUtc,
+                EndUtc = outsideBooking.StartUtc.AddMinutes(30),
+            };
+            db.ProviderTimeOff.Add(outsideBlock);
+            await db.SaveChangesAsync();
+
+            using var scopedCount = await client.GetAsync(AppointmentsUrl + "/needs-attention/count");
+            Assert.Equal(HttpStatusCode.OK, scopedCount.StatusCode);
+            var countBody = await scopedCount.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(0, countBody.GetProperty("count").GetInt32());
+            using var scopedConflicts = await client.PostAsJsonAsync(AppointmentsUrl + "/needs-attention/search", new { page = 1 });
+            Assert.Equal(HttpStatusCode.OK, scopedConflicts.StatusCode);
+            var conflictResult = await scopedConflicts.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(0, conflictResult.GetProperty("totalCount").GetInt32());
+            Assert.Empty(conflictResult.GetProperty("items").EnumerateArray());
+
+            db.Appointments.Remove(outsideBooking);
+            db.ProviderTimeOff.Remove(outsideBlock);
+            await db.SaveChangesAsync();
             using var match = await client.PostAsJsonAsync(searchUrl, new
             {
                 Clinic = detail.GetProperty("clinicName").GetString(),
@@ -269,6 +319,10 @@ public class DirectAppointmentTests
             Assert.Equal(HttpStatusCode.Forbidden, deniedUpcoming.StatusCode);
             using var deniedSearch = await client.PostAsJsonAsync(searchUrl, new { });
             Assert.Equal(HttpStatusCode.Forbidden, deniedSearch.StatusCode);
+            using var deniedConflicts = await client.PostAsJsonAsync(AppointmentsUrl + "/needs-attention/search", new { page = 1 });
+            Assert.Equal(HttpStatusCode.Forbidden, deniedConflicts.StatusCode);
+            using var deniedCount = await client.GetAsync(AppointmentsUrl + "/needs-attention/count");
+            Assert.Equal(HttpStatusCode.Forbidden, deniedCount.StatusCode);
             using var deniedMove = await client.PutAsJsonAsync(rescheduleUrl, move);
             Assert.Equal(HttpStatusCode.NotFound, deniedMove.StatusCode);
 
