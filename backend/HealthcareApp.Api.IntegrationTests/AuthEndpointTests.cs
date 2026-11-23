@@ -31,6 +31,7 @@ public class AuthEndpointTests
 
         // Confirm anonymous access is rejected.
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
 
         // Confirm the API challenges the caller to provide a bearer token.
         Assert.Contains(
@@ -45,6 +46,10 @@ public class AuthEndpointTests
     [InlineData("WrongIssuer", HttpStatusCode.Unauthorized)]
     [InlineData("WrongAudience", HttpStatusCode.Unauthorized)]
     [InlineData("Expired", HttpStatusCode.Unauthorized)]
+    [InlineData("NotYetValid", HttpStatusCode.Unauthorized)]
+    [InlineData("MissingExpiration", HttpStatusCode.Unauthorized)]
+    [InlineData("Unsigned", HttpStatusCode.Unauthorized)]
+    [InlineData("WrongAlgorithm", HttpStatusCode.Unauthorized)]
     public async Task GetAuthCheck_TokenValidation_ReturnsExpectedStatus(
         string scenario,
         HttpStatusCode expectedStatus
@@ -68,22 +73,40 @@ public class AuthEndpointTests
 
         // Change one token property for each invalid scenario.
         var now = DateTime.UtcNow;
-        var token = new JsonWebTokenHandler().CreateToken(
+
+        // Prevent the test helper from automatically adding a missing expiration.
+        var tokenHandler = new JsonWebTokenHandler { SetDefaultTimesOnTokenCreation = false };
+
+        var token = tokenHandler.CreateToken(
             new SecurityTokenDescriptor
             {
                 Issuer = scenario == "WrongIssuer" ? "https://untrusted.integration.test/" : issuer,
+
                 Audience = scenario == "WrongAudience" ? "another-api" : audience,
+
                 Subject = new ClaimsIdentity([new Claim("sub", "auth0|integration-test-user")]),
+
                 IssuedAt = now.AddHours(-1),
-                NotBefore = now.AddHours(-1),
 
-                // Expire well beyond the default clock-skew allowance.
-                Expires = scenario == "Expired" ? now.AddMinutes(-10) : now.AddMinutes(5),
+                NotBefore = scenario == "NotYetValid" ? now.AddMinutes(10) : now.AddHours(-1),
 
-                SigningCredentials = new SigningCredentials(
-                    scenario == "WrongSigningKey" ? untrustedSigningKey : signingKey,
-                    SecurityAlgorithms.RsaSha256
-                ),
+                Expires = scenario switch
+                {
+                    "Expired" => now.AddMinutes(-10),
+                    "NotYetValid" => now.AddMinutes(30),
+                    "MissingExpiration" => null,
+                    _ => now.AddMinutes(5),
+                },
+
+                SigningCredentials =
+                    scenario == "Unsigned"
+                        ? null
+                        : new SigningCredentials(
+                            scenario == "WrongSigningKey" ? untrustedSigningKey : signingKey,
+                            scenario == "WrongAlgorithm"
+                                ? SecurityAlgorithms.RsaSha512
+                                : SecurityAlgorithms.RsaSha256
+                        ),
             }
         );
 
@@ -125,6 +148,7 @@ public class AuthEndpointTests
         using var response = await client.GetAsync("/api/auth/check");
 
         Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
 
         if (expectedStatus == HttpStatusCode.OK)
         {

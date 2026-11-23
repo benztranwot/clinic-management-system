@@ -1,6 +1,7 @@
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Endpoints;
+using HealthcareApp.Api.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 
@@ -60,7 +61,26 @@ builder
 // Register the application's permission-based authorization policies.
 builder.Services.AddApiAuthorization();
 
+builder.Services.AddApiRateLimiting();
+
 var app = builder.Build();
+
+// Apply the privacy policy to every API response, including errors.
+app.Use(
+    async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/api"))
+        {
+            context.Response.OnStarting(() =>
+            {
+                context.Response.Headers.CacheControl = "no-store";
+                return Task.CompletedTask;
+            });
+        }
+
+        await next(context);
+    }
+);
 
 // Handle unexpected failures from the request pipeline.
 app.UseExceptionHandler(
@@ -81,25 +101,31 @@ app.UseExceptionHandler(
 app.UseStatusCodePages(context =>
 {
     var http = context.HttpContext;
-    if (http.Response.StatusCode != StatusCodes.Status404NotFound
+    if (
+        http.Response.StatusCode != StatusCodes.Status404NotFound
         || http.GetEndpoint() is not null
-        || !http.Request.Path.StartsWithSegments("/api"))
+        || !http.Request.Path.StartsWithSegments("/api")
+    )
     {
         return Task.CompletedTask;
     }
 
-    return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "API route not found.").ExecuteAsync(http);
+    return Results
+        .Problem(statusCode: StatusCodes.Status404NotFound, title: "API route not found.")
+        .ExecuteAsync(http);
 });
 
 // Authenticate the caller before evaluating authorization requirements.
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 // Define a simple response at the root URL.
 app.MapGet("/", () => "Hello World!");
 
 // Define a health route that shows the API is responding.
-app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }))
+    .DisableRateLimiting();
 
 // Define a protected route for checking access-token authentication.
 app.MapGet("/api/auth/check", () => Results.Ok(new { message = "Authentication succeeded." }))

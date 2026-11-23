@@ -49,6 +49,7 @@ public class ErrorHandlingTests
         // Prove the intended failure occurred, rather than an unrelated startup error.
         Assert.True(failure.Triggered);
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
 
         var responseText = await response.Content.ReadAsStringAsync();
@@ -77,6 +78,7 @@ public class ErrorHandlingTests
         using var response = await client.PostAsync("/api/clinics", content);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
     }
 
     private sealed class FailingConnectionInterceptor : DbConnectionInterceptor

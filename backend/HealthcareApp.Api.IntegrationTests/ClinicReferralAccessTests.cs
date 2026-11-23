@@ -150,6 +150,8 @@ public class ClinicReferralAccessTests
             tokens.AuthorizeSubject(client, frontDeskSubject, "read:referrals");
             using var crossClinic = await client.GetAsync(otherClinicUrl);
             Assert.Equal(HttpStatusCode.Forbidden, crossClinic.StatusCode);
+            using var crossClinicSearch = await client.PostAsJsonAsync(otherClinicUrl + "/search", new { page = 1 });
+            Assert.Equal(HttpStatusCode.Forbidden, crossClinicSearch.StatusCode);
             using var crossClinicDetail = await client.GetAsync($"{otherClinicUrl}/{otherReferral.PublicId}");
             Assert.Equal(HttpStatusCode.Forbidden, crossClinicDetail.StatusCode);
 
@@ -162,6 +164,20 @@ public class ClinicReferralAccessTests
             Assert.Equal(HttpStatusCode.Forbidden, patientRequest.StatusCode);
             using var patientDetail = await client.GetAsync($"{clinicUrl}/{referral.PublicId}");
             Assert.Equal(HttpStatusCode.Forbidden, patientDetail.StatusCode);
+            using var patientSearch = await client.PostAsJsonAsync(clinicUrl + "/search", new { page = 1 });
+            Assert.Equal(HttpStatusCode.Forbidden, patientSearch.StatusCode);
+
+            // A linked patient cannot use staff searches, conflict counts, or booking options.
+            foreach (var path in new[] { "/api/appointments/upcoming/search", "/api/appointments/needs-attention/search" })
+            {
+                using var denied = await client.PostAsJsonAsync(path, new { page = 1 });
+                Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            }
+            foreach (var path in new[] { "/api/appointments/needs-attention/count", "/api/appointments/booking-options" })
+            {
+                using var denied = await client.GetAsync(path);
+                Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            }
 
             tokens.AuthorizeSubject(client, administratorSubject);
             await AssertSingleReferralAsync(client, otherClinicUrl, otherReferral.PublicId);
@@ -193,5 +209,14 @@ public class ClinicReferralAccessTests
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         var row = Assert.Single(body.EnumerateArray());
         Assert.Equal(publicId, row.GetProperty("publicId").GetGuid());
+
+        // The paginated search must expose the same clinic-scoped rows and count.
+        using var search = await client.PostAsJsonAsync(url + "/search", new { page = 1 });
+        Assert.Equal(HttpStatusCode.OK, search.StatusCode);
+        Assert.True(search.Headers.CacheControl?.NoStore == true);
+        var page = await search.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(1, page.GetProperty("totalCount").GetInt32());
+        Assert.False(page.GetProperty("hasMore").GetBoolean());
+        Assert.Equal(publicId, Assert.Single(page.GetProperty("items").EnumerateArray()).GetProperty("publicId").GetGuid());
     }
 }

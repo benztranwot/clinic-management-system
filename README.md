@@ -12,20 +12,30 @@ Use Docker Desktop with Linux containers on an Intel or AMD x86-64 machine. The 
    Copy-Item -LiteralPath .env.example -Destination .env
    ```
 
-   Fill in the Auth0 SPA's domain and client ID, the custom API's audience, and a unique SQL Server password. Put the SQL password in single quotes in the file if it contains a dollar sign or spaces. Avoid single and double quotes in the password. Use the SPA's public configuration only. The root `.env` is ignored by Git.
+   Fill in the Auth0 SPA's domain and client ID, the custom API's audience, and different unique passwords for `MSSQL_SA_PASSWORD` and `MSSQL_APP_PASSWORD`. The migration service uses the administrator password; the API uses the restricted application login. Put each SQL password in single quotes in the file if it contains a dollar sign or spaces. Avoid single and double quotes within the password itself. Use the SPA's public configuration only. The root `.env` is ignored by Git.
 
 2. In the Auth0 SPA's settings, add `http://localhost:8080` to **Allowed Callback URLs**, **Allowed Logout URLs**, and **Allowed Web Origins**. Keep any existing Vite entries. For the demo API, enable RBAC and **Add Permissions in the Access Token**. Use an account with your app's administrator permissions for the walkthrough.
 
-3. Start the stack, check the API through the web server, and optionally load the demo records.
+3. On a fresh database, start SQL Server, apply migrations, and create the restricted application login before starting the API.
+
+   ```powershell
+   docker compose up -d --wait --wait-timeout 180 db
+   docker compose run --build --rm migrate
+   .\scripts\Initialize-DatabaseUser.ps1
+   ```
+
+   Check that each command succeeds before continuing. At the password prompt, enter the same `MSSQL_APP_PASSWORD` saved in `.env`. The helper creates or updates `clinic_app`, grants its table permissions, and displays effective-permission checks. It does not save the password in a SQL file or change application account links. If you intentionally use another Compose project name, pass it with `-ProjectName`.
+
+4. Start the full stack, check the API through the web server, and optionally load the demo records.
 
    ```powershell
    docker compose up --build -d --wait --wait-timeout 180
    docker compose ps -a
    Invoke-RestMethod http://localhost:8080/api/health
-   docker compose exec db sh -c 'SQLCMDPASSWORD=$MSSQL_SA_PASSWORD /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -I -d HealthcareApp_Dev -i /seed/SeedDemoData.sql,/seed/SeedScaleData.sql'
+   docker compose exec db sh -c 'SQLCMDPASSWORD=$MSSQL_SA_PASSWORD /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -I -x -d HealthcareApp_Dev -i /seed/SeedDemoData.sql,/seed/SeedScaleData.sql'
    ```
 
-   Compose runs EF Core migrations after SQL Server becomes ready. The `migrate` service should exit with code 0. If startup fails, inspect `docker compose logs db migrate api web`. Rebuild the web image when you change the Auth0 settings in `.env`.
+   Compose runs EF Core migrations after SQL Server becomes ready. The `migrate` service should exit with code 0. If startup fails, inspect `docker compose logs db migrate api web`. Rebuild the web image when you change the Auth0 settings in `.env`. The named SQL volume preserves the application login; routine starts do not need the setup helper. After changing `MSSQL_APP_PASSWORD`, rerun the helper with the matching value and recreate the API container.
 
    The seed keeps the Northside workflow examples and adds 5 clinics, 25 providers,
    20 services, 250 patients, 300 referrals, and 1,000 appointments to the same demo
@@ -55,6 +65,10 @@ QUIT
 Sign in at `http://localhost:8080` and check that the referral queue and Northside Family Clinic load. A request to `/api/me` without a token should return 401.
 
 Run `docker compose down` when finished. The named volume keeps the demo data and account links. The Windows development workflow with Vite, ASP.NET Core, and LocalDB is also available. See [local database setup](backend/database/README.md).
+
+## Security controls
+
+The API uses a restricted database login, validates Auth0 access tokens, and applies permission and account/clinic checks on protected routes. API responses use `Cache-Control: no-store`. nginx supplies baseline security headers and a 64 KiB request-body limit. Authenticated API traffic is limited to 120 requests per minute per issuer/subject pair, per API instance; health checks are exempt. See [local security controls](backend/database/Security.md) for grants, validation commands, and deployment limitations.
 
 ## Workspace lists
 

@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -18,6 +18,7 @@ public class HealthEndpointTests
 
         // Assert: verify the HTTP status and JSON body.
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("ok", body.GetProperty("status").GetString());
@@ -32,6 +33,7 @@ public class HealthEndpointTests
         using var response = await client.GetAsync("/api/unknown-route");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(404, body.GetProperty("status").GetInt32());
@@ -47,5 +49,6 @@ public class HealthEndpointTests
         using var response = await client.PostAsync("/api/health", content: null);
 
         Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
     }
 }

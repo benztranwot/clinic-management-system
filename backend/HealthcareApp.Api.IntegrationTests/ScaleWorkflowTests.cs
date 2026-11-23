@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,7 +25,17 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
         await using var signedFactory = tokens.CreateFactory(factory);
         await using var configured = signedFactory.WithWebHostBuilder(builder =>
             builder.ConfigureTestServices(services =>
-                services.AddSingleton<TimeProvider>(new FixedClock(now))));
+            {
+                services.AddSingleton<TimeProvider>(new FixedClock(now));
+
+                // Repeated scale measurements deliberately exceed normal user quotas.
+                // Override only this host; RateLimitingTests verify production limits.
+                services.PostConfigure<RateLimiterOptions>(options =>
+                {
+                    options.GlobalLimiter?.Dispose();
+                    options.GlobalLimiter = null;
+                });
+            }));
         using var client = configured.CreateClient();
         await using var scope = configured.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();

@@ -12,7 +12,11 @@ services:
       - ./backend/database/SeedDemoData.sql:/seed/SeedDemoData.sql:ro
       - ./backend/database/SeedScaleData.sql:/seed/SeedScaleData.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 3 -Q 'SELECT 1'"]
+      test:
+        [
+          "CMD-SHELL",
+          'SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 3 -Q ''SELECT 1''',
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -23,7 +27,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       target: migrations
-    environment: &api-environment
+    environment:
       Auth0__Authority: https://${AUTH0_DOMAIN:?Set AUTH0_DOMAIN in the root .env}/
       Auth0__Audience: ${AUTH0_AUDIENCE:?Set AUTH0_AUDIENCE in the root .env}
       ConnectionStrings__HealthcareDatabase: 'Server=db,1433;Database=HealthcareApp_Dev;User ID=sa;Password="${MSSQL_SA_PASSWORD}";Encrypt=True;TrustServerCertificate=True'
@@ -37,7 +41,9 @@ services:
       dockerfile: backend/Dockerfile
       target: runtime
     environment:
-      <<: *api-environment
+      Auth0__Authority: https://${AUTH0_DOMAIN:?Set AUTH0_DOMAIN in the root .env}/
+      Auth0__Audience: ${AUTH0_AUDIENCE:?Set AUTH0_AUDIENCE in the root .env}
+      ConnectionStrings__HealthcareDatabase: 'Server=db,1433;Database=HealthcareApp_Dev;User ID=clinic_app;Password="${MSSQL_APP_PASSWORD:?Set MSSQL_APP_PASSWORD in the root .env}";Encrypt=True;TrustServerCertificate=True'
       ASPNETCORE_HTTP_PORTS: "8080"
     depends_on:
       migrate:
@@ -55,7 +61,8 @@ services:
     depends_on:
       - api
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"]
+      test:
+        ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"]
       interval: 5s
       timeout: 3s
       retries: 12
