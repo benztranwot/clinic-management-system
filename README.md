@@ -70,6 +70,12 @@ Run `docker compose down` when finished. The named volume keeps the demo data an
 
 The API uses a restricted database login, validates Auth0 access tokens, and applies permission and account/clinic checks on protected routes. API responses use `Cache-Control: no-store`. nginx supplies baseline security headers and a 64 KiB request-body limit. Authenticated API traffic is limited to 120 requests per minute per issuer/subject pair, per API instance; health checks are exempt. See [local security controls](backend/database/Security.md) for grants, validation commands, and deployment limitations.
 
+## Authentication and email confirmation
+
+Sign-in uses Auth0 with rotating refresh tokens and the SDK's persistent browser cache so refreshes and other tabs can restore the session. Signing out clears the application's cached records and the Auth0 SDK cache. Browser storage is accessible to page JavaScript, so the deployed script-source policy and XSS protections remain part of hosting verification.
+
+Existing administrator-managed account links retain access. For an unlinked sign-in, the server reads the matching Auth0 UserInfo profile. Auth0 handles verification codes; the application accepts trusted verified emails and keeps workspace access separate from verification. Unverified accounts receive provider-verification guidance, while confirmed accounts wait for workspace provisioning. See [authentication setup](backend/database/Authentication.md) for configuration and validation.
+
 ## Workspace lists
 
 Referrals load 10 records per page, clinics and patients load 16, and upcoming appointments and availability conflicts load 8. Filters run on the server before paging. Each search returns `{ items, page, pageSize, totalCount, hasMore }` and uses `Cache-Control: no-store`.

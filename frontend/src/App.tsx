@@ -1,4 +1,6 @@
 import LoadingStatus from "./components/LoadingStatus";
+import AccountOnboardingPanel from "./auth/AccountOnboardingPanel";
+import { ReferralRequestError } from "./api/referrals";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Navigate, Outlet, Route, Routes, useParams } from "react-router";
@@ -106,6 +108,8 @@ function App() {
   const accountQuery = useReferralAccount(userId);
   const account = accountQuery.isSuccess ? accountQuery.data.account : undefined;
   const loadingWorkspace = accountQuery.isPending;
+  const needsOnboarding = signedIn && !isRedirecting && accountQuery.isError
+    && accountQuery.error instanceof ReferralRequestError && accountQuery.error.status === 403;
   const patientOnly = Boolean(account?.patientPublicId && !account.isAdministrator && account.memberships.length === 0);
   const homePath = accountQuery.isSuccess ? (patientOnly ? "/my-referrals" : "/referrals") : "/";
 
@@ -128,6 +132,9 @@ function App() {
           <p role="alert">We couldn’t complete sign-in. Please try again.</p>
           <a className="workspace-link" href="/">Return to the homepage</a>
         </section>
+      ) : needsOnboarding && userId ? (
+        <AccountOnboardingPanel userId={userId} checkingAccess={accountQuery.isFetching}
+          onCheckAccess={() => void accountQuery.refetch()} />
       ) : (!signedIn || !isRedirecting) && (
         <Suspense fallback={<LoadingStatus>Loading page...</LoadingStatus>}>
         <Routes>
