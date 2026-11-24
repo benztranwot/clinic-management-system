@@ -1,4 +1,4 @@
-// Remove entries written by older versions before Auth0 initializes its in-memory cache.
+// Remove entries written by older versions before Auth0 initializes its cache.
 export function clearLegacyAuthSessionCache(browser: Window) {
   try {
     const storage = browser.sessionStorage;

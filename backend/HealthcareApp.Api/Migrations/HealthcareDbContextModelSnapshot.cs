@@ -138,7 +138,7 @@ namespace HealthcareApp.Api.Migrations
                         {
                             t.HasCheckConstraint("CK_Appointments_Status", "[Status] IN (1, 2, 3)");
 
-                            t.HasCheckConstraint("CK_Appointments_UtcSlot", "DATEPART(TZOFFSET, [StartUtc]) = 0\nAND DATEPART(MINUTE, [StartUtc]) % 30 = 0\nAND DATEPART(SECOND, [StartUtc]) = 0\nAND DATEPART(NANOSECOND, [StartUtc]) = 0");
+                            t.HasCheckConstraint("CK_Appointments_UtcSlot", "DATEPART(TZOFFSET, [StartUtc]) = 0\r\nAND DATEPART(MINUTE, [StartUtc]) % 30 = 0\r\nAND DATEPART(SECOND, [StartUtc]) = 0\r\nAND DATEPART(NANOSECOND, [StartUtc]) = 0");
                         });
                 });
 
@@ -375,11 +375,11 @@ namespace HealthcareApp.Api.Migrations
 
                     b.ToTable("ProviderWeeklyHours", t =>
                         {
-                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Break", "([BreakStartMinute] IS NULL AND [BreakEndMinute] IS NULL)\nOR ([BreakStartMinute] IS NOT NULL AND [BreakEndMinute] IS NOT NULL\n    AND [StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\n    AND [StartMinute] < [BreakStartMinute]\n    AND [BreakStartMinute] < [BreakEndMinute]\n    AND [BreakEndMinute] < [EndMinute]\n    AND [BreakStartMinute] % 30 = 0\n    AND [BreakEndMinute] % 30 = 0)");
+                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Break", "([BreakStartMinute] IS NULL AND [BreakEndMinute] IS NULL)\r\nOR ([BreakStartMinute] IS NOT NULL AND [BreakEndMinute] IS NOT NULL\r\n    AND [StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\r\n    AND [StartMinute] < [BreakStartMinute]\r\n    AND [BreakStartMinute] < [BreakEndMinute]\r\n    AND [BreakEndMinute] < [EndMinute]\r\n    AND [BreakStartMinute] % 30 = 0\r\n    AND [BreakEndMinute] % 30 = 0)");
 
                             t.HasCheckConstraint("CK_ProviderWeeklyHours_Day", "[DayOfWeek] BETWEEN 0 AND 6");
 
-                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Window", "([StartMinute] IS NULL AND [EndMinute] IS NULL)\nOR ([StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\n    AND [StartMinute] >= 0 AND [EndMinute] <= 1440\n    AND [StartMinute] < [EndMinute]\n    AND [StartMinute] % 30 = 0 AND [EndMinute] % 30 = 0)");
+                            t.HasCheckConstraint("CK_ProviderWeeklyHours_Window", "([StartMinute] IS NULL AND [EndMinute] IS NULL)\r\nOR ([StartMinute] IS NOT NULL AND [EndMinute] IS NOT NULL\r\n    AND [StartMinute] >= 0 AND [EndMinute] <= 1440\r\n    AND [StartMinute] < [EndMinute]\r\n    AND [StartMinute] % 30 = 0 AND [EndMinute] % 30 = 0)");
                         });
                 });
 

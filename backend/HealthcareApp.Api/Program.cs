@@ -43,6 +43,13 @@ var auth0Audience =
     builder.Configuration["Auth0:Audience"]
     ?? throw new InvalidOperationException("Auth0 audience is missing.");
 
+// Read the email profile only from the configured identity provider.
+builder.Services.AddHttpClient<Auth0EmailProfileClient>(client =>
+{
+    client.BaseAddress = new Uri(auth0Authority.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+
 // Validate bearer tokens issued by Auth0 for this API.
 builder
     .Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -133,6 +140,7 @@ app.MapGet("/api/auth/check", () => Results.Ok(new { message = "Authentication s
 
 // Register the route for the signed-in user's account.
 app.MapAccountEndpoints();
+app.MapAccountOnboardingEndpoints();
 
 // Register the clinic CRUD routes.
 app.MapClinicEndpoints();

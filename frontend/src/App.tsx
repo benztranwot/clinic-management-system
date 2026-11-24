@@ -1,5 +1,8 @@
 import LoadingStatus from "./components/LoadingStatus";
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import AccountOnboardingPanel from "./auth/AccountOnboardingPanel";
+import { broadcastSignOut, subscribeToSignOut } from "./auth/sessionSignOut";
+import { ReferralRequestError } from "./api/referrals";
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Navigate, Outlet, Route, Routes, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -78,26 +81,33 @@ function App() {
     }
   }
 
-  // End the application session and return to the homepage.
-  async function handleSignOut() {
+  // Receiving tabs clear their local session without starting another hosted logout.
+  const handleSignOut = useCallback(async (localOnly = false) => {
     setActionError(null);
     setIsRedirecting(true);
 
     try {
-      // Cancel pending requests and remove cached records before signing out.
       await queryClient.cancelQueries();
       queryClient.clear();
 
-      await logout({
-        logoutParams: {
-          returnTo: window.location.origin,
-        },
-      });
+      if (localOnly) {
+        await logout({ openUrl: false });
+        setIsRedirecting(false);
+      } else {
+        broadcastSignOut(window);
+        await logout({
+          logoutParams: { returnTo: window.location.origin },
+        });
+      }
     } catch {
       setActionError("Unable to sign out. Please try again.");
       setIsRedirecting(false);
     }
-  }
+  }, [logout, queryClient]);
+
+  useEffect(() => subscribeToSignOut(window, () => {
+    void handleSignOut(true);
+  }), [handleSignOut]);
 
   const signedIn = isAuthenticated && !isLoading && !error;
   const accountName = signedIn ? user?.name?.trim() || user?.nickname?.trim() || user?.email?.trim() || "Signed in" : undefined;
@@ -106,6 +116,8 @@ function App() {
   const accountQuery = useReferralAccount(userId);
   const account = accountQuery.isSuccess ? accountQuery.data.account : undefined;
   const loadingWorkspace = accountQuery.isPending;
+  const needsOnboarding = signedIn && !isRedirecting && accountQuery.isError
+    && accountQuery.error instanceof ReferralRequestError && accountQuery.error.status === 403;
   const patientOnly = Boolean(account?.patientPublicId && !account.isAdministrator && account.memberships.length === 0);
   const homePath = accountQuery.isSuccess ? (patientOnly ? "/my-referrals" : "/referrals") : "/";
 
@@ -128,6 +140,9 @@ function App() {
           <p role="alert">We couldn’t complete sign-in. Please try again.</p>
           <a className="workspace-link" href="/">Return to the homepage</a>
         </section>
+      ) : needsOnboarding && userId ? (
+        <AccountOnboardingPanel userId={userId} checkingAccess={accountQuery.isFetching}
+          onCheckAccess={() => void accountQuery.refetch()} />
       ) : (!signedIn || !isRedirecting) && (
         <Suspense fallback={<LoadingStatus>Loading page...</LoadingStatus>}>
         <Routes>

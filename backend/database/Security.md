@@ -27,6 +27,8 @@ Global directory and referral routes use explicit token permissions. These are g
 
 Paginated searches retain these rules. Counts are calculated from the access-filtered query. Direct-booking options are restricted to scheduling clinics and services allowing direct booking.
 
+Auth0 handles email verification. For unlinked identities, the API reads the matching Auth0 UserInfo profile and accepts only a trusted verified email. Verification does not create accounts or grant workspace roles. See [authentication](Authentication.md) for setup and checks.
+
 ## HTTP protections
 
 API responses use `Cache-Control: no-store`, including application error responses. nginx adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`.
