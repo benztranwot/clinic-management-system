@@ -1,3 +1,4 @@
+import { useWorkspacePermission } from "../auth/useWorkspacePermission";
 import LoadingStatus from "../components/LoadingStatus";
 import DirectoryFilters from "../components/DirectoryFilters";
 import WorkspacePagination from "../components/WorkspacePagination";
@@ -16,6 +17,7 @@ function PatientList({ userId, create }: { userId: string; create: boolean }) {
   const location = useLocation();
   const list = useListSearch("patients", userId, { firstName: "", lastName: "", dateOfBirth: "" });
   const navigate = useNavigate();
+  const workspaceCanManage = useWorkspacePermission(userId, "manage:patients");
   const { getAccessTokenSilently } = useAuth0();
   const query = useQuery({
     // Isolate each user's records and cancel requests when this page unmounts.
@@ -78,7 +80,8 @@ function PatientList({ userId, create }: { userId: string; create: boolean }) {
     );
   }
 
-  const { patients: results, canManage } = query.data;
+  const { patients: results } = query.data;
+  const canManage = workspaceCanManage || query.data.canManage;
   const patients = results.items;
 
   if (create) {

@@ -1,3 +1,4 @@
+import { useWorkspacePermission } from "../auth/useWorkspacePermission";
 import LoadingStatus from "../components/LoadingStatus";
 import DirectoryFilters from "../components/DirectoryFilters";
 import WorkspacePagination from "../components/WorkspacePagination";
@@ -14,6 +15,7 @@ function ClinicList({ userId, create }: { userId: string; create: boolean }) {
   const location = useLocation();
   const list = useListSearch("clinics", userId, { name: "", address: "", timeZone: "" });
   const navigate = useNavigate();
+  const workspaceCanManage = useWorkspacePermission(userId, "manage:clinics");
   const { getAccessTokenSilently } = useAuth0();
   const query = useQuery({
     // Keep cached clinic data separate for each signed-in user.
@@ -81,7 +83,8 @@ function ClinicList({ userId, create }: { userId: string; create: boolean }) {
     );
   }
 
-  const { clinics: results, canManage } = query.data;
+  const { clinics: results } = query.data;
+  const canManage = workspaceCanManage || query.data.canManage;
   const clinics = results.items;
 
   if (create) {

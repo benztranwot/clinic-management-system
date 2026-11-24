@@ -2,6 +2,8 @@ using System.Net;
 using System.Text.Json;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
+using HealthcareApp.Api.Workspaces;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -13,10 +15,11 @@ public static class AccountOnboardingEndpoints
     public static void MapAccountOnboardingEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/me/onboarding", GetAsync).RequireAuthorization();
+        app.MapPost("/api/me/workspace", CreateWorkspaceAsync).RequireAuthorization();
     }
 
     private static async Task<IResult> GetAsync(HttpContext http, HealthcareDbContext db,
-        Auth0EmailProfileClient profiles, ILoggerFactory loggerFactory, CancellationToken ct)
+        Auth0EmailProfileClient profiles, ILoggerFactory loggerFactory, IOptions<VisitorWorkspaceOptions> options, CancellationToken ct)
     {
         var identity = AccountIdentity.FromPrincipal(http.User);
         if (identity is null) return Results.Challenge();
@@ -40,6 +43,49 @@ public static class AccountOnboardingEndpoints
             {
                 Status = profile.EmailVerified ? "workspace_pending" : "email_confirmation_required",
                 profile.Email,
+                CanCreateWorkspace = profile.EmailVerified && options.Value.Enabled,
+            });
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            return Results.Challenge();
+        }
+        catch (Exception exception) when (!ct.IsCancellationRequested
+            && exception is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            loggerFactory.CreateLogger(typeof(AccountOnboardingEndpoints).FullName!)
+                .LogWarning("Email profile lookup failed ({ExceptionType}).", exception.GetType().Name);
+            return Failure(503, "Could not check your email status. Please try again later.");
+        }
+    }
+
+    private static async Task<IResult> CreateWorkspaceAsync(HttpContext http, HealthcareDbContext db,
+        Auth0EmailProfileClient profiles, VisitorWorkspaceProvisioner provisioner,
+        IOptions<VisitorWorkspaceOptions> options, ILoggerFactory loggerFactory, CancellationToken ct)
+    {
+        var identity = AccountIdentity.FromPrincipal(http.User);
+        if (identity is null) return Results.Challenge();
+        if (await identity.QueryAccounts(db).AnyAsync(ct))
+            return Results.Ok(new { Status = "ready" });
+        if (!options.Value.Enabled)
+            return Failure(503, "Visitor workspaces are currently unavailable.");
+        var token = await http.GetTokenAsync(JwtBearerDefaults.AuthenticationScheme, "access_token");
+        if (string.IsNullOrEmpty(token)) return Results.Challenge();
+
+        try
+        {
+            var profile = await profiles.GetAsync(token, identity.Subject, ct);
+            if (profile is null) return Failure(422, "Your sign-in provider did not share a usable email address.");
+            if (!profile.EmailVerified) return Failure(403, "Verify your email with your sign-in provider before creating a workspace.");
+            var created = await provisioner.CreateAsync(http.User, ct);
+            return created ? Results.Created("/api/me", new { Status = "ready" }) : Results.Ok(new { Status = "ready" });
+        }
+        catch (WorkspaceProvisioningException exception)
+        {
+            if (exception.RetryAfter is int seconds) http.Response.Headers.RetryAfter = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return Results.Problem(statusCode: exception.Status, extensions: new Dictionary<string, object?>
+            {
+                ["code"] = exception.Code, ["message"] = exception.Message,
             });
         }
         catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.Unauthorized)

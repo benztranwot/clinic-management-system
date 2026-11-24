@@ -1,7 +1,7 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import LoadingStatus, { Spinner } from "../components/LoadingStatus";
-import { getAccountOnboarding } from "./accountOnboarding";
+import { createVisitorWorkspace, getAccountOnboarding } from "./accountOnboarding";
 
 export default function AccountOnboardingPanel({ userId, onCheckAccess, checkingAccess }: {
   userId: string;
@@ -9,6 +9,7 @@ export default function AccountOnboardingPanel({ userId, onCheckAccess, checking
   checkingAccess: boolean;
 }) {
   const { getAccessTokenSilently } = useAuth0();
+  const queryClient = useQueryClient();
   const state = useQuery({
     queryKey: ["email-onboarding", userId],
     queryFn: async ({ signal }) => {
@@ -17,6 +18,19 @@ export default function AccountOnboardingPanel({ userId, onCheckAccess, checking
       return getAccountOnboarding(token, signal);
     },
     retry: false,
+  });
+
+  const creation = useMutation({
+    mutationFn: async () => {
+      const token = await getAccessTokenSilently();
+      if (!token) throw new Error("Your session expired. Sign out and sign in again.");
+      return createVisitorWorkspace(token);
+    },
+    retry: false,
+    onSuccess: (ready) => {
+      queryClient.setQueryData(["email-onboarding", userId], ready);
+      onCheckAccess();
+    },
   });
 
   if (state.isPending) return <LoadingStatus>Checking your email status…</LoadingStatus>;
@@ -37,6 +51,16 @@ export default function AccountOnboardingPanel({ userId, onCheckAccess, checking
         <button type="button" disabled={state.isFetching} onClick={() => void state.refetch()}>
           {state.isFetching ? <Spinner /> : null}Check verification
         </button>
+      </> : state.data.status === "workspace_pending" && state.data.canCreateWorkspace ? <>
+        <h1 id="account-onboarding-heading" className="page-title">Create your private workspace</h1>
+        <p>Your email is confirmed. Explore the app with a private copy of the sample clinic records.</p>
+        <p>Your changes stay in your workspace and do not affect other visitors.</p>
+        {creation.isError && <p role="alert">{creation.error.message}</p>}
+        <button type="button" disabled={creation.isPending || checkingAccess}
+          onClick={() => creation.mutate()}>
+          {creation.isPending ? <Spinner /> : null}{creation.isPending ? "Creating workspace…" : "Create my workspace"}
+        </button>
+        {creation.isPending && <p role="status">Preparing your clinic records. This may take a moment.</p>}
       </> : <>
         <h1 id="account-onboarding-heading" className="page-title">
           {state.data.status === "ready" ? "Your account is ready" : "Email confirmed"}

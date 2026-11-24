@@ -1,3 +1,4 @@
+import { useWorkspacePermission } from "../auth/useWorkspacePermission";
 import LoadingStatus from "../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +15,7 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
   const navigate = useNavigate();
   const { state } = useLocation();
   const userId = user?.sub;
+  const workspaceCanManage = useWorkspacePermission(userId, "manage:clinics");
   const detailsPath = "/clinics/" + clinicPublicId;
   const query = useQuery({
     queryKey: ["clinic", userId, clinicPublicId],
@@ -54,7 +56,7 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
           )}
         </div>
       ) : edit ? (
-        query.data.canManage ? (
+        (workspaceCanManage || query.data.canManage) ? (
           <ClinicForm key={clinicPublicId} userId={userId} clinic={query.data.clinic}
             onCancel={() => void navigate(detailsPath, { state })}
             onSaved={() => void navigate(detailsPath, { replace: true, state })} />
@@ -72,7 +74,7 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
             </div>
           </dl>
           <ClinicDirectories userId={userId} clinicId={clinicPublicId} />
-          {query.data.canManage && (
+          {(workspaceCanManage || query.data.canManage) && (
             <div className="flex flex-wrap items-start gap-2 border-t border-panel-border pt-4">
               <Link className="workspace-button" state={state} to={detailsPath + "/edit"}><ActionIcon name="pencil" />Edit clinic</Link>
               <DeleteClinicButton clinic={query.data.clinic} userId={userId} disabled={false}

@@ -1,8 +1,10 @@
 namespace HealthcareApp.Api.Models;
 
 // Store one clinic-local working window for a provider on a day of the week.
-public class ProviderWeeklyHours
+public class ProviderWeeklyHours : IWorkspaceRecord
 {
+    public Guid WorkspaceId { get; set; }
+
     public int ProviderId { get; set; }
 
     // Use the .NET day numbering, where Sunday is 0 and Saturday is 6.

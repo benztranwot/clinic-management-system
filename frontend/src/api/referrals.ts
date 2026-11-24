@@ -16,6 +16,8 @@ export type ReferralStatus = Exclude<keyof typeof referralStatusLabels, "Schedul
 export type ReferralStage = Exclude<keyof typeof referralStatusLabels, "MissingInformation">;
 
 export type ReferralAccount = {
+  isVisitorWorkspace?: boolean;
+  workspacePermissions?: string[];
   isAdministrator: boolean;
   canCreateReferrals: boolean;
   providerPublicId: string | null;

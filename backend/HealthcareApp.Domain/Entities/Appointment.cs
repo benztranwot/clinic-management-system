@@ -1,8 +1,10 @@
 namespace HealthcareApp.Api.Models;
 
 // Record a fixed-length booking for a patient and provider.
-public class Appointment
+public class Appointment : IWorkspaceRecord
 {
+    public Guid WorkspaceId { get; set; }
+
     public const int DurationMinutes = 30;
 
     public int Id { get; set; }

@@ -4,7 +4,7 @@ This document describes the current local demo setup. It is not a claim of produ
 
 ## Database access
 
-The migration service connects as `sa` to apply schema changes. The API connects as `clinic_app`, with object-level permissions for its existing operations. Account links and clinic memberships are read-only to the API. Account provisioning and role assignment use an administrator connection.
+The migration service connects as `sa` to apply schema changes. The API connects as `clinic_app`, with object-level permissions for its existing operations. Direct writes to account links and clinic memberships are denied to the API. Existing-account administration uses an administrator connection. Visitor enrollment has EXECUTE access to one ownership-chained procedure that inserts an owner and clinician membership only into a new non-original workspace, inside the backend copy transaction. It cannot change existing accounts or original-workspace roles.
 
 After migrations, run `scripts/Initialize-DatabaseUser.ps1` from PowerShell. Enter the same password as `MSSQL_APP_PASSWORD` in the root `.env`. The helper creates or updates the login and its database user, applies the grants, and checks effective permissions. Rerunning it sets the login password to the value entered. It does not create another database or change application account links. Unexpected role memberships stop setup for manual review; the helper does not remove roles or revoke arbitrary pre-existing grants.
 
@@ -23,11 +23,15 @@ The API has these database permissions:
 
 The API validates signed Auth0 access tokens, including issuer, audience, expiration, and the RS256 algorithm. An Auth0 login does not automatically create an application account. `/api/me` requires a matching issuer/subject pair in `AppAccounts`.
 
-Global directory and referral routes use explicit token permissions. These are global permissions, not clinic membership limits. Clinic referral routes check the receiving-clinic membership. Appointment scheduling routes check administrator or front-desk access to the clinic. A clinician's ability to complete a visit also depends on the linked provider. Patient routes derive the patient ID from the signed-in account and do not accept another patient's ID as a scope override.
+Original-workspace directory and referral routes use explicit token permissions. An enabled private workspace owner receives the corresponding clinical capabilities only inside its selected workspace; this grants no Auth0 global roles or access to the original dataset. These are global permissions, not clinic membership limits. Clinic referral routes check the receiving-clinic membership. Appointment scheduling routes check administrator or front-desk access to the clinic. A clinician's ability to complete a visit also depends on the linked provider. Patient routes derive the patient ID from the signed-in account and do not accept another patient's ID as a scope override.
 
 Paginated searches retain these rules. Counts are calculated from the access-filtered query. Direct-booking options are restricted to scheduling clinics and services allowing direct booking.
 
-Auth0 handles email verification. For unlinked identities, the API reads the matching Auth0 UserInfo profile and accepts only a trusted verified email. Verification does not create accounts or grant workspace roles. See [authentication](Authentication.md) for setup and checks.
+Auth0 handles email verification. For unlinked identities, the API reads the matching Auth0 UserInfo profile and accepts only a trusted verified email. Verification alone does not create accounts or grant workspace roles. The separate visitor-enrollment operation rechecks verification before creating a private workspace owner. See [authentication](Authentication.md) for setup and checks.
+
+## Workspace ownership
+
+Clinical queries and writes are scoped to the workspace selected from the authenticated account. Composite foreign keys prevent cross-workspace relationships, while backend filters and write guards enforce ownership on API operations. Existing records belong to the original workspace. See [workspace isolation](WorkspaceIsolation.md) for the current rollout and tests.
 
 ## HTTP protections
 

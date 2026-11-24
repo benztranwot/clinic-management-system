@@ -73,12 +73,28 @@ public class ErrorHandlingTests
         );
         tokens.Authorize(client, "manage:clinics");
 
-        // Invalid JSON must remain a client error, not become a server error.
-        using var content = new StringContent("{", Encoding.UTF8, "application/json");
-        using var response = await client.PostAsync("/api/clinics", content);
+        // Workspace selection requires a database even when model binding later fails.
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+        Assert.Equal(@"(localdb)\MSSQLLocalDB", db.Database.GetDbConnection().DataSource);
+        Assert.Equal(factory.DatabaseName, db.Database.GetDbConnection().Database);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.True(response.Headers.CacheControl?.NoStore == true);
+        try
+        {
+            await db.Database.MigrateAsync();
+            // Invalid JSON must remain a client error, not become a server error.
+            using var content = new StringContent("{", Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync("/api/clinics", content);
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.True(response.Headers.CacheControl?.NoStore == true);
+            Assert.False(await db.Clinics.AnyAsync());
+        }
+        finally
+        {
+            await db.Database.EnsureDeletedAsync();
+        }
+
     }
 
     private sealed class FailingConnectionInterceptor : DbConnectionInterceptor

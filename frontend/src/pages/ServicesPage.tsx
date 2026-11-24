@@ -1,3 +1,4 @@
+import { useWorkspacePermission } from "../auth/useWorkspacePermission";
 import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useState, type FormEvent } from "react";
 import { ClinicServicesTable } from "../features/clinics/components/ClinicDirectoryTables";
@@ -112,6 +113,7 @@ function ServiceDirectory({
   clinicPublicId: string;
   selectedId: string | null;
 }) {
+  const workspaceCanManage = useWorkspacePermission(userId, "manage:services");
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -231,7 +233,8 @@ function ServiceDirectory({
     );
   }
 
-  const { clinic, services, canManage } = directory.data;
+  const { clinic, services } = directory.data;
+  const canManage = workspaceCanManage || directory.data.canManage;
   const service = detail.data;
   return (
     <>

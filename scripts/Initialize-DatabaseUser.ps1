@@ -61,7 +61,12 @@ IF EXISTS (
 )
     THROW 51000, 'clinic_app already belongs to a database role. Review its privileges before continuing.', 1;
 
+IF OBJECT_ID(N'dbo.CreateVisitorWorkspaceAccount', N'P') IS NULL
+    THROW 51000, 'Apply the visitor workspace migration first.', 1;
+
 GRANT CONNECT TO [clinic_app];
+GRANT SELECT, INSERT ON OBJECT::dbo.Workspaces TO [clinic_app];
+GRANT EXECUTE ON OBJECT::dbo.CreateVisitorWorkspaceAccount TO [clinic_app];
 GRANT SELECT ON OBJECT::dbo.AppAccounts TO [clinic_app];
 GRANT SELECT ON OBJECT::dbo.ClinicMemberships TO [clinic_app];
 
@@ -82,7 +87,7 @@ DECLARE @checks TABLE (
     CanReadPatients int, CanUpdatePatients int,
     CanChangeAccounts int, CanCreateAccounts int, CanDeleteAccounts int,
     CanChangeMemberships int, CanCreateMemberships int, CanDeleteMemberships int,
-    CanCreateTables int
+    CanCreateTables int, CanCreateWorkspace int, CanEnrollVisitor int
 );
 
 EXECUTE AS LOGIN = N'clinic_app';
@@ -96,7 +101,9 @@ SELECT SUSER_SNAME(), IS_SRVROLEMEMBER(N'sysadmin'),
     HAS_PERMS_BY_NAME(N'dbo.ClinicMemberships', N'OBJECT', N'UPDATE'),
     HAS_PERMS_BY_NAME(N'dbo.ClinicMemberships', N'OBJECT', N'INSERT'),
     HAS_PERMS_BY_NAME(N'dbo.ClinicMemberships', N'OBJECT', N'DELETE'),
-    HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'CREATE TABLE');
+    HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'CREATE TABLE'),
+    HAS_PERMS_BY_NAME(N'dbo.Workspaces', N'OBJECT', N'INSERT'),
+    HAS_PERMS_BY_NAME(N'dbo.CreateVisitorWorkspaceAccount', N'OBJECT', N'EXECUTE');
 REVERT;
 
 SELECT * FROM @checks;
@@ -108,6 +115,7 @@ IF EXISTS (
        OR ISNULL(CanDeleteAccounts, -1) <> 0 OR ISNULL(CanChangeMemberships, -1) <> 0
        OR ISNULL(CanCreateMemberships, -1) <> 0 OR ISNULL(CanDeleteMemberships, -1) <> 0
        OR ISNULL(CanCreateTables, -1) <> 0
+       OR ISNULL(CanCreateWorkspace, -1) <> 1 OR ISNULL(CanEnrollVisitor, -1) <> 1
 )
     THROW 51000, 'The database user has unexpected effective permissions. Review the displayed checks.', 1;
 "@

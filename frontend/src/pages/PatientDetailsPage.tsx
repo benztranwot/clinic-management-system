@@ -1,3 +1,4 @@
+import { useWorkspacePermission } from "../auth/useWorkspacePermission";
 import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -16,6 +17,7 @@ function PatientDetails({
   publicId: string;
   edit: boolean;
 }) {
+  const workspaceCanManage = useWorkspacePermission(userId, "manage:patients");
   const { getAccessTokenSilently } = useAuth0();
   const { state } = useLocation();
   const [showSaved, setShowSaved] = useState(state?.patientUpdated === true);
@@ -104,7 +106,8 @@ function PatientDetails({
     );
   }
 
-  const { patient, canManage } = query.data;
+  const { patient } = query.data;
+  const canManage = workspaceCanManage || query.data.canManage;
   const deleteStatus = deletion.error instanceof PatientRequestError
     ? deletion.error.status
     : undefined;

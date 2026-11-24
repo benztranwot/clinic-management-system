@@ -1,8 +1,10 @@
 namespace HealthcareApp.Api.Models;
 
 // Store patient demographics for registration and referral intake.
-public class Patient
+public class Patient : IWorkspaceRecord
 {
+    public Guid WorkspaceId { get; set; }
+
     // Use this ID as the primary key for database relationships.
     public int Id { get; set; }
 

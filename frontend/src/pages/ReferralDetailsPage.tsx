@@ -1,3 +1,4 @@
+import { useWorkspacePermission } from "../auth/useWorkspacePermission";
 import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -292,7 +293,8 @@ function ReferralDetailsContent({
     retry: false,
   });
 
-  const result = query.isSuccess ? query.data : undefined;
+  const workspaceCanManage = useWorkspacePermission(userId, "manage:referrals");
+  const result = query.isSuccess ? { ...query.data, canManage: workspaceCanManage || query.data.canManage } : undefined;
   const notFound = query.error instanceof ReferralRequestError && query.error.status === 404;
 
   return (

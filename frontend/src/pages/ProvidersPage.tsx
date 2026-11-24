@@ -1,3 +1,4 @@
+import { useWorkspacePermission } from "../auth/useWorkspacePermission";
 import LoadingStatus, { Spinner } from "../components/LoadingStatus";
 import { useState, type FormEvent } from "react";
 import { ClinicProvidersTable } from "../features/clinics/components/ClinicDirectoryTables";
@@ -117,6 +118,7 @@ function ProviderDirectory({
   clinicPublicId: string;
   selectedId: string | null;
 }) {
+  const workspaceCanManage = useWorkspacePermission(userId, "manage:providers");
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -240,7 +242,8 @@ function ProviderDirectory({
     );
   }
 
-  const { clinic, providers, canManage } = directory.data;
+  const { clinic, providers } = directory.data;
+  const canManage = workspaceCanManage || directory.data.canManage;
   const provider = detail.data;
   return (
     <>

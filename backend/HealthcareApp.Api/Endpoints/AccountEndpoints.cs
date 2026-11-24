@@ -2,6 +2,8 @@ using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
+using HealthcareApp.Api.Workspaces;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,6 +27,7 @@ public static class AccountEndpoints
         ClaimsPrincipal user,
         HttpContext http,
         IAuthorizationService authorization,
+        IOptions<VisitorWorkspaceOptions> visitorOptions,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
@@ -77,6 +80,9 @@ public static class AccountEndpoints
         return Results.Ok(new
         {
             account.IsAdministrator,
+            IsVisitorWorkspace = db.CurrentWorkspaceId != Guid.Empty,
+            WorkspacePermissions = db.CurrentWorkspaceId != Guid.Empty && account.IsAdministrator && visitorOptions.Value.Enabled
+                ? WorkspacePermissionHandler.OwnerPermissions : Array.Empty<string>(),
             CanCreateReferrals = (account.IsAdministrator || account.IsLinkedClinician)
                 && (await authorization.AuthorizeAsync(user, HealthcareApp.Api.Authorization.AuthorizationServiceExtensions.ReadReferralReceivingOptions)).Succeeded
                 && (await authorization.AuthorizeAsync(user, "ReadPatients")).Succeeded,
