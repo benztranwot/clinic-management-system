@@ -37,6 +37,8 @@ Use Docker Desktop with Linux containers on an Intel or AMD x86-64 machine. The 
 
    Compose runs EF Core migrations after SQL Server becomes ready. The `migrate` service should exit with code 0. If startup fails, inspect `docker compose logs db migrate api web`. Rebuild the web image when you change the Auth0 settings in `.env`. The named SQL volume preserves the application login; routine starts do not need the setup helper. After changing `MSSQL_APP_PASSWORD`, rerun the helper with the matching value and recreate the API container.
 
+   See [visitor template setup](backend/database/WorkspaceIsolation.md#visitor-enrollment-and-rollout) to enable private copies of the synthetic records for new visitors.
+
    The seed keeps the Northside workflow examples and adds 5 clinics, 25 providers,
    20 services, 250 patients, 300 referrals, and 1,000 appointments to the same demo
    database. Rerunning it adds missing fictional rows and preserves existing edits

@@ -2,6 +2,8 @@ using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Endpoints;
 using HealthcareApp.Api.Security;
+using HealthcareApp.Api.Workspaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 
@@ -65,6 +67,16 @@ builder
         options.TokenValidationParameters.ValidAlgorithms = ["RS256"];
     });
 
+builder.Services.AddOptions<VisitorWorkspaceOptions>()
+    .BindConfiguration("VisitorWorkspaces")
+    .Validate(value => value.MaximumWorkspaces is >= 1 and <= 10000, "Set the workspace limit between 1 and 10000.")
+    .Validate(value => value.MaximumDailyWorkspaces is >= 1 and <= 10000, "Set the daily workspace limit between 1 and 10000.")
+    .ValidateOnStart();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<WorkspaceAccess>();
+builder.Services.AddScoped<VisitorWorkspaceProvisioner>();
+builder.Services.AddScoped<IAuthorizationHandler, WorkspacePermissionHandler>();
+
 // Register the application's permission-based authorization policies.
 builder.Services.AddApiAuthorization();
 
@@ -126,6 +138,7 @@ app.UseStatusCodePages(context =>
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
+app.UseMiddleware<WorkspaceSelectionMiddleware>();
 
 // Define a simple response at the root URL.
 app.MapGet("/", () => "Hello World!");

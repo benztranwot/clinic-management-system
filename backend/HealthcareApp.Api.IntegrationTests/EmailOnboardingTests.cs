@@ -88,11 +88,8 @@ public class EmailOnboardingTests
         try
         {
             await db.Database.GetService<IMigrator>().MigrateAsync("20261124001737_AddEmailConfirmationChallenges");
-            db.AppAccounts.Add(new AppAccount
-            {
-                Issuer = TestJwtIssuer.Issuer, Subject = linkedSubject, IsAdministrator = true,
-            });
-            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO dbo.AppAccounts (Issuer, Subject, IsAdministrator) VALUES ({TestJwtIssuer.Issuer}, {linkedSubject}, {true})");
             await db.Database.MigrateAsync();
             Assert.Equal(0, await db.Database.SqlQuery<int>(
                 $"SELECT COUNT(*) AS [Value] FROM sys.tables WHERE name = N'EmailConfirmationChallenges'")

@@ -1,8 +1,10 @@
 namespace HealthcareApp.Api.Models;
 
 // Block a provider's calendar for a specific interval.
-public class ProviderTimeOff
+public class ProviderTimeOff : IWorkspaceRecord
 {
+    public Guid WorkspaceId { get; set; }
+
     public int Id { get; set; }
 
     public Guid PublicId { get; set; } = Guid.NewGuid();

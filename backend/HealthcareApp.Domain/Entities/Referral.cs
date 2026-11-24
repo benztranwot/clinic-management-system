@@ -1,7 +1,9 @@
 namespace HealthcareApp.Api.Models;
 
-public class Referral
+public class Referral : IWorkspaceRecord
 {
+    public Guid WorkspaceId { get; set; }
+
     // Use this ID as the primary key for database relationships.
     public int Id { get; set; }
 

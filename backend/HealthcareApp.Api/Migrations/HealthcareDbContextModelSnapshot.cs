@@ -51,18 +51,23 @@ namespace HealthcareApp.Api.Migrations
                         .HasColumnType("nvarchar(255)")
                         .UseCollation("Latin1_General_100_BIN2");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
-
-                    b.HasIndex("PatientId")
-                        .IsUnique()
-                        .HasFilter("[PatientId] IS NOT NULL");
-
-                    b.HasIndex("ProviderId")
-                        .IsUnique()
-                        .HasFilter("[ProviderId] IS NOT NULL");
 
                     b.HasIndex("Issuer", "Subject")
                         .IsUnique();
+
+                    b.HasIndex("WorkspaceId", "PatientId")
+                        .IsUnique()
+                        .HasFilter("[PatientId] IS NOT NULL");
+
+                    b.HasIndex("WorkspaceId", "ProviderId")
+                        .IsUnique()
+                        .HasFilter("[ProviderId] IS NOT NULL");
 
                     b.ToTable("AppAccounts");
                 });
@@ -108,11 +113,12 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
-
-                    b.HasIndex("BookedByAppAccountId");
-
-                    b.HasIndex("ClinicalServiceId");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
@@ -132,7 +138,15 @@ namespace HealthcareApp.Api.Migrations
                         .HasDatabaseName("UX_Appointments_ConfirmedProviderSlot")
                         .HasFilter("[Status] = 1");
 
-                    b.HasIndex("ReferralId", "PatientId", "ClinicalServiceId");
+                    b.HasIndex("WorkspaceId", "BookedByAppAccountId");
+
+                    b.HasIndex("WorkspaceId", "ClinicalServiceId");
+
+                    b.HasIndex("WorkspaceId", "PatientId");
+
+                    b.HasIndex("WorkspaceId", "ProviderId");
+
+                    b.HasIndex("WorkspaceId", "ReferralId", "PatientId", "ClinicalServiceId");
 
                     b.ToTable("Appointments", t =>
                         {
@@ -168,6 +182,11 @@ namespace HealthcareApp.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
 
                     b.HasIndex("PublicId")
@@ -187,9 +206,16 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("Role")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("AppAccountId", "ClinicId", "Role");
 
-                    b.HasIndex("ClinicId");
+                    b.HasIndex("WorkspaceId", "AppAccountId");
+
+                    b.HasIndex("WorkspaceId", "ClinicId");
 
                     b.ToTable("ClinicMemberships", t =>
                         {
@@ -221,6 +247,11 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
 
                     b.HasIndex("PublicId")
@@ -228,6 +259,8 @@ namespace HealthcareApp.Api.Migrations
 
                     b.HasIndex("ClinicId", "Name")
                         .IsUnique();
+
+                    b.HasIndex("WorkspaceId", "ClinicId");
 
                     b.ToTable("ClinicalServices");
                 });
@@ -255,6 +288,11 @@ namespace HealthcareApp.Api.Migrations
 
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
 
                     b.HasKey("Id");
 
@@ -288,12 +326,17 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.HasKey("Id");
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
 
-                    b.HasIndex("ClinicId");
+                    b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
+
+                    b.HasIndex("WorkspaceId", "ClinicId");
 
                     b.ToTable("Providers");
                 });
@@ -309,11 +352,16 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("ClinicId")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("ProviderId", "ClinicalServiceId");
 
-                    b.HasIndex("ClinicalServiceId", "ClinicId");
+                    b.HasIndex("WorkspaceId", "ClinicalServiceId", "ClinicId");
 
-                    b.HasIndex("ProviderId", "ClinicId");
+                    b.HasIndex("WorkspaceId", "ProviderId", "ClinicId");
 
                     b.ToTable("ProviderServices");
                 });
@@ -338,12 +386,19 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<DateTimeOffset>("StartUtc")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
 
                     b.HasIndex("ProviderId", "StartUtc");
+
+                    b.HasIndex("WorkspaceId", "ProviderId");
 
                     b.ToTable("ProviderTimeOff", t =>
                         {
@@ -371,7 +426,14 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int?>("StartMinute")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
                     b.HasKey("ProviderId", "DayOfWeek");
+
+                    b.HasIndex("WorkspaceId", "ProviderId");
 
                     b.ToTable("ProviderWeeklyHours", t =>
                         {
@@ -423,18 +485,25 @@ namespace HealthcareApp.Api.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.HasKey("Id");
+                    b.Property<Guid>("WorkspaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
 
-                    b.HasIndex("ClinicalServiceId");
+                    b.HasKey("Id");
 
                     b.HasIndex("PublicId")
                         .IsUnique();
 
-                    b.HasIndex("AssignedProviderId", "ClinicalServiceId");
-
                     b.HasIndex("PatientId", "ClinicalServiceId")
                         .IsUnique()
                         .HasFilter("[Status] <> 4");
+
+                    b.HasIndex("WorkspaceId", "ClinicalServiceId");
+
+                    b.HasIndex("WorkspaceId", "PatientId");
+
+                    b.HasIndex("WorkspaceId", "AssignedProviderId", "ClinicalServiceId");
 
                     b.ToTable("Referrals", t =>
                         {
@@ -442,138 +511,245 @@ namespace HealthcareApp.Api.Migrations
                         });
                 });
 
+            modelBuilder.Entity("HealthcareApp.Api.Models.Workspace", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Workspaces");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("00000000-0000-0000-0000-000000000000"),
+                            CreatedAtUtc = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0))
+                        });
+                });
+
             modelBuilder.Entity("HealthcareApp.Api.Models.AppAccount", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.Patient", null)
                         .WithOne()
-                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "PatientId")
+                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "WorkspaceId", "PatientId")
+                        .HasPrincipalKey("HealthcareApp.Api.Models.Patient", "WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithOne()
-                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "ProviderId")
+                        .HasForeignKey("HealthcareApp.Api.Models.AppAccount", "WorkspaceId", "ProviderId")
+                        .HasPrincipalKey("HealthcareApp.Api.Models.Provider", "WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.Appointment", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.AppAccount", null)
                         .WithMany()
-                        .HasForeignKey("BookedByAppAccountId")
+                        .HasForeignKey("WorkspaceId", "BookedByAppAccountId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.ClinicalService", null)
                         .WithMany()
-                        .HasForeignKey("ClinicalServiceId")
+                        .HasForeignKey("WorkspaceId", "ClinicalServiceId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Patient", null)
                         .WithMany()
-                        .HasForeignKey("PatientId")
+                        .HasForeignKey("WorkspaceId", "PatientId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithMany()
-                        .HasForeignKey("ProviderId")
+                        .HasForeignKey("WorkspaceId", "ProviderId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Referral", null)
                         .WithMany()
-                        .HasForeignKey("ReferralId", "PatientId", "ClinicalServiceId")
-                        .HasPrincipalKey("Id", "PatientId", "ClinicalServiceId")
+                        .HasForeignKey("WorkspaceId", "ReferralId", "PatientId", "ClinicalServiceId")
+                        .HasPrincipalKey("WorkspaceId", "Id", "PatientId", "ClinicalServiceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_Appointments_Referrals_MatchingPatientService");
                 });
 
+            modelBuilder.Entity("HealthcareApp.Api.Models.Clinic", b =>
+                {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("HealthcareApp.Api.Models.ClinicMembership", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.AppAccount", null)
                         .WithMany()
-                        .HasForeignKey("AppAccountId")
+                        .HasForeignKey("WorkspaceId", "AppAccountId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Clinic", null)
                         .WithMany()
-                        .HasForeignKey("ClinicId")
+                        .HasForeignKey("WorkspaceId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.ClinicalService", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.Clinic", null)
                         .WithMany()
-                        .HasForeignKey("ClinicId")
+                        .HasForeignKey("WorkspaceId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("HealthcareApp.Api.Models.Patient", b =>
+                {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.Provider", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.Clinic", null)
                         .WithMany()
-                        .HasForeignKey("ClinicId")
+                        .HasForeignKey("WorkspaceId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.ProviderService", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.ClinicalService", null)
                         .WithMany()
-                        .HasForeignKey("ClinicalServiceId", "ClinicId")
-                        .HasPrincipalKey("Id", "ClinicId")
+                        .HasForeignKey("WorkspaceId", "ClinicalServiceId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id", "ClinicId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithMany()
-                        .HasForeignKey("ProviderId", "ClinicId")
-                        .HasPrincipalKey("Id", "ClinicId")
+                        .HasForeignKey("WorkspaceId", "ProviderId", "ClinicId")
+                        .HasPrincipalKey("WorkspaceId", "Id", "ClinicId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.ProviderTimeOff", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithMany()
-                        .HasForeignKey("ProviderId")
+                        .HasForeignKey("WorkspaceId", "ProviderId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.ProviderWeeklyHours", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.Provider", null)
                         .WithMany()
-                        .HasForeignKey("ProviderId")
+                        .HasForeignKey("WorkspaceId", "ProviderId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
             modelBuilder.Entity("HealthcareApp.Api.Models.Referral", b =>
                 {
+                    b.HasOne("HealthcareApp.Api.Models.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("HealthcareApp.Api.Models.ClinicalService", null)
                         .WithMany()
-                        .HasForeignKey("ClinicalServiceId")
+                        .HasForeignKey("WorkspaceId", "ClinicalServiceId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.Patient", null)
                         .WithMany()
-                        .HasForeignKey("PatientId")
+                        .HasForeignKey("WorkspaceId", "PatientId")
+                        .HasPrincipalKey("WorkspaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("HealthcareApp.Api.Models.ProviderService", null)
                         .WithMany()
-                        .HasForeignKey("AssignedProviderId", "ClinicalServiceId")
+                        .HasForeignKey("WorkspaceId", "AssignedProviderId", "ClinicalServiceId")
+                        .HasPrincipalKey("WorkspaceId", "ProviderId", "ClinicalServiceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

@@ -11,6 +11,7 @@ services:
       - sql-data:/var/opt/mssql
       - ./backend/database/SeedDemoData.sql:/seed/SeedDemoData.sql:ro
       - ./backend/database/SeedScaleData.sql:/seed/SeedScaleData.sql:ro
+      - ./backend/database/UseVisitorTemplate.sql:/seed/UseVisitorTemplate.sql:ro
     healthcheck:
       test:
         [
@@ -44,6 +45,9 @@ services:
       Auth0__Authority: https://${AUTH0_DOMAIN:?Set AUTH0_DOMAIN in the root .env}/
       Auth0__Audience: ${AUTH0_AUDIENCE:?Set AUTH0_AUDIENCE in the root .env}
       ConnectionStrings__HealthcareDatabase: 'Server=db,1433;Database=HealthcareApp_Dev;User ID=clinic_app;Password="${MSSQL_APP_PASSWORD:?Set MSSQL_APP_PASSWORD in the root .env}";Encrypt=True;TrustServerCertificate=True'
+      VisitorWorkspaces__Enabled: "${VISITOR_WORKSPACES_ENABLED:-true}"
+      VisitorWorkspaces__MaximumWorkspaces: "${VISITOR_MAX_WORKSPACES:-100}"
+      VisitorWorkspaces__MaximumDailyWorkspaces: "${VISITOR_MAX_DAILY_WORKSPACES:-20}"
       ASPNETCORE_HTTP_PORTS: "8080"
     depends_on:
       migrate:

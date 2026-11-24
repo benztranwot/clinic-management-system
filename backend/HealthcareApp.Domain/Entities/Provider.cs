@@ -1,8 +1,10 @@
 namespace HealthcareApp.Api.Models;
 
 // Store a provider and the clinic they belong to.
-public class Provider
+public class Provider : IWorkspaceRecord
 {
+    public Guid WorkspaceId { get; set; }
+
     // Use this ID as the primary key for database relationships.
     public int Id { get; set; }
 

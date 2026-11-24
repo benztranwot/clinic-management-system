@@ -40,11 +40,11 @@ public static class AuthorizationServiceExtensions
             AddPermissionPolicy(options, "ManageReferrals", "manage:referrals");
             options.AddPolicy(ReadReferralReceivingOptions, policy => policy
                 .RequireAuthenticatedUser()
-                .RequireClaim("permissions", "manage:referrals")
-                .RequireClaim("permissions", "read:clinics")
-                .RequireClaim("permissions", "read:services")
-                .RequireClaim("permissions", "read:providers")
-                .RequireClaim("permissions", "read:provider-services"));
+                .AddRequirements(new WorkspacePermissionRequirement("manage:referrals"))
+                .AddRequirements(new WorkspacePermissionRequirement("read:clinics"))
+                .AddRequirements(new WorkspacePermissionRequirement("read:services"))
+                .AddRequirements(new WorkspacePermissionRequirement("read:providers"))
+                .AddRequirements(new WorkspacePermissionRequirement("read:provider-services")));
         });
     }
 
@@ -58,7 +58,7 @@ public static class AuthorizationServiceExtensions
         options.AddPolicy(policyName, policy =>
         {
             policy.RequireAuthenticatedUser();
-            policy.RequireClaim("permissions", permission);
+            policy.AddRequirements(new WorkspacePermissionRequirement(permission));
         });
     }
 }

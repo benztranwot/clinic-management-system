@@ -1,3 +1,4 @@
+import { useWorkspacePermission } from "../../../auth/useWorkspacePermission";
 import LoadingStatus, { Spinner } from "../../../components/LoadingStatus";
 import { useId, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -52,6 +53,7 @@ function ProviderServices({
   disabled: boolean;
 }) {
   const headingId = useId();
+  const workspaceCanManage = useWorkspacePermission(userId, "manage:provider-services");
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState("");
@@ -75,7 +77,7 @@ function ProviderServices({
 
   const clinicServices = useQuery({
     queryKey: ["provider-service-options", userId, clinicPublicId],
-    enabled: assignments.data?.canManage === true,
+    enabled: (workspaceCanManage || assignments.data?.canManage === true),
     queryFn: async ({ signal }) => {
       const accessToken = await getAccessTokenSilently();
       if (!accessToken) throw new Error("Auth0 did not return an access token.");
@@ -162,7 +164,7 @@ function ProviderServices({
               {assignedServices.map((service) => (
                 <li key={service.publicId} className="flex items-center justify-between gap-3 py-2">
                   <span>{service.name}</span>
-                  {assignments.data.canManage && (
+                  {(workspaceCanManage || assignments.data.canManage) && (
                     <button
                       type="button"
                       data-variant="danger"
@@ -184,10 +186,10 @@ function ProviderServices({
             </ul>
           )}
 
-          {assignments.data.canManage && clinicServices.isPending && (
+          {(workspaceCanManage || assignments.data.canManage) && clinicServices.isPending && (
             <LoadingStatus>Loading clinic services…</LoadingStatus>
           )}
-          {assignments.data.canManage && clinicServices.isError && (
+          {(workspaceCanManage || assignments.data.canManage) && clinicServices.isError && (
             <div className="space-y-2">
               <p role="alert">{assignmentError(clinicServices.error)}</p>
               <button type="button" disabled={clinicServices.isFetching} onClick={() => void clinicServices.refetch()}>
@@ -196,7 +198,7 @@ function ProviderServices({
               </button>
             </div>
           )}
-          {assignments.data.canManage && clinicServices.isSuccess && (
+          {(workspaceCanManage || assignments.data.canManage) && clinicServices.isSuccess && (
             options.length === 0 ? (
               <p>No unassigned services at this clinic.</p>
             ) : (

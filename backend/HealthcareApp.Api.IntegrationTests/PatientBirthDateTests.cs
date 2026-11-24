@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using HealthcareApp.Api.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -25,27 +27,43 @@ public class PatientBirthDateTests
         using var client = configuredFactory.CreateClient();
         tokens.Authorize(client, "manage:patients");
 
-        using var request = new HttpRequestMessage(
-            update ? HttpMethod.Put : HttpMethod.Post,
-            update ? $"/api/patients/{Guid.NewGuid()}" : "/api/patients"
-        )
+        // Workspace selection reads the authenticated account before the handler runs.
+        await using var scope = configuredFactory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+        Assert.Equal(@"(localdb)\MSSQLLocalDB", db.Database.GetDbConnection().DataSource);
+        Assert.Equal(factory.DatabaseName, db.Database.GetDbConnection().Database);
+
+        try
         {
-            Content = JsonContent.Create(new
+            await db.Database.MigrateAsync();
+            using var request = new HttpRequestMessage(
+                update ? HttpMethod.Put : HttpMethod.Post,
+                update ? $"/api/patients/{Guid.NewGuid()}" : "/api/patients"
+            )
             {
-                firstName = "Taylor",
-                lastName = "Demo",
-                dateOfBirth = new DateOnly(2000, 1, 2),
-            }),
-        };
+                Content = JsonContent.Create(new
+                {
+                    firstName = "Taylor",
+                    lastName = "Demo",
+                    dateOfBirth = new DateOnly(2000, 1, 2),
+                }),
+            };
 
-        using var response = await client.SendAsync(request);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(
-            "Date of birth is required and cannot be in the future.",
-            body.GetProperty("message").GetString()
-        );
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(
+                "Date of birth is required and cannot be in the future.",
+                body.GetProperty("message").GetString()
+            );
+            Assert.False(await db.Patients.AnyAsync());
+        }
+        finally
+        {
+            await db.Database.EnsureDeletedAsync();
+        }
+
     }
 
     private sealed class BirthDateClock : TimeProvider
