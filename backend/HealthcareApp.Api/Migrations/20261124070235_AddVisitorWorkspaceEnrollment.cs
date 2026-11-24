@@ -46,6 +46,10 @@ namespace HealthcareApp.Api.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("""
+                IF EXISTS (SELECT 1 FROM dbo.Workspaces WHERE Id <> '00000000-0000-0000-0000-000000000000')
+                    THROW 51050, 'Private workspaces exist. Resolve their data before rolling back workspace isolation.', 1;
+                """);
             migrationBuilder.Sql("DROP PROCEDURE dbo.CreateVisitorWorkspaceAccount;");
         }
     }

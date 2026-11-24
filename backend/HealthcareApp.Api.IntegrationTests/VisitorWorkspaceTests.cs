@@ -1,13 +1,17 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
 using HealthcareApp.Api.Workspaces;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 
@@ -44,7 +48,7 @@ public class VisitorWorkspaceTests
             issuer = TestJwtIssuer.Issuer, workspaceId = Guid.Empty, isAdministrator = true,
         });
         Assert.Equal(expected, response.StatusCode);
-        await state.AssertOriginalOnlyAsync();
+        await state.AssertOriginalAndTemplateOnlyAsync();
     }
 
     [Fact]
@@ -60,7 +64,7 @@ public class VisitorWorkspaceTests
         using var denied = await owner.GetAsync("/api/patients");
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
         Assert.Equal(0, state.Profiles.Requests);
-        await state.AssertOriginalOnlyAsync();
+        await state.AssertOriginalAndTemplateOnlyAsync();
     }
 
     [Fact]
@@ -90,7 +94,7 @@ public class VisitorWorkspaceTests
         await using var scope = state.Factory.Services.CreateAsyncScope();
         var original = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
         var accounts = await original.AppAccounts.IgnoreQueryFilters().AsNoTracking().ToListAsync();
-        Assert.Equal(3, accounts.Count); // Never copy the template's identity links.
+        Assert.Equal(4, accounts.Count); // Never copy the template's identity links.
         var firstOwner = accounts.Single(row => row.Subject == "auth0|first-visitor");
         var secondOwner = accounts.Single(row => row.Subject == "auth0|second-visitor");
         Assert.NotEqual(Guid.Empty, firstOwner.WorkspaceId);
@@ -125,9 +129,12 @@ public class VisitorWorkspaceTests
         Assert.All(appointments, row => Assert.True(row.CreatedAtUtc <= State.Now));
 
         var sourcePatients = await original.Patients.AsNoTracking().ToListAsync();
+        await using var template = state.Context(Workspace.VisitorTemplateId);
+        var templatePatients = await template.Patients.AsNoTracking().ToListAsync();
         var copiedPatients = await copy.Patients.AsNoTracking().ToListAsync();
-        Assert.Empty(sourcePatients.Select(row => row.PublicId).Intersect(copiedPatients.Select(row => row.PublicId)));
-        Assert.Empty(sourcePatients.Select(row => row.Id).Intersect(copiedPatients.Select(row => row.Id)));
+        Assert.Empty(templatePatients.Select(row => row.PublicId).Intersect(copiedPatients.Select(row => row.PublicId)));
+        Assert.Empty(templatePatients.Select(row => row.Id).Intersect(copiedPatients.Select(row => row.Id)));
+        Assert.DoesNotContain(copiedPatients, row => row.FirstName == "OperatorOnly");
         foreach (var path in new[] { "/api/clinics", "/api/patients", "/api/referrals", "/api/referrals/receiving-options" })
         {
             using var response = await first.GetAsync(path); // No global Auth0 permissions on this token.
@@ -147,7 +154,8 @@ public class VisitorWorkspaceTests
         await using var other = state.Context(secondOwner.WorkspaceId);
         Assert.Equal(2, await other.Patients.CountAsync());
         Assert.Equal(1, await copy.Patients.CountAsync());
-        Assert.Equal("Alex", (await original.Patients.SingleAsync(row => row.FirstName == "Alex")).FirstName);
+        Assert.True(await original.Patients.AnyAsync(row => row.FirstName == "OperatorOnly"));
+        Assert.Equal(2, await template.Patients.CountAsync());
         var search = await first.PostAsJsonAsync("/api/patients/search", new { page = 1, workspaceId = secondOwner.WorkspaceId });
         using (search) Assert.Equal(1, (await search.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("totalCount").GetInt32());
 
@@ -155,7 +163,7 @@ public class VisitorWorkspaceTests
         using var retry = await first.PostAsync("/api/me/workspace", null);
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
         Assert.Equal(profileReads, state.Profiles.Requests);
-        Assert.Equal(3, await original.Workspaces.IgnoreQueryFilters().CountAsync());
+        Assert.Equal(4, await original.Workspaces.IgnoreQueryFilters().CountAsync());
         using var root = state.Client("auth0|operator");
         using var rootDenied = await root.GetAsync("/api/patients");
         Assert.Equal(HttpStatusCode.Forbidden, rootDenied.StatusCode);
@@ -165,11 +173,17 @@ public class VisitorWorkspaceTests
     [Trait("Category", "Scale")]
     public async Task ScaleTemplate_CopiesHundredsOfRecordsWithoutReusingIdentitiesOrPublicIds()
     {
-        await using var state = await State.CreateAsync();
+        await using var state = await State.CreateAsync(seedTemplate: false);
         await using var scope = state.Factory.Services.CreateAsyncScope();
-        var source = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+        var original = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
         var seed = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "SeedScaleData.sql"));
-        await source.Database.ExecuteSqlRawAsync(seed);
+        var templateSeed = "EXEC sys.sp_set_session_context @key = N'SeedVisitorTemplate', @value = 1;\n" + seed;
+        await original.Database.ExecuteSqlRawAsync(templateSeed);
+        await original.Database.ExecuteSqlRawAsync(templateSeed);
+        Assert.Equal(2, await original.Patients.CountAsync());
+        Assert.Equal(2, await original.Appointments.CountAsync());
+
+        await using var source = state.Context(Workspace.VisitorTemplateId);
         var sourceAppointments = await source.Appointments.AsNoTracking().ToListAsync();
         var sourcePatients = await source.Patients.AsNoTracking().ToListAsync();
         var sourceReferrals = await source.Referrals.AsNoTracking().ToListAsync();
@@ -209,9 +223,9 @@ public class VisitorWorkspaceTests
             Assert.All(responses, response => Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.OK }));
             await using var scope = state.Factory.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
-            Assert.Equal(2, await db.Workspaces.IgnoreQueryFilters().CountAsync());
-            Assert.Equal(2, await db.AppAccounts.IgnoreQueryFilters().CountAsync());
-            Assert.Equal(4, await db.Appointments.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(3, await db.Workspaces.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(3, await db.AppAccounts.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(6, await db.Appointments.IgnoreQueryFilters().CountAsync());
         }
         finally { foreach (var response in responses) response.Dispose(); }
     }
@@ -232,8 +246,8 @@ public class VisitorWorkspaceTests
         if (daily) Assert.True(denied.Headers.RetryAfter?.Delta > TimeSpan.Zero);
         await using var scope = state.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
-        Assert.Equal(2, await db.Workspaces.IgnoreQueryFilters().CountAsync());
-        Assert.Equal(2, await db.AppAccounts.IgnoreQueryFilters().CountAsync());
+        Assert.Equal(3, await db.Workspaces.IgnoreQueryFilters().CountAsync());
+        Assert.Equal(3, await db.AppAccounts.IgnoreQueryFilters().CountAsync());
     }
 
     [Fact]
@@ -243,16 +257,32 @@ public class VisitorWorkspaceTests
         await using var scope = state.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
         await db.Database.ExecuteSqlRawAsync("""
-            CREATE TRIGGER dbo.RejectVisitorAppointments ON dbo.Appointments AFTER INSERT AS
-            IF EXISTS (SELECT 1 FROM inserted WHERE WorkspaceId <> '00000000-0000-0000-0000-000000000000')
-                THROW 51061, 'Simulated copy failure.', 1;
+            ALTER TABLE dbo.Appointments WITH NOCHECK ADD CONSTRAINT CK_Test_RejectVisitorCopy
+                CHECK (WorkspaceId = '00000000-0000-0000-0000-000000000000');
             """);
-        using var client = state.Client("auth0|retry-visitor");
+        const string subject = "auth0|retry-visitor";
+        using var client = state.Client(subject);
         using var failure = await client.PostAsync("/api/me/workspace", null);
         Assert.Equal(HttpStatusCode.InternalServerError, failure.StatusCode);
-        Assert.DoesNotContain("Simulated copy failure", await failure.Content.ReadAsStringAsync());
-        await state.AssertOriginalOnlyAsync();
-        await db.Database.ExecuteSqlRawAsync("DROP TRIGGER dbo.RejectVisitorAppointments;");
+        var response = await failure.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("CK_Test_RejectVisitorCopy", response);
+        Assert.DoesNotContain("CHECK constraint", response, StringComparison.OrdinalIgnoreCase);
+
+        // Verify the failure came from inserting appointments through EF, including its OUTPUT clause.
+        await using (var direct = state.Factory.Services.CreateAsyncScope())
+        {
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim("iss", TestJwtIssuer.Issuer), new Claim("sub", subject)], "Test"));
+            var provisioner = direct.ServiceProvider.GetRequiredService<VisitorWorkspaceProvisioner>();
+            var error = await Assert.ThrowsAsync<DbUpdateException>(
+                () => provisioner.CreateAsync(principal, CancellationToken.None));
+            var sqlError = Assert.IsType<SqlException>(error.InnerException);
+            Assert.Equal(547, sqlError.Number);
+            Assert.Contains("CK_Test_RejectVisitorCopy", sqlError.Message);
+        }
+
+        await state.AssertOriginalAndTemplateOnlyAsync();
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE dbo.Appointments DROP CONSTRAINT CK_Test_RejectVisitorCopy;");
         using var retry = await client.PostAsync("/api/me/workspace", null);
         Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
     }
@@ -260,7 +290,7 @@ public class VisitorWorkspaceTests
     [Fact]
     public async Task EmptyTemplate_ReturnsSafeFailureWithoutProvisioning()
     {
-        await using var state = await State.CreateAsync(seed: false);
+        await using var state = await State.CreateAsync(seedTemplate: false);
         using var client = state.Client("auth0|new-visitor");
         using var response = await client.PostAsync("/api/me/workspace", null);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
@@ -268,7 +298,8 @@ public class VisitorWorkspaceTests
         await using var scope = state.Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
         Assert.Single(await db.Workspaces.IgnoreQueryFilters().ToListAsync());
-        Assert.Empty(await db.AppAccounts.IgnoreQueryFilters().ToListAsync());
+        Assert.Single(await db.AppAccounts.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(2, await db.Patients.CountAsync());
     }
 
     [Fact]
@@ -321,23 +352,89 @@ public class VisitorWorkspaceTests
             SELECT 1 AS [Value];
             """).ToListAsync();
         Assert.Equal(1, Assert.Single(result));
+        var originalProviderId = await db.Providers.OrderBy(row => row.Id).Select(row => row.Id).FirstAsync();
         var denied = await db.Database.SqlQuery<int>($"""
             DECLARE @error int = 0;
             BEGIN TRY
                 BEGIN TRANSACTION;
                 DECLARE @account int;
                 EXEC dbo.CreateVisitorWorkspaceAccount @WorkspaceId={Guid.Empty}, @Issuer={TestJwtIssuer.Issuer},
-                    @Subject=N'auth0|forbidden-owner', @ProviderId={provider.Id}, @AccountId=@account OUTPUT;
+                    @Subject=N'auth0|forbidden-owner', @ProviderId={originalProviderId}, @AccountId=@account OUTPUT;
                 ROLLBACK;
             END TRY
             BEGIN CATCH
-                SET @error = ERROR_NUMBER();
                 IF XACT_STATE() <> 0 ROLLBACK;
+                IF ERROR_MESSAGE() <> 'Visitor enrollment requires a private workspace.' THROW;
+                SET @error = ERROR_NUMBER();
             END CATCH;
             SELECT @error AS [Value];
             """).ToListAsync();
         Assert.Equal(51060, Assert.Single(denied));
-        Assert.Equal(1, await db.AppAccounts.IgnoreQueryFilters().CountAsync());
+        Assert.Equal(2, await db.AppAccounts.IgnoreQueryFilters().CountAsync());
+    }
+
+    [Fact]
+    public async Task EnrollmentDowngrade_LeavesProcedureWhenPrivateWorkspacesExist()
+    {
+        await using var state = await State.CreateAsync();
+        await using var scope = state.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
+        using var client = state.Client("auth0|visitor-downgrade");
+        using var response = await client.PostAsync("/api/me/workspace", null);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var error = await Assert.ThrowsAsync<SqlException>(() =>
+            db.Database.GetService<IMigrator>().MigrateAsync("20261124042218_AddWorkspaceIsolation"));
+        Assert.Equal(51050, error.Number);
+        var procedureCount = await db.Database.SqlQuery<int>($"""
+            SELECT COUNT(*) AS [Value] FROM sys.procedures
+            WHERE object_id = OBJECT_ID(N'dbo.CreateVisitorWorkspaceAccount', N'P')
+            """).SingleAsync();
+        Assert.Equal(1, procedureCount);
+    }
+
+    [Fact]
+    public async Task Enrollment_ResolvesDaylightSavingTransitionsInCopiedTimeOff()
+    {
+        await using var state = await State.CreateAsync();
+        await using var template = state.Context(Workspace.VisitorTemplateId);
+        var providerId = await template.Providers.OrderBy(row => row.Id).Select(row => row.Id).FirstAsync();
+        // The fixture's whole-week shift is 286 weeks. These source times land in a destination
+        // spring gap and overlap, and the third block starts and ends in separate source occurrences.
+        template.ProviderTimeOff.AddRange(
+            new ProviderTimeOff { ProviderId = providerId,
+                StartUtc = new(2024, 9, 15, 7, 15, 0, TimeSpan.Zero), EndUtc = new(2024, 9, 15, 7, 45, 0, TimeSpan.Zero) },
+            new ProviderTimeOff { ProviderId = providerId,
+                StartUtc = new(2025, 5, 11, 6, 15, 0, TimeSpan.Zero), EndUtc = new(2025, 5, 11, 6, 45, 0, TimeSpan.Zero) },
+            new ProviderTimeOff { ProviderId = providerId,
+                StartUtc = new(2025, 11, 2, 6, 45, 0, TimeSpan.Zero), EndUtc = new(2025, 11, 2, 7, 15, 0, TimeSpan.Zero) });
+        await template.SaveChangesAsync();
+
+        using var client = state.Client("auth0|visitor-dst");
+        using var response = await client.PostAsync("/api/me/workspace", null);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var owner = await template.AppAccounts.IgnoreQueryFilters().SingleAsync(row => row.Subject == "auth0|visitor-dst");
+        await using var copy = state.Context(owner.WorkspaceId);
+        var blocks = await copy.ProviderTimeOff.ToListAsync();
+        foreach (var expected in new DateTimeOffset[]
+        {
+            new(2030, 3, 10, 8, 15, 0, TimeSpan.Zero),
+            new(2030, 11, 3, 6, 15, 0, TimeSpan.Zero),
+            new(2031, 4, 27, 6, 45, 0, TimeSpan.Zero),
+        })
+        {
+            var match = Assert.Single(blocks, row => row.StartUtc == expected);
+            Assert.Equal(TimeSpan.FromMinutes(30), match.EndUtc - match.StartUtc);
+        }
+    }
+
+    [Fact]
+    public async Task TemplateAccount_CannotEnterReservedWorkspace()
+    {
+        await using var state = await State.CreateAsync();
+        using var client = state.Client("auth0|template-fixture", "read:patients");
+        using var response = await client.GetAsync("/api/patients");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     private sealed class Profiles : HttpMessageHandler
@@ -372,7 +469,7 @@ public class VisitorWorkspaceTests
         public WebApplicationFactory<Program> Factory { get; private set; } = null!;
         private bool verifiedDatabase;
 
-        public static async Task<State> CreateAsync(bool enabled = true, int maximum = 100, int daily = 20, bool seed = true)
+        public static async Task<State> CreateAsync(bool enabled = true, int maximum = 100, int daily = 20, bool seedTemplate = true)
         {
             var state = new State();
             try
@@ -393,16 +490,23 @@ public class VisitorWorkspaceTests
                 Assert.Equal(state.original.DatabaseName, db.Database.GetDbConnection().Database);
                 state.verifiedDatabase = true;
                 await db.Database.MigrateAsync();
-                if (seed) await SeedAsync(db);
+                await SeedAsync(db, "auth0|operator", "OperatorOnly");
+                if (seedTemplate)
+                {
+                    db.Workspaces.Add(new Workspace { Id = Workspace.VisitorTemplateId, CreatedAtUtc = Now });
+                    await db.SaveChangesAsync();
+                    await using var template = state.Context(Workspace.VisitorTemplateId);
+                    await SeedAsync(template, "auth0|template-fixture", "Alex");
+                }
                 return state;
             }
             catch { await state.DisposeAsync(); throw; }
         }
 
-        public HttpClient Client(string subject)
+        public HttpClient Client(string subject, params string[] permissions)
         {
             var client = Factory.CreateClient();
-            tokens.AuthorizeSubject(client, subject);
+            tokens.AuthorizeSubject(client, subject, permissions);
             return client;
         }
 
@@ -415,23 +519,23 @@ public class VisitorWorkspaceTests
             return db;
         }
 
-        public async Task AssertOriginalOnlyAsync()
+        public async Task AssertOriginalAndTemplateOnlyAsync()
         {
             await using var scope = Factory.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<HealthcareDbContext>();
-            Assert.Single(await db.Workspaces.IgnoreQueryFilters().ToListAsync());
-            Assert.Single(await db.AppAccounts.IgnoreQueryFilters().ToListAsync());
-            Assert.Equal(2, await db.Patients.IgnoreQueryFilters().CountAsync());
-            Assert.Equal(2, await db.Appointments.IgnoreQueryFilters().CountAsync());
-            Assert.Equal(2, await db.Clinics.IgnoreQueryFilters().CountAsync());
-            Assert.Equal(2, await db.Referrals.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(2, await db.Workspaces.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(2, await db.AppAccounts.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(4, await db.Patients.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(4, await db.Appointments.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(4, await db.Clinics.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(4, await db.Referrals.IgnoreQueryFilters().CountAsync());
         }
 
-        private static async Task SeedAsync(HealthcareDbContext db)
+        private static async Task SeedAsync(HealthcareDbContext db, string subject, string patientName)
         {
             var clinic = new Clinic { Name = "Cedar Family Health", Address = "42 Cedar Lane", TimeZoneId = "America/Chicago" };
             var otherClinic = new Clinic { Name = "Willow Therapy", Address = "8 Willow Road", TimeZoneId = "America/Chicago" };
-            var patient = new Patient { FirstName = "Alex", LastName = "Morgan", DateOfBirth = new DateOnly(1990, 6, 1) };
+            var patient = new Patient { FirstName = patientName, LastName = "Morgan", DateOfBirth = new DateOnly(1990, 6, 1) };
             var unused = new Patient { FirstName = "Jamie", LastName = "Reed", DateOfBirth = new DateOnly(1985, 1, 1) };
             db.AddRange(clinic, otherClinic, patient, unused);
             await db.SaveChangesAsync();
@@ -446,7 +550,7 @@ public class VisitorWorkspaceTests
                 new ProviderService { ClinicId = otherClinic.Id, ProviderId = otherProvider.Id, ClinicalServiceId = otherService.Id });
             foreach (var person in new[] { provider, otherProvider })
                 for (var day = 0; day < 7; day++) db.ProviderWeeklyHours.Add(ProviderWeeklyHours.CreateDefault(person.Id, day));
-            var owner = new AppAccount { Issuer = TestJwtIssuer.Issuer, Subject = "auth0|operator", IsAdministrator = true, ProviderId = provider.Id };
+            var owner = new AppAccount { Issuer = TestJwtIssuer.Issuer, Subject = subject, IsAdministrator = true, ProviderId = provider.Id };
             db.AppAccounts.Add(owner);
             await db.SaveChangesAsync();
             db.ClinicMemberships.Add(new ClinicMembership { AppAccountId = owner.Id, ClinicId = clinic.Id, Role = ClinicStaffRole.Clinician });

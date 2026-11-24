@@ -30,11 +30,11 @@ public sealed class VisitorWorkspaceProvisioner(HealthcareDbContext source,
         if (await identity.QueryAccounts(source).IgnoreQueryFilters().AnyAsync(ct))
             return false;
         if (source.CurrentWorkspaceId != Guid.Empty)
-            throw new InvalidOperationException("The demo template must come from the original workspace.");
+            throw new InvalidOperationException("Only an unlinked identity can create a visitor workspace.");
 
         var now = clock.GetUtcNow();
         var dayStart = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
-        var workspaces = source.Workspaces.IgnoreQueryFilters().Where(row => row.Id != Guid.Empty);
+        var workspaces = source.Workspaces.IgnoreQueryFilters().Where(row => row.Id != Guid.Empty && row.Id != Workspace.VisitorTemplateId);
         if (await workspaces.CountAsync(ct) >= options.Value.MaximumWorkspaces)
             throw new WorkspaceProvisioningException(503, "workspace_limit", "New workspaces are temporarily unavailable. Please contact the application owner.");
         if (await workspaces.CountAsync(row => row.CreatedAtUtc >= dayStart, ct) >= options.Value.MaximumDailyWorkspaces)
@@ -61,16 +61,35 @@ public sealed class VisitorWorkspaceProvisioner(HealthcareDbContext source,
         }
         var providerClinics = providers.ToDictionary(row => row.Id, row => row.ClinicId);
         var confirmed = appointments.Where(row => row.Status == AppointmentStatus.Confirmed).ToList();
-        // Shift by whole weeks to keep working weekdays and clinic-local times intact.
+        // Prefer a whole-week shift that keeps the latest confirmed visit about three weeks ahead.
         var anchor = confirmed.Count > 0 ? confirmed.Max(row => row.StartUtc) : now;
-        var shiftDays = confirmed.Count > 0
+        var preferredShift = confirmed.Count > 0
             ? checked((int)Math.Floor((now.AddDays(21).UtcDateTime.Date - anchor.UtcDateTime.Date).TotalDays / 7) * 7) : 0;
-        DateTimeOffset Shift(DateTimeOffset value, int providerId)
+
+        TimeZoneInfo ZoneFor(int providerId) => zones[providerClinics[providerId]];
+
+        var shiftDays = preferredShift;
+        if (!HasDistinctConfirmedSlots(preferredShift))
         {
-            var zone = zones[providerClinics[providerId]];
-            var local = DateTime.SpecifyKind(TimeZoneInfo.ConvertTime(value, zone).DateTime.AddDays(shiftDays), DateTimeKind.Unspecified);
-            if (zone.IsInvalidTime(local) || zone.IsAmbiguousTime(local)) throw InvalidTemplate();
-            return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, zone));
+            // A DST adjustment can put two confirmed visits in the same slot.
+            // Try nearby weeks while keeping the latest visit within the 30-day demo window.
+            shiftDays = new[] { preferredShift - 7, preferredShift + 7, preferredShift - 14 }
+                .Where(days => anchor.AddDays(days) > now && anchor.AddDays(days) <= now.AddDays(29))
+                .Where(HasDistinctConfirmedSlots).Select(days => (int?)days).FirstOrDefault()
+                ?? throw InvalidTemplate();
+        }
+
+        bool HasDistinctConfirmedSlots(int days)
+        {
+            var providerSlots = new HashSet<(int, DateTimeOffset)>();
+            var patientSlots = new HashSet<(int, DateTimeOffset)>();
+            foreach (var visit in confirmed)
+            {
+                var start = Shift(visit.StartUtc, ZoneFor(visit.ProviderId), days);
+                if (!providerSlots.Add((visit.ProviderId, start)) || !patientSlots.Add((visit.PatientId, start)))
+                    return false;
+            }
+            return true;
         }
 
         var workspace = new Workspace { CreatedAtUtc = now };
@@ -137,7 +156,7 @@ public sealed class VisitorWorkspaceProvisioner(HealthcareDbContext source,
 
         foreach (var row in appointments)
         {
-            var start = Shift(row.StartUtc, row.ProviderId);
+            var start = Shift(row.StartUtc, ZoneFor(row.ProviderId), shiftDays);
             if (start.UtcTicks % TimeSpan.FromMinutes(Appointment.DurationMinutes).Ticks != 0) throw InvalidTemplate();
             destination.Appointments.Add(new Appointment
             {
@@ -149,9 +168,14 @@ public sealed class VisitorWorkspaceProvisioner(HealthcareDbContext source,
         }
         foreach (var row in timeOff)
         {
-            var start = Shift(row.StartUtc, row.ProviderId);
-            var end = Shift(row.EndUtc, row.ProviderId);
-            if (end <= start) throw InvalidTemplate();
+            var zone = ZoneFor(row.ProviderId);
+            var start = Shift(row.StartUtc, zone, shiftDays);
+            var end = Shift(row.EndUtc, zone, shiftDays);
+            var sourceStart = TimeZoneInfo.ConvertTime(row.StartUtc, zone).DateTime;
+            var sourceEnd = TimeZoneInfo.ConvertTime(row.EndUtc, zone).DateTime;
+            // Preserve the elapsed block when a repeated source hour loses one of its occurrences.
+            if (zone.IsAmbiguousTime(sourceStart) || zone.IsAmbiguousTime(sourceEnd) || end <= start)
+                end = start + (row.EndUtc - row.StartUtc);
             destination.ProviderTimeOff.Add(new ProviderTimeOff { ProviderId = providerMap[row.ProviderId].Id, StartUtc = start, EndUtc = end });
         }
         await destination.SaveChangesAsync(ct);
@@ -159,9 +183,36 @@ public sealed class VisitorWorkspaceProvisioner(HealthcareDbContext source,
         return true;
     }
 
-    private static async Task<List<T>> LoadAsync<T>(IQueryable<T> rows, CancellationToken ct) where T : class
+    private static DateTimeOffset Shift(DateTimeOffset value, TimeZoneInfo zone, int days)
     {
-        var result = await rows.AsNoTracking().Take(MaximumTemplateRowsPerTable + 1).ToListAsync(ct);
+        if (days == 0) return value.ToUniversalTime();
+        var sourceLocal = TimeZoneInfo.ConvertTime(value, zone);
+        var destination = sourceLocal.DateTime.AddDays(days);
+        if (zone.IsInvalidTime(destination))
+        {
+            // Move forward by the offset change, keeping the minute within the missing hour.
+            var before = destination.AddMinutes(-1);
+            while (zone.IsInvalidTime(before)) before = before.AddMinutes(-1);
+            var after = destination.AddMinutes(1);
+            while (zone.IsInvalidTime(after)) after = after.AddMinutes(1);
+            destination += zone.GetUtcOffset(after) - zone.GetUtcOffset(before);
+        }
+        if (zone.IsAmbiguousTime(destination))
+        {
+            var offsets = zone.GetAmbiguousTimeOffsets(destination);
+            var offset = offsets.Contains(sourceLocal.Offset) ? sourceLocal.Offset : offsets.Max();
+            return new DateTimeOffset(destination, offset).ToUniversalTime();
+        }
+        return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(destination, zone));
+    }
+
+    private static async Task<List<T>> LoadAsync<T>(IQueryable<T> rows, CancellationToken ct)
+        where T : class, IWorkspaceRecord
+    {
+        // This reserved scope is seeded from fictional literals and cannot be opened by an API account.
+        var result = await rows.IgnoreQueryFilters().AsNoTracking()
+            .Where(row => row.WorkspaceId == Workspace.VisitorTemplateId)
+            .Take(MaximumTemplateRowsPerTable + 1).ToListAsync(ct);
         if (result.Count > MaximumTemplateRowsPerTable) throw InvalidTemplate();
         return result;
     }

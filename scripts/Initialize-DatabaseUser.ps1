@@ -33,6 +33,9 @@ USE master;
 IF DB_ID(N'HealthcareApp_Dev') IS NULL
     THROW 51000, 'Apply the development database migrations first.', 1;
 
+IF OBJECT_ID(N'HealthcareApp_Dev.dbo.CreateVisitorWorkspaceAccount', N'P') IS NULL
+    THROW 51000, 'Apply the visitor workspace migration first.', 1;
+
 IF EXISTS (
     SELECT 1 FROM sys.server_role_members
     WHERE member_principal_id = SUSER_ID(N'clinic_app')
@@ -60,9 +63,6 @@ IF EXISTS (
     WHERE member_principal_id = DATABASE_PRINCIPAL_ID(N'clinic_app')
 )
     THROW 51000, 'clinic_app already belongs to a database role. Review its privileges before continuing.', 1;
-
-IF OBJECT_ID(N'dbo.CreateVisitorWorkspaceAccount', N'P') IS NULL
-    THROW 51000, 'Apply the visitor workspace migration first.', 1;
 
 GRANT CONNECT TO [clinic_app];
 GRANT SELECT, INSERT ON OBJECT::dbo.Workspaces TO [clinic_app];

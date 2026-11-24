@@ -16,6 +16,15 @@ DECLARE @IsIntegrationTest bit = CASE
 IF DB_NAME() NOT IN (N'HealthcareApp_Dev', N'HealthcareApp_SeedCheck') AND @IsIntegrationTest = 0
     THROW 51000, 'Run this seed against the demo database or an integration-test database.', 1;
 
+-- The normal seed stays in the original workspace. The privileged template command
+-- selects a reserved workspace and a separate public-ID range in this session.
+DECLARE @TemplateMode bit = CASE WHEN SESSION_CONTEXT(N'SeedVisitorTemplate') = 1 THEN 1 ELSE 0 END;
+DECLARE @WorkspaceId uniqueidentifier = CASE WHEN @TemplateMode = 1
+    THEN '00000000-0000-0000-0000-000000000001' ELSE '00000000-0000-0000-0000-000000000000' END;
+DECLARE @IdPrefix char(2) = CASE WHEN @TemplateMode = 1 THEN '56' ELSE '55' END;
+DECLARE @FixtureSubject nvarchar(255) = CASE WHEN @TemplateMode = 1
+    THEN N'visitor-template-booking-fixture' ELSE N'demo-booking-fixture' END;
+
 BEGIN TRANSACTION;
 
 DECLARE @LockResult int;
@@ -24,6 +33,10 @@ EXEC @LockResult = sys.sp_getapplock
     @LockOwner = 'Transaction', @LockTimeout = 10000;
 IF @LockResult < 0
     THROW 51001, 'Another scale seed is running. Retry after it finishes.', 1;
+
+IF @TemplateMode = 1 AND NOT EXISTS (SELECT 1 FROM dbo.Workspaces WHERE Id = @WorkspaceId)
+    INSERT INTO dbo.Workspaces (Id, CreatedAtUtc)
+    VALUES (@WorkspaceId, TODATETIMEOFFSET(SYSUTCDATETIME(), '+00:00'));
 
 -- Stable public IDs let reruns add missing records without overwriting existing data.
 DECLARE @NowUtc datetimeoffset = TODATETIMEOFFSET(SYSUTCDATETIME(), '+00:00');
@@ -152,70 +165,70 @@ UPDATE c SET
         THEN names.Name ELSE c.Name END,
     Address = CASE WHEN c.Address = CONCAT(names.N, N' Fictional Avenue') THEN names.Address ELSE c.Address END
 FROM dbo.Clinics c JOIN #ClinicNames names ON c.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12)))
-WHERE c.Name IN (CONCAT(N'Demo Clinic ', names.N), CONCAT(N'Scale Clinic ', names.N))
-    OR c.Address = CONCAT(names.N, N' Fictional Avenue');
+    CONCAT(@IdPrefix, '000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12)))
+WHERE c.WorkspaceId = @WorkspaceId AND (c.Name IN (CONCAT(N'Demo Clinic ', names.N), CONCAT(N'Scale Clinic ', names.N))
+    OR c.Address = CONCAT(names.N, N' Fictional Avenue'));
 
-INSERT INTO dbo.Clinics (PublicId, Name, Address, TimeZoneId)
-SELECT CONVERT(uniqueidentifier, CONCAT('55000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))),
+INSERT INTO dbo.Clinics (WorkspaceId, PublicId, Name, Address, TimeZoneId)
+SELECT @WorkspaceId, CONVERT(uniqueidentifier, CONCAT(@IdPrefix, '000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))),
     names.Name, names.Address, N'America/Chicago'
 FROM #ClinicNames names
 WHERE NOT EXISTS (SELECT 1 FROM dbo.Clinics c WHERE c.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))));
+    CONCAT(@IdPrefix, '000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))));
 
 UPDATE p SET FirstName = names.FirstName, LastName = names.LastName
 FROM dbo.Patients p JOIN #PatientNames names ON p.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000004-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12)))
-WHERE p.FirstName = N'Fictional' AND p.LastName = CONCAT(N'Patient ', RIGHT(CONCAT('000', names.N), 3));
+    CONCAT(@IdPrefix, '000004-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12)))
+WHERE p.WorkspaceId = @WorkspaceId AND p.FirstName = N'Fictional' AND p.LastName = CONCAT(N'Patient ', RIGHT(CONCAT('000', names.N), 3));
 
-INSERT INTO dbo.Patients (PublicId, FirstName, LastName, DateOfBirth)
-SELECT CONVERT(uniqueidentifier, CONCAT('55000004-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))),
+INSERT INTO dbo.Patients (WorkspaceId, PublicId, FirstName, LastName, DateOfBirth)
+SELECT @WorkspaceId, CONVERT(uniqueidentifier, CONCAT(@IdPrefix, '000004-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))),
     names.FirstName, names.LastName, DATEFROMPARTS(1950 + names.N * 7 % 55, names.N * 5 % 12 + 1, names.N * 11 % 28 + 1)
 FROM #PatientNames names
 WHERE NOT EXISTS (SELECT 1 FROM dbo.Patients p WHERE p.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000004-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))));
+    CONCAT(@IdPrefix, '000004-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))));
 
 UPDATE p SET FirstName = names.FirstName, LastName = names.LastName
 FROM dbo.Providers p JOIN #ProviderNames names ON p.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000002-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12)))
-WHERE p.FirstName = N'Fictional' AND p.LastName = CONCAT(N'Provider ', RIGHT(CONCAT('00', names.N), 2));
+    CONCAT(@IdPrefix, '000002-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12)))
+WHERE p.WorkspaceId = @WorkspaceId AND p.FirstName = N'Fictional' AND p.LastName = CONCAT(N'Provider ', RIGHT(CONCAT('00', names.N), 2));
 
-INSERT INTO dbo.Providers (PublicId, ClinicId, FirstName, LastName)
-SELECT CONVERT(uniqueidentifier, CONCAT('55000002-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))),
+INSERT INTO dbo.Providers (WorkspaceId, PublicId, ClinicId, FirstName, LastName)
+SELECT @WorkspaceId, CONVERT(uniqueidentifier, CONCAT(@IdPrefix, '000002-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))),
     c.Id, names.FirstName, names.LastName
 FROM #ProviderNames names
-JOIN dbo.Clinics c ON c.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', (names.N - 1) / 5 + 1), 12)))
+JOIN dbo.Clinics c ON c.WorkspaceId = @WorkspaceId AND c.PublicId = CONVERT(uniqueidentifier,
+    CONCAT(@IdPrefix, '000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', (names.N - 1) / 5 + 1), 12)))
 WHERE NOT EXISTS (SELECT 1 FROM dbo.Providers p WHERE p.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000002-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))));
+    CONCAT(@IdPrefix, '000002-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))));
 
 UPDATE s SET Name = names.Name
 FROM dbo.ClinicalServices s JOIN #ServiceNames names ON s.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000003-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12)))
-WHERE s.Name IN (CONCAT(N'Demo Service ', RIGHT(CONCAT('00', names.N), 2)),
+    CONCAT(@IdPrefix, '000003-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12)))
+WHERE s.WorkspaceId = @WorkspaceId AND s.Name IN (CONCAT(N'Demo Service ', RIGHT(CONCAT('00', names.N), 2)),
     CONCAT(N'Scale Service ', RIGHT(CONCAT('00', names.N), 2)))
     AND NOT EXISTS (SELECT 1 FROM dbo.ClinicalServices other
         WHERE other.ClinicId = s.ClinicId AND other.Name = names.Name AND other.Id <> s.Id);
 
-INSERT INTO dbo.ClinicalServices (PublicId, ClinicId, Name, AllowsDirectBooking)
-SELECT CONVERT(uniqueidentifier, CONCAT('55000003-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))),
+INSERT INTO dbo.ClinicalServices (WorkspaceId, PublicId, ClinicId, Name, AllowsDirectBooking)
+SELECT @WorkspaceId, CONVERT(uniqueidentifier, CONCAT(@IdPrefix, '000003-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))),
     c.Id, names.Name, 1
 FROM #ServiceNames names
-JOIN dbo.Clinics c ON c.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', (names.N - 1) / 4 + 1), 12)))
+JOIN dbo.Clinics c ON c.WorkspaceId = @WorkspaceId AND c.PublicId = CONVERT(uniqueidentifier,
+    CONCAT(@IdPrefix, '000001-0000-4000-8000-', RIGHT(CONCAT('000000000000', (names.N - 1) / 4 + 1), 12)))
 WHERE NOT EXISTS (SELECT 1 FROM dbo.ClinicalServices s WHERE s.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000003-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))));
+    CONCAT(@IdPrefix, '000003-0000-4000-8000-', RIGHT(CONCAT('000000000000', names.N), 12))));
 
-INSERT INTO dbo.ProviderServices (ProviderId, ClinicalServiceId, ClinicId)
-SELECT p.Id, s.Id, p.ClinicId
-FROM dbo.Providers p JOIN dbo.ClinicalServices s ON s.ClinicId = p.ClinicId
-WHERE CONVERT(char(36), p.PublicId) LIKE '55000002-0000-4000-8000-%'
-    AND CONVERT(char(36), s.PublicId) LIKE '55000003-0000-4000-8000-%'
+INSERT INTO dbo.ProviderServices (WorkspaceId, ProviderId, ClinicalServiceId, ClinicId)
+SELECT @WorkspaceId, p.Id, s.Id, p.ClinicId
+FROM dbo.Providers p JOIN dbo.ClinicalServices s ON s.ClinicId = p.ClinicId AND s.WorkspaceId = @WorkspaceId
+WHERE p.WorkspaceId = @WorkspaceId AND CONVERT(char(36), p.PublicId) LIKE CONCAT(@IdPrefix, '000002-0000-4000-8000-%')
+    AND CONVERT(char(36), s.PublicId) LIKE CONCAT(@IdPrefix, '000003-0000-4000-8000-%')
     AND NOT EXISTS (SELECT 1 FROM dbo.ProviderServices link
         WHERE link.ProviderId = p.Id AND link.ClinicalServiceId = s.Id);
 
 DECLARE @BookingAccountId int;
-IF @IsIntegrationTest = 1
+IF @IsIntegrationTest = 1 AND @TemplateMode = 0
 BEGIN
     INSERT INTO dbo.AppAccounts (Issuer, Subject, IsAdministrator, ProviderId)
     SELECT N'https://auth.integration.test/', demo.Subject, demo.IsAdministrator, demo.ProviderId
@@ -231,7 +244,7 @@ BEGIN
     INSERT INTO dbo.ClinicMemberships (AppAccountId, ClinicId, Role)
     SELECT a.Id, c.Id, 2 FROM dbo.AppAccounts a CROSS JOIN dbo.Clinics c
     WHERE a.Issuer = N'https://auth.integration.test/' AND a.Subject = N'auth0|scale-front-desk'
-        AND CONVERT(char(36), c.PublicId) LIKE '55000001-0000-4000-8000-%'
+        AND CONVERT(char(36), c.PublicId) LIKE CONCAT(@IdPrefix, '000001-0000-4000-8000-%')
         AND NOT EXISTS (SELECT 1 FROM dbo.ClinicMemberships m
             WHERE m.AppAccountId = a.Id AND m.ClinicId = c.Id AND m.Role = 2);
     INSERT INTO dbo.ClinicMemberships (AppAccountId, ClinicId, Role)
@@ -247,12 +260,14 @@ ELSE
 BEGIN
     -- Attribute fictional demo bookings to the existing unprivileged seed identity.
     IF NOT EXISTS (SELECT 1 FROM dbo.AppAccounts
-        WHERE Issuer = N'https://seed.invalid/' AND Subject = N'demo-booking-fixture')
-        INSERT INTO dbo.AppAccounts (Issuer, Subject, IsAdministrator)
-        VALUES (N'https://seed.invalid/', N'demo-booking-fixture', 0);
+        WHERE Issuer = N'https://seed.invalid/' AND Subject = @FixtureSubject)
+        INSERT INTO dbo.AppAccounts (WorkspaceId, Issuer, Subject, IsAdministrator)
+        VALUES (@WorkspaceId, N'https://seed.invalid/', @FixtureSubject, 0);
 
     SELECT @BookingAccountId = Id FROM dbo.AppAccounts
-    WHERE Issuer = N'https://seed.invalid/' AND Subject = N'demo-booking-fixture';
+    WHERE WorkspaceId = @WorkspaceId AND Issuer = N'https://seed.invalid/' AND Subject = @FixtureSubject;
+    IF @BookingAccountId IS NULL
+        THROW 51002, 'The booking fixture belongs to a different workspace.', 1;
 END;
 
 -- Each provider has four morning visits per weekday for ten weekdays.
@@ -267,12 +282,12 @@ SELECT n.N, p.Id AS ProviderId, patient.Id AS PatientId, service.Id AS ClinicalS
 INTO #Bookings
 FROM #Numbers n
 JOIN #Days d ON d.DayNumber = (n.N - 1) / 100
-JOIN dbo.Providers p ON p.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000002-0000-4000-8000-', RIGHT(CONCAT('000000000000', (n.N - 1) % 25 + 1), 12)))
-JOIN dbo.Patients patient ON patient.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000004-0000-4000-8000-', RIGHT(CONCAT('000000000000', (n.N - 1) % 250 + 1), 12)))
-JOIN dbo.ClinicalServices service ON service.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000003-0000-4000-8000-', RIGHT(CONCAT('000000000000',
+JOIN dbo.Providers p ON p.WorkspaceId = @WorkspaceId AND p.PublicId = CONVERT(uniqueidentifier,
+    CONCAT(@IdPrefix, '000002-0000-4000-8000-', RIGHT(CONCAT('000000000000', (n.N - 1) % 25 + 1), 12)))
+JOIN dbo.Patients patient ON patient.WorkspaceId = @WorkspaceId AND patient.PublicId = CONVERT(uniqueidentifier,
+    CONCAT(@IdPrefix, '000004-0000-4000-8000-', RIGHT(CONCAT('000000000000', (n.N - 1) % 250 + 1), 12)))
+JOIN dbo.ClinicalServices service ON service.WorkspaceId = @WorkspaceId AND service.PublicId = CONVERT(uniqueidentifier,
+    CONCAT(@IdPrefix, '000003-0000-4000-8000-', RIGHT(CONCAT('000000000000',
         ((n.N - 1) % 25) / 5 * 4 + ((n.N - 1) / 25) % 4 + 1), 12)));
 
 -- Update only the original placeholder text on previously seeded referrals.
@@ -284,43 +299,43 @@ UPDATE r SET
     MissingInformationNote = CASE WHEN r.MissingInformationNote = N'Fictional supporting information needed.'
         THEN names.MissingNote ELSE r.MissingInformationNote END
 FROM dbo.Referrals r JOIN #Bookings b ON b.N <= 300 AND r.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000005-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12)))
+    CONCAT(@IdPrefix, '000005-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12)))
 JOIN #ServiceNames names ON names.N = b.ServiceNumber
-WHERE r.ClinicalServiceId = b.ClinicalServiceId
+WHERE r.WorkspaceId = @WorkspaceId AND r.ClinicalServiceId = b.ClinicalServiceId
     AND (r.ReferringProviderName = N'Fictional Referring Provider'
         OR r.Reason IN (CONCAT(N'Fictional demo referral ', b.N), CONCAT(N'Fictional scale referral ', b.N))
         OR r.MissingInformationNote = N'Fictional supporting information needed.');
 
 -- Sixty referrals per stage: pending review, missing information, ready, scheduled, and closed.
 INSERT INTO dbo.Referrals
-    (PublicId, PatientId, ClinicalServiceId, AssignedProviderId, ReferringProviderName,
+    (WorkspaceId, PublicId, PatientId, ClinicalServiceId, AssignedProviderId, ReferringProviderName,
         Reason, MissingInformationNote, Status, CreatedAtUtc)
-SELECT CONVERT(uniqueidentifier, CONCAT('55000005-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))),
+SELECT @WorkspaceId, CONVERT(uniqueidentifier, CONCAT(@IdPrefix, '000005-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))),
     b.PatientId, b.ClinicalServiceId, b.ProviderId, b.ReferringProviderName, names.Reason,
     CASE WHEN b.N > 120 AND b.N % 3 = 1 THEN names.MissingNote END,
     CASE WHEN b.N <= 120 THEN CASE WHEN b.N % 2 = 0 THEN 4 ELSE 3 END ELSE b.N % 3 + 1 END,
     DATEADD(minute, b.N - 301, DATEADD(day, -61, @NowUtc))
 FROM #Bookings b JOIN #ServiceNames names ON names.N = b.ServiceNumber WHERE b.N <= 300
     AND NOT EXISTS (SELECT 1 FROM dbo.Referrals r WHERE r.PublicId = CONVERT(uniqueidentifier,
-        CONCAT('55000005-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))))
+        CONCAT(@IdPrefix, '000005-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))))
     AND (b.N <= 120 AND b.N % 2 = 0 OR NOT EXISTS (SELECT 1 FROM dbo.Referrals r
         WHERE r.PatientId = b.PatientId AND r.ClinicalServiceId = b.ClinicalServiceId AND r.Status <> 4));
 
 INSERT INTO dbo.Appointments
-    (PublicId, PatientId, ClinicalServiceId, ProviderId, ReferralId, StartUtc,
+    (WorkspaceId, PublicId, PatientId, ClinicalServiceId, ProviderId, ReferralId, StartUtc,
         Status, BookedByAppAccountId, CreatedAtUtc)
-SELECT CONVERT(uniqueidentifier, CONCAT('55000006-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))),
+SELECT @WorkspaceId, CONVERT(uniqueidentifier, CONCAT(@IdPrefix, '000006-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))),
     b.PatientId, b.ClinicalServiceId, b.ProviderId, r.Id,
     CONVERT(datetimeoffset, DATEADD(day, CASE WHEN b.AppointmentStatus = 3 THEN -28 ELSE 0 END, b.LocalStart)
         AT TIME ZONE 'Central Standard Time' AT TIME ZONE 'UTC'),
     b.AppointmentStatus, @BookingAccountId, DATEADD(day, -60, @NowUtc)
 FROM #Bookings b
-LEFT JOIN dbo.Referrals r ON b.N <= 120 AND r.PublicId = CONVERT(uniqueidentifier,
-    CONCAT('55000005-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12)))
+LEFT JOIN dbo.Referrals r ON r.WorkspaceId = @WorkspaceId AND b.N <= 120 AND r.PublicId = CONVERT(uniqueidentifier,
+    CONCAT(@IdPrefix, '000005-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12)))
     AND r.PatientId = b.PatientId AND r.ClinicalServiceId = b.ClinicalServiceId
     AND r.AssignedProviderId = b.ProviderId
 WHERE NOT EXISTS (SELECT 1 FROM dbo.Appointments a WHERE a.PublicId = CONVERT(uniqueidentifier,
-        CONCAT('55000006-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))))
+        CONCAT(@IdPrefix, '000006-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))))
     AND (b.N > 120 OR r.Id IS NOT NULL)
     AND (r.Id IS NULL OR r.Status = CASE WHEN b.AppointmentStatus = 3 THEN 4 ELSE 3 END)
     AND (r.Id IS NULL OR NOT EXISTS (SELECT 1 FROM dbo.Appointments a WHERE a.ReferralId = r.Id AND a.Status <> 2))
@@ -329,13 +344,13 @@ WHERE NOT EXISTS (SELECT 1 FROM dbo.Appointments a WHERE a.PublicId = CONVERT(un
         WHERE a.Status = 1 AND (a.PatientId = b.PatientId OR a.ProviderId = b.ProviderId)
             AND a.StartUtc = CONVERT(datetimeoffset, b.LocalStart AT TIME ZONE 'Central Standard Time' AT TIME ZONE 'UTC')));
 
-INSERT INTO dbo.ProviderTimeOff (PublicId, ProviderId, StartUtc, EndUtc)
-SELECT CONVERT(uniqueidentifier, CONCAT('55000008-0000-4000-8000-', RIGHT(CONCAT('000000000000', N), 12))),
+INSERT INTO dbo.ProviderTimeOff (WorkspaceId, PublicId, ProviderId, StartUtc, EndUtc)
+SELECT @WorkspaceId, CONVERT(uniqueidentifier, CONCAT(@IdPrefix, '000008-0000-4000-8000-', RIGHT(CONCAT('000000000000', N), 12))),
     ProviderId, CONVERT(datetimeoffset, LocalStart AT TIME ZONE 'Central Standard Time' AT TIME ZONE 'UTC'),
     CONVERT(datetimeoffset, DATEADD(minute, 60, LocalStart) AT TIME ZONE 'Central Standard Time' AT TIME ZONE 'UTC')
 FROM #Bookings b WHERE N <= 25 AND (N - 1) % 5 = 0
     AND NOT EXISTS (SELECT 1 FROM dbo.ProviderTimeOff t WHERE t.PublicId = CONVERT(uniqueidentifier,
-        CONCAT('55000008-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))));
+        CONCAT(@IdPrefix, '000008-0000-4000-8000-', RIGHT(CONCAT('000000000000', b.N), 12))));
 
 DROP TABLE #ClinicNames;
 DROP TABLE #ProviderNames;
@@ -346,11 +361,13 @@ DROP TABLE #Days;
 DROP TABLE #Numbers;
 COMMIT;
 
+EXEC sys.sp_set_session_context @key = N'SeedVisitorTemplate', @value = NULL;
+
 PRINT N'Larger fictional demo dataset ready. Existing records and account links were preserved.';
 SELECT
-    (SELECT COUNT(*) FROM dbo.Clinics) AS Clinics,
-    (SELECT COUNT(*) FROM dbo.Providers) AS Providers,
-    (SELECT COUNT(*) FROM dbo.ClinicalServices) AS Services,
-    (SELECT COUNT(*) FROM dbo.Patients) AS Patients,
-    (SELECT COUNT(*) FROM dbo.Referrals) AS Referrals,
-    (SELECT COUNT(*) FROM dbo.Appointments) AS Appointments;
+    (SELECT COUNT(*) FROM dbo.Clinics WHERE WorkspaceId = @WorkspaceId) AS Clinics,
+    (SELECT COUNT(*) FROM dbo.Providers WHERE WorkspaceId = @WorkspaceId) AS Providers,
+    (SELECT COUNT(*) FROM dbo.ClinicalServices WHERE WorkspaceId = @WorkspaceId) AS Services,
+    (SELECT COUNT(*) FROM dbo.Patients WHERE WorkspaceId = @WorkspaceId) AS Patients,
+    (SELECT COUNT(*) FROM dbo.Referrals WHERE WorkspaceId = @WorkspaceId) AS Referrals,
+    (SELECT COUNT(*) FROM dbo.Appointments WHERE WorkspaceId = @WorkspaceId) AS Appointments;

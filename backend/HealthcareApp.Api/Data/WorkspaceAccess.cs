@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
+using HealthcareApp.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthcareApp.Api.Data;
@@ -25,6 +26,8 @@ public sealed class WorkspaceAccess(HealthcareDbContext db)
         // Only this exact authenticated identity may bypass the account query filter.
         var account = await identity.QueryAccounts(db).IgnoreQueryFilters()
             .Select(row => new { row.WorkspaceId, row.IsAdministrator }).SingleOrDefaultAsync(ct);
+        if (account?.WorkspaceId == Workspace.VisitorTemplateId) return false;
+
         db.SelectWorkspace(account?.WorkspaceId ?? Guid.Empty);
         IsPrivateOwner = account is { IsAdministrator: true } && account.WorkspaceId != Guid.Empty;
         resolvedIdentity = identity;

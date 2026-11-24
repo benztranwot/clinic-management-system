@@ -11,6 +11,7 @@ services:
       - sql-data:/var/opt/mssql
       - ./backend/database/SeedDemoData.sql:/seed/SeedDemoData.sql:ro
       - ./backend/database/SeedScaleData.sql:/seed/SeedScaleData.sql:ro
+      - ./backend/database/UseVisitorTemplate.sql:/seed/UseVisitorTemplate.sql:ro
     healthcheck:
       test:
         [
