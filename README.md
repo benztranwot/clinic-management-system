@@ -8,6 +8,12 @@ Follow the [development setup](docs/setup.md#run-locally-with-docker-compose)
 to configure Auth0, initialize SQL Server, and start the stack. Open
 `http://localhost:8080` when the web service is healthy.
 
+## Try the demo
+
+Create a private workspace with fictional clinic records to try booking and
+rescheduling. The [demo guide](docs/demo.md) walks through sign-up and shows
+the patient, front-desk, and provider views.
+
 ## Documentation
 
 - [Architecture and project layout](docs/architecture.md)
