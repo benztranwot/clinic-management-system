@@ -39,14 +39,18 @@ function isWeekday(date: string) {
   return day >= 1 && day <= 5;
 }
 
-function weekdayInMonth(days: CalendarDay[], date: string) {
-  const workdays = days.filter(day => monthKey(day.date) === monthKey(date) && isWeekday(day.date));
-  return workdays.find(day => day.date >= date) ?? workdays.at(-1);
+function isSelectableDay(day: CalendarDay) {
+  return isWeekday(day.date) || day.dayOff || (day.timeOff?.length ?? 0) > 0 || day.appointments.length > 0;
+}
+
+function selectableDayInMonth(days: CalendarDay[], date: string) {
+  const selectableDays = days.filter(day => monthKey(day.date) === monthKey(date) && isSelectableDay(day));
+  return selectableDays.find(day => day.date >= date) ?? selectableDays.at(-1);
 }
 
 function dayLabel(day: CalendarDay, today: string, now: number) {
-  if (!isWeekday(day.date)) return "Weekend";
   if (day.dayOff) return "Unavailable";
+  if (!isWeekday(day.date)) return "Weekend";
   if (day.date < today) return "Past date";
   const openTimes = day.availableSlots.filter((slot) => Date.parse(slot.startUtc) > now).length;
   if (openTimes === 0) return "No open times";
@@ -219,11 +223,11 @@ function ProviderCalendarView({ userId }: { userId: string }) {
   );
 
   const { days, timeZoneId, today } = calendar.data;
-  const selectedWeekday = weekdayInMonth(days, selectedDate || today)
-    ?? weekdayInMonth(days, today)
-    ?? days.find(day => isWeekday(day.date));
-  if (!selectedWeekday) return <p>No calendar days are available.</p>;
-  const selected = selectedWeekday;
+  const selectedDay = selectableDayInMonth(days, selectedDate || today)
+    ?? selectableDayInMonth(days, today)
+    ?? days.find(isSelectableDay);
+  if (!selectedDay) return <p>No calendar days are available.</p>;
+  const selected = selectedDay;
 
   const month = monthKey(selected.date);
   const months = [...new Set(days.map((day) => monthKey(day.date)))];
@@ -252,7 +256,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
 
   function moveMonth(offset: number) {
     const target = months[monthIndex + offset];
-    const firstDay = weekdayInMonth(days, target === monthKey(today) ? today : target + "-01");
+    const firstDay = selectableDayInMonth(days, target === monthKey(today) ? today : target + "-01");
     if (firstDay) selectDay(firstDay.date);
   }
 
@@ -297,7 +301,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
                   aria-pressed={day.date === selected.date}
                   aria-current={day.date === today ? "date" : undefined}
                   aria-label={fullDate.format(calendarDate(day.date)) + ", " + dayLabel(day, today, now) + ", appointments: " + day.appointments.length}
-                  disabled={change.isPending || !isWeekday(day.date)}
+                  disabled={change.isPending || !isSelectableDay(day)}
                   onClick={() => selectDay(day.date)}
                 >
                   <time dateTime={day.date}>{calendarDate(day.date).getUTCDate()}</time>

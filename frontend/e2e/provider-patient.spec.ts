@@ -430,6 +430,8 @@ test("clinician can review full months and past appointments from the schedule",
   const afternoonAppointment: AppointmentDetails = {
     ...pastAppointment, ...bookedSlot, publicId: "66666666-6666-4666-8666-666666666666", status: "Confirmed",
   };
+  const weekendOff = "2026-11-14";
+  const weekendAppointment = "2026-11-15";
   const firstDay = Date.parse("2026-10-01");
   const dayCount = (Date.parse("2027-03-01") - firstDay) / 86_400_000;
   const calendar: ProviderCalendar = {
@@ -442,12 +444,16 @@ test("clinician can review full months and past appointments from the schedule",
         openSlots: date === today ? availableSlots.length : 0,
         availableSlots: date === today ? availableSlots : [],
         startedSlots: [],
-        dayOff: false,
+        dayOff: date === weekendOff,
         dayOffPublicId: null,
-        canMarkUnavailable: date >= today && date < "2027-02-07",
+        canMarkUnavailable: date >= today && date < "2027-02-07" && date !== weekendOff,
         timeOff: [],
         appointments: date === historyDate ? [{ ...pastAppointment, duringTimeOff: false }]
-          : date === today ? [{ ...afternoonAppointment, duringTimeOff: false }] : [],
+          : date === today ? [{ ...afternoonAppointment, duringTimeOff: false }]
+          : date === weekendAppointment ? [{
+              ...afternoonAppointment, startUtc: weekendAppointment + "T15:00:00Z",
+              endUtc: weekendAppointment + "T15:30:00Z", duringTimeOff: false,
+            }] : [],
       };
     }),
   };
@@ -469,7 +475,6 @@ test("clinician can review full months and past appointments from the schedule",
   await expect(calendarGrid.locator(".provider-calendar-cell")).toHaveCount(35);
   await expect(page.getByRole("button", { name: /November 9, 2026/ })).toHaveAttribute("aria-current", "date");
   await expect(page.getByRole("button", { name: /November 9, 2026/ })).toHaveAttribute("aria-pressed", "true");
-  await expect(dates.filter({ hasText: "Weekend" })).toHaveCount(9);
   await expect(calendarGrid.getByRole("button", { name: /Saturday, November 7, 2026/ })).toBeDisabled();
   await expect(calendarGrid.getByRole("button", { name: /Sunday, November 8, 2026/ })).toBeDisabled();
   const cellSizes = await dates.evaluateAll((cells) => cells.map((cell) => {
@@ -554,6 +559,13 @@ test("clinician can review full months and past appointments from the schedule",
   }
   await expect(dates).toHaveCount(28);
   await expect(next).toBeDisabled();
+
+  await page.goto("/my-schedule?date=" + weekendAppointment);
+  await expect(calendarGrid.getByRole("button", { name: /November 15, 2026/ }))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("link", { name: /^View appointment:/ })).toBeVisible();
+  await calendarGrid.getByRole("button", { name: /November 14, 2026, Unavailable/ }).click();
+  await expect(page.getByText("Time off: All day")).toBeVisible();
   expect(unexpected).toEqual([]);
 });
 

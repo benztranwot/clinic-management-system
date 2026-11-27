@@ -35,6 +35,23 @@ test("mobile navigation returns focus on Escape and moves it to content after na
 
   await menu.press("Enter");
   await appointments.focus();
+  await appointments.press("Tab");
+  const theme = page.getByLabel(/^Theme:/);
+  await expect(theme).toBeFocused();
+  await theme.press("Enter");
+  await page.getByRole("button", { name: "Light", exact: true }).press("Escape");
+  await expect(theme).toBeFocused();
+  await expect(menu).toHaveAttribute("aria-expanded", "true");
+
+  const main = page.getByRole("main");
+  await main.focus();
+  await expect(main).toBeFocused();
+  await main.press("Escape");
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).toBeFocused();
+
+  await menu.press("Enter");
+  await appointments.focus();
   await appointments.press("Enter");
   await expect(page.getByRole("heading", { name: "My appointments", exact: true })).toBeVisible();
   await expect(menu).toHaveAttribute("aria-expanded", "false");

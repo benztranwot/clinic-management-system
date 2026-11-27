@@ -261,6 +261,23 @@ public class ProviderCalendarTests
             var startOfDay = Assert.Single(GetDay(overnightCalendar, "2030-01-09").GetProperty("timeOff").EnumerateArray());
             Assert.Equal(midnight, endOfDay.GetProperty("endUtc").GetDateTimeOffset());
             Assert.Equal(midnight, startOfDay.GetProperty("startUtc").GetDateTimeOffset());
+
+            clock.Now = midnight.AddTicks(-1);
+            using var markToday = await client.PostAsync(url + "/2030-01-08/time-off", null);
+            Assert.Equal(HttpStatusCode.NoContent, markToday.StatusCode);
+            var dayOff = GetDay(await client.GetFromJsonAsync<JsonElement>(url), "2030-01-08");
+            var todayBlockId = dayOff.GetProperty("dayOffPublicId").GetGuid();
+            using var removedBeforeMidnight = await client.DeleteAsync($"/api/me/time-off/{todayBlockId}");
+            Assert.Equal(HttpStatusCode.NoContent, removedBeforeMidnight.StatusCode);
+
+            using var markAgain = await client.PostAsync(url + "/2030-01-08/time-off", null);
+            Assert.Equal(HttpStatusCode.NoContent, markAgain.StatusCode);
+            var restoredDayOff = GetDay(await client.GetFromJsonAsync<JsonElement>(url), "2030-01-08");
+            var pastBlockId = restoredDayOff.GetProperty("dayOffPublicId").GetGuid();
+            clock.Now = midnight;
+            using var rejectedAfterMidnight = await client.DeleteAsync($"/api/me/time-off/{pastBlockId}");
+            Assert.Equal(HttpStatusCode.Conflict, rejectedAfterMidnight.StatusCode);
+            Assert.True(await db.ProviderTimeOff.AnyAsync(block => block.PublicId == pastBlockId));
         }
         finally
         {
