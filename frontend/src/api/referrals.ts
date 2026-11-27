@@ -42,6 +42,12 @@ export type ReferralSummary = {
 
 export type PatientReferralSummary = Omit<ReferralSummary, "patientFirstName" | "patientLastName">;
 
+export type PatientReferralDetails = PatientReferralSummary & {
+  clinicAddress: string;
+  providerName: string;
+  appointmentPublicId: string | null;
+};
+
 export type ReferralDetails = ReferralSummary & {
   patientPublicId: string;
   clinicalServicePublicId: string;
@@ -173,6 +179,12 @@ export function getReferralAccount(accessToken: string, signal: AbortSignal) {
 
 export function getMyReferrals(accessToken: string, signal: AbortSignal) {
   return readReferralResponse<PatientReferralSummary[]>("/api/me/referrals", accessToken, { signal });
+}
+
+export function getMyReferral(accessToken: string, publicId: string, signal: AbortSignal) {
+  return readReferralResponse<PatientReferralDetails>(
+    "/api/me/referrals/" + encodeURIComponent(publicId), accessToken, { signal },
+  );
 }
 
 export function getClinicReferrals(accessToken: string, clinicPublicId: string, signal: AbortSignal) {

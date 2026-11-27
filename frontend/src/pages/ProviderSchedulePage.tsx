@@ -10,10 +10,19 @@ import {
   type CalendarDay,
   type CalendarSlot,
 } from "../api/providerSchedule";
-import { Link } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { ActionIcon } from "../components/ActionIcon";
+import { AppointmentStatusBadge, TimeOffConflictBadge } from "../features/appointments/components/AppointmentStatusBadge";
+import { dateInTimeZone } from "../features/appointments/clinicDates";
+import "./ProviderSchedulePage.css";
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const dayPeriods = [
+  { id: "morning", label: "Morning" },
+  { id: "afternoon", label: "Afternoon" },
+] as const;
+type DayPeriod = (typeof dayPeriods)[number]["id"];
+
 const fullDate = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" });
 const monthName = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
 
@@ -25,8 +34,20 @@ function calendarDate(date: string) {
   return new Date(date + "T00:00:00Z");
 }
 
-function dayLabel(day: CalendarDay, now: number) {
+function isWeekday(date: string) {
+  const day = calendarDate(date).getUTCDay();
+  return day >= 1 && day <= 5;
+}
+
+function weekdayInMonth(days: CalendarDay[], date: string) {
+  const workdays = days.filter(day => monthKey(day.date) === monthKey(date) && isWeekday(day.date));
+  return workdays.find(day => day.date >= date) ?? workdays.at(-1);
+}
+
+function dayLabel(day: CalendarDay, today: string, now: number) {
+  if (!isWeekday(day.date)) return "Weekend";
   if (day.dayOff) return "Unavailable";
+  if (day.date < today) return "Past date";
   const openTimes = day.availableSlots.filter((slot) => Date.parse(slot.startUtc) > now).length;
   if (openTimes === 0) return "No open times";
   return openTimes === 1 ? "1 open time" : openTimes + " open times";
@@ -60,58 +81,75 @@ function splitDaySlots(day: CalendarDay, timeZone: string) {
   return { morning, afternoon };
 }
 
-function DaySlotColumn({ title, slots, timeZone, now }: { title: string; slots: DaySlot[]; timeZone: string; now: number }) {
+function DaySlotGroup({ period, title, active, slots, timeZone, now, returnState }: {
+  period: DayPeriod;
+  title: string;
+  active: boolean;
+  slots: DaySlot[];
+  timeZone: string;
+  now: number;
+  returnState: { fromProviderSchedule: true; scheduleDate: string; scheduleOwner: string };
+}) {
   const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
 
   return (
-    <div className="min-w-0 space-y-3">
-      <h4 className="text-sm font-semibold">{title}</h4>
-      {slots.length === 0 ? <p className="text-sm text-subtle">No open times or appointments.</p> : (
-        <ul className="space-y-2">
-          {slots.map(({ appointment, startUtc, endUtc, hasEnded }) => {
-            const ended = hasEnded === true || Date.parse(endUtc) <= now;
-            const started = hasEnded !== undefined || Date.parse(startUtc) <= now;
-            const style = ended ? " bg-[var(--muted)] text-subtle" : "";
+    <section id={"schedule-" + period} aria-labelledby={"schedule-" + period + "-heading"}
+      data-selected={active} className="provider-schedule-period min-w-0 space-y-2">
+      <h3 id={"schedule-" + period + "-heading"} className="text-sm font-semibold">{title}</h3>
+      <ul className="space-y-1">
+        {slots.map(({ appointment, startUtc, endUtc, hasEnded }) => {
+          const ended = hasEnded === true || Date.parse(endUtc) <= now;
+          const started = hasEnded !== undefined || Date.parse(startUtc) <= now;
+          const style = ended && !appointment ? " bg-[var(--muted)] text-subtle" : "";
+          const range = time.formatRange(new Date(startUtc), new Date(endUtc));
+          const description = appointment
+            ? appointment.patientName + " · " + appointment.serviceName
+            : ended ? "Time passed" : started ? "Time started" : "Open time";
+          const content = (
+            <>
+              <div className="flex min-w-0 items-baseline justify-between gap-2">
+                <time dateTime={startUtc} className="min-w-0 truncate font-medium" title={range}>{range}</time>
+                {appointment && <span className="shrink-0"><AppointmentStatusBadge status={appointment.status} /></span>}
+              </div>
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-xs" title={appointment ? description : undefined}>{description}</span>
+                {appointment?.status === "Confirmed" && appointment.duringTimeOff
+                  ? <span className="shrink-0"><TimeOffConflictBadge /></span>
+                  : appointment && <ActionIcon name="forward" />}
+              </div>
+            </>
+          );
 
-            return (
-              <li
-                key={appointment?.publicId ?? startUtc}
-                className={"space-y-1 rounded-md border border-panel-border p-3 text-sm" + style}
-              >
-                <time dateTime={startUtc} className="block font-medium">
-                  {time.formatRange(new Date(startUtc), new Date(endUtc))}
-                </time>
-                {appointment ? (
-                  <>
-                    <p className="wrap-break-word">{appointment.serviceName} · {appointment.patientName}</p>
-                    {appointment.duringTimeOff && <p className="text-subtle">Booked during time off</p>}
-                    <Link
-                      className="workspace-button"
-                      data-variant="secondary"
-                      to={"/appointments/" + appointment.publicId}
-                      state={{ fromProviderSchedule: true }}
-                    >
-                      <ActionIcon name="eye" />
-                      View appointment
-                    </Link>
-                  </>
-                ) : (
-                  <p className="text-subtle">{ended ? "Time passed" : started ? "Time started" : "Open time"}</p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+          return (
+            <li key={appointment?.publicId ?? startUtc} className={"min-w-0 rounded-md border border-panel-border text-sm" + style}>
+              {appointment ? (
+                <Link className="provider-schedule-slot provider-schedule-slot-link"
+                  to={"/appointments/" + appointment.publicId}
+                  state={{ ...returnState, schedulePeriod: period }}>
+                  <span className="sr-only">View appointment: </span>
+                  {content}
+                </Link>
+              ) : (
+                <div className="provider-schedule-slot">{content}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
 function ProviderCalendarView({ userId }: { userId: string }) {
   const { getAccessTokenSilently } = useAuth0();
+  const { state } = useLocation();
+  const [search, setSearch] = useSearchParams();
   const queryClient = useQueryClient();
   const queryKey = ["provider-calendar", userId];
-  const [selectedDate, setSelectedDate] = useState("");
+  const scheduleState = state?.scheduleOwner === userId ? state : undefined;
+  const selectedDate = search.get("date") ??
+    (typeof scheduleState?.scheduleDate === "string" ? scheduleState.scheduleDate : "");
+  const selectedPeriod = search.has("date") ? search.get("period") : scheduleState?.schedulePeriod;
   const [notice, setNotice] = useState("");
   const [now, setNow] = useState(() => Date.now());
 
@@ -137,11 +175,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
       setNow(currentTime);
       if (!clinicToday || !clinicTimeZone || isFetching) return;
 
-      const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone: clinicTimeZone, year: "numeric", month: "2-digit", day: "2-digit",
-      }).formatToParts(new Date(currentTime));
-      const currentDate = ["year", "month", "day"]
-        .map((type) => parts.find((part) => part.type === type)?.value).join("-");
+      const currentDate = dateInTimeZone(new Date(currentTime), clinicTimeZone);
       if (currentDate !== clinicToday) void refetch();
     }
 
@@ -185,8 +219,11 @@ function ProviderCalendarView({ userId }: { userId: string }) {
   );
 
   const { days, timeZoneId, today } = calendar.data;
-  const selected = days.find((day) => day.date === selectedDate) ?? days[0];
-  if (!selected) return <p>No calendar days are available.</p>;
+  const selectedWeekday = weekdayInMonth(days, selectedDate || today)
+    ?? weekdayInMonth(days, today)
+    ?? days.find(day => isWeekday(day.date));
+  if (!selectedWeekday) return <p>No calendar days are available.</p>;
+  const selected = selectedWeekday;
 
   const month = monthKey(selected.date);
   const months = [...new Set(days.map((day) => monthKey(day.date)))];
@@ -195,23 +232,32 @@ function ProviderCalendarView({ userId }: { userId: string }) {
   const firstVisibleDate = calendarDate(visibleDays[0].date);
   // Reserve columns for the days before the start of the visible range.
   const leadingCells = firstVisibleDate.getUTCDay();
-  const { morning, afternoon } = splitDaySlots(selected, timeZoneId);
+  const trailingCells = (7 - (leadingCells + visibleDays.length) % 7) % 7;
+  const slotsByPeriod = splitDaySlots(selected, timeZoneId);
+  const periods = dayPeriods.filter(({ id }) => slotsByPeriod[id].length > 0);
+  const activePeriod = periods.find(({ id }) => id === selectedPeriod)?.id ?? periods[0]?.id;
   const appointmentCount = selected.appointments.length;
+  const timeOff = selected.timeOff ?? [];
+  const isPast = selected.date < today;
+  const canChangeDay = !isPast && (selected.canMarkUnavailable || selected.dayOffPublicId);
+  const selectedDateLabel = fullDate.format(calendarDate(selected.date));
+  const returnState = { fromProviderSchedule: true, scheduleDate: selected.date, scheduleOwner: userId } as const;
+  const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone: timeZoneId });
 
   function selectDay(date: string) {
-    setSelectedDate(date);
+    if (date !== selected.date) setSearch({ date }, { replace: true });
     setNotice("");
     change.reset();
   }
 
   function moveMonth(offset: number) {
     const target = months[monthIndex + offset];
-    const firstDay = days.find((day) => monthKey(day.date) === target);
+    const firstDay = weekdayInMonth(days, target === monthKey(today) ? today : target + "-01");
     if (firstDay) selectDay(firstDay.date);
   }
 
   function updateDay() {
-    if (change.isPending || (!selected.canMarkUnavailable && !selected.dayOffPublicId)) return;
+    if (change.isPending || !canChangeDay) return;
     if (!selected.dayOffPublicId && selected.appointments.length > 0 &&
       !window.confirm("Mark this day unavailable? Existing appointments stay booked.")) return;
     setNotice("");
@@ -220,77 +266,115 @@ function ProviderCalendarView({ userId }: { userId: string }) {
 
   return (
     <>
-      <p className="text-sm text-subtle">Next 90 days in the clinic’s time zone ({timeZoneId}). Appointments can be booked from tomorrow through 30 days ahead.</p>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">{monthName.format(firstVisibleDate)}</h2>
-        <div className="flex gap-2">
-          <button type="button" data-variant="secondary" disabled={change.isPending || monthIndex === 0} onClick={() => moveMonth(-1)}>
-            <ActionIcon name="back" />
-            Previous month
-          </button>
-          <button type="button" data-variant="secondary" disabled={change.isPending || monthIndex === months.length - 1} onClick={() => moveMonth(1)}>
-            <ActionIcon name="forward" />
-            Next month
-          </button>
-        </div>
-      </div>
-
-      <div role="region" aria-label="Calendar dates" tabIndex={0} className="overflow-x-auto rounded-md border border-panel-border">
-        <div className="grid min-w-[32rem] grid-cols-7">
-          {weekdays.map((day) => <div key={day} className="p-2 text-center text-sm font-medium text-subtle">{day}</div>)}
-          {Array.from({ length: leadingCells }, (_, index) => (
-            <div key={index} className="border-t border-panel-border" aria-hidden="true" />
-          ))}
-          {visibleDays.map((day) => (
-            <div key={day.date} className="min-w-0 border-t border-panel-border p-1">
-              <button
-                type="button"
-                data-variant={day.date === selected.date ? undefined : "secondary"}
-                className="w-full text-left"
-                aria-pressed={day.date === selected.date}
-                aria-current={day.date === today ? "date" : undefined}
-                aria-label={fullDate.format(calendarDate(day.date)) + ", " + dayLabel(day, now) + ", appointments: " + day.appointments.length}
-                disabled={change.isPending}
-                onClick={() => selectDay(day.date)}
-              >
-                <ActionIcon name="calendar" />
-                <time dateTime={day.date}>{calendarDate(day.date).getUTCDate()}</time>
-                <span className="mt-1 block text-xs">{dayLabel(day, now)}</span>
-                {day.appointments.length > 0 && (
-                  <span className="mt-1 block text-xs">{day.appointments.length} booked</span>
-                )}
+      <p className="text-sm text-subtle">Clinic time zone: {timeZoneId}. Booking opens tomorrow and extends 30 days ahead.</p>
+      <div className="provider-schedule-layout">
+        <section className="provider-schedule-calendar min-w-0 space-y-3" aria-labelledby="schedule-month-heading">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="schedule-month-heading" className="text-xl font-semibold" aria-live="polite">{monthName.format(firstVisibleDate)}</h2>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" data-variant="secondary" disabled={change.isPending || monthIndex === 0} onClick={() => moveMonth(-1)}>
+                <ActionIcon name="back" />
+                Previous month
+              </button>
+              <button type="button" data-variant="secondary" disabled={change.isPending || monthIndex === months.length - 1} onClick={() => moveMonth(1)}>
+                <ActionIcon name="forward" />
+                Next month
               </button>
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      <section className="grid gap-4 rounded-md border border-panel-border p-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_minmax(0,3fr)]" aria-labelledby="schedule-day-heading">
-        <div className="min-w-0 space-y-3">
-          <h3 id="schedule-day-heading" className="font-semibold">{fullDate.format(calendarDate(selected.date))}</h3>
-          <p>{dayLabel(selected, now)}</p>
-          <p className="text-sm text-subtle">
-            {appointmentCount === 0
-              ? "No appointments booked."
-              : appointmentCount + (appointmentCount === 1 ? " appointment" : " appointments")}
-          </p>
-          {(selected.canMarkUnavailable || selected.dayOffPublicId) && (
-            <button
-              type="button"
-              data-variant={selected.dayOffPublicId ? "secondary" : undefined}
-              disabled={change.isPending}
-              onClick={updateDay}
-            >
-              {change.isPending ? <Spinner /> : <ActionIcon name={selected.dayOffPublicId ? "calendarCheck" : "calendarX"} />}
-              {change.isPending ? "Saving…" : selected.dayOffPublicId ? "Remove day off" : "Mark day unavailable"}
-            </button>
+          <div role="group" aria-label="Calendar dates" className="grid grid-cols-7 rounded-md border border-panel-border">
+            {weekdays.map((day) => <div key={day} className="py-2 text-center text-xs font-medium text-subtle">{day}</div>)}
+            {Array.from({ length: leadingCells }, (_, index) => (
+              <div key={index} className="provider-calendar-cell border-t border-panel-border" aria-hidden="true" />
+            ))}
+            {visibleDays.map((day) => (
+              <div key={day.date} className="provider-calendar-cell min-w-0 border-t border-panel-border">
+                <button
+                  type="button"
+                  data-variant={day.date === selected.date ? undefined : "secondary"}
+                  className="provider-calendar-day"
+                  aria-pressed={day.date === selected.date}
+                  aria-current={day.date === today ? "date" : undefined}
+                  aria-label={fullDate.format(calendarDate(day.date)) + ", " + dayLabel(day, today, now) + ", appointments: " + day.appointments.length}
+                  disabled={change.isPending || !isWeekday(day.date)}
+                  onClick={() => selectDay(day.date)}
+                >
+                  <time dateTime={day.date}>{calendarDate(day.date).getUTCDate()}</time>
+                  <span className="hidden text-xs sm:block">{dayLabel(day, today, now).replace(/ times?$/, "")}</span>
+                  {day.appointments.length > 0 && (
+                    <span className="text-xs">{day.appointments.length} {day.appointments.length === 1 ? "appt" : "appts"}</span>
+                  )}
+                </button>
+              </div>
+            ))}
+            {Array.from({ length: trailingCells }, (_, index) => (
+              <div key={index + leadingCells} className="provider-calendar-cell border-t border-panel-border" aria-hidden="true" />
+            ))}
+          </div>
+          {canChangeDay && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <time className="text-sm font-medium" dateTime={selected.date}>{selectedDateLabel}</time>
+              <button
+                type="button"
+                data-variant={selected.dayOffPublicId ? "secondary" : "danger"}
+                disabled={change.isPending}
+                onClick={updateDay}
+              >
+                {change.isPending ? <Spinner /> : <ActionIcon name={selected.dayOffPublicId ? "calendarCheck" : "calendarX"} />}
+                {change.isPending ? "Saving…" : selected.dayOffPublicId ? "Remove day off" : "Mark day unavailable"}
+              </button>
+            </div>
           )}
           {change.isError && <p role="alert">{change.error.message}</p>}
           {notice && <p role="status">{notice}</p>}
-        </div>
-        <DaySlotColumn title="Morning" slots={morning} timeZone={timeZoneId} now={now} />
-        <DaySlotColumn title="Afternoon" slots={afternoon} timeZone={timeZoneId} now={now} />
-      </section>
+        </section>
+
+        <section className="provider-schedule-agenda min-w-0 gap-3" aria-labelledby="schedule-day-heading">
+          <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h2 id="schedule-day-heading" className="font-semibold">{selectedDateLabel}</h2>
+            <div className="flex flex-wrap items-baseline gap-x-2 text-sm text-subtle">
+              <p>{dayLabel(selected, today, now)}</p>
+              <span aria-hidden="true">·</span>
+              <p>
+                {appointmentCount === 0
+                  ? (isPast ? "No appointments recorded." : "No appointments booked.")
+                  : appointmentCount + (appointmentCount === 1 ? " appointment" : " appointments")}
+              </p>
+            </div>
+          </div>
+          {selected.dayOff ? <p className="text-sm text-subtle">Time off: All day</p>
+            : timeOff.length > 0 && (
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-subtle">
+                <p>Time off:</p>
+                <ul aria-label="Time off" className="flex flex-wrap gap-x-3 gap-y-1">
+                  {timeOff.map(({ startUtc, endUtc }, index) => (
+                    <li key={index}>{time.formatRange(new Date(startUtc), new Date(endUtc))}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          {periods.length === 2 && (
+            <div className="provider-schedule-periods flex flex-wrap gap-2" role="group" aria-label="Time of day">
+              {periods.map(({ id, label }) => (
+                <button key={id} type="button" aria-pressed={activePeriod === id} aria-controls={"schedule-" + id}
+                  data-variant={activePeriod === id ? undefined : "secondary"}
+                  onClick={() => setSearch({ date: selected.date, period: id }, { replace: true })}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {periods.length > 0 && (
+            <div className="provider-schedule-slots" role="region" aria-label="Appointment times">
+              {periods.map(({ id, label }) => (
+                <DaySlotGroup key={id} period={id} title={label} active={activePeriod === id}
+                  slots={slotsByPeriod[id]} timeZone={timeZoneId} now={now} returnState={returnState} />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </>
   );
 }
@@ -298,7 +382,7 @@ function ProviderCalendarView({ userId }: { userId: string }) {
 export default function ProviderSchedulePage() {
   const { user } = useAuth0();
   return (
-    <section className="workspace-panel mx-auto w-full max-w-5xl space-y-4" aria-labelledby="schedule-heading">
+    <section className="workspace-panel provider-schedule-panel mx-auto w-full space-y-4" aria-labelledby="schedule-heading">
       <h1 id="schedule-heading" className="page-title">My schedule</h1>
       {user?.sub
         ? <ProviderCalendarView key={user.sub} userId={user.sub} />

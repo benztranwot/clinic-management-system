@@ -317,7 +317,7 @@
   font-weight: 600;
 }
 
-.workspace-filter-dialog {
+.workspace-dialog {
   width: min(32rem, calc(100% - 2rem));
   max-height: calc(100dvh - 2rem);
   margin: auto;
@@ -325,7 +325,7 @@
   color: var(--foreground);
 }
 
-.workspace-filter-dialog::backdrop {
+.workspace-dialog::backdrop {
   background: rgb(8 16 28 / 60%);
 }
 
@@ -480,6 +480,21 @@
 }
 .appointment-card .workspace-button, .appointment-card button {
   padding: 0.35rem 0.65rem;
+}
+.app button.booking-calendar-day {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-height: 2.75rem;
+  min-width: 0;
+  padding: 0.2rem 0;
+  line-height: 1.15;
+}
+.app button.booking-calendar-day:disabled {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  opacity: 1;
 }
 @media (min-width: 64rem) {
   .appointment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

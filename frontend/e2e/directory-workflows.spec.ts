@@ -135,7 +135,7 @@ test("patient registration and editing recover from validation errors and update
   await expect(page.getByLabel("First name", { exact: true })).toHaveValue("Alex");
   await page.getByLabel("Last name", { exact: true }).fill("Reed");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Alex Reed", exact: true })).toBeVisible();
+  await expect(page.getByRole("definition").filter({ hasText: /^Alex Reed$/ })).toBeVisible();
   await page.getByRole("link", { name: "Back to patients", exact: true }).click();
   await expect(page.getByRole("link", { name: "View patient: Alex Reed", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "View patient: Alex Morgan", exact: true })).toHaveCount(0);
@@ -207,6 +207,8 @@ test("read-only directory access hides writes and denies direct edit routes", as
     if (path === `/api/clinics/${clinicId}/providers`) return route.fulfill({ json: [provider] });
     if (path === `/api/providers/${providerId}`) return route.fulfill({ json: provider });
     if (path === `/api/providers/${providerId}/services`) return route.fulfill({ json: [service] });
+    if (path === `/api/clinics/${clinicId}/services`) return route.fulfill({ json: [service] });
+    if (path === `/api/services/${service.publicId}`) return route.fulfill({ json: service });
     unexpected.push(route.request().method() + " " + path);
     return route.fulfill({ status: 500, json: {} });
   });
@@ -223,5 +225,12 @@ test("read-only directory access hides writes and denies direct edit routes", as
   await expect(page.getByRole("list", { name: "Assigned services", exact: true })).toContainText(service.name);
   await expect(page.getByRole("button", { name: /Remove .* assignment/ })).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: "Service to assign", exact: true })).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/clinics/${clinicId}/services/${service.publicId}`);
+  await expect(page.getByRole("heading", { name: "Service details" })).toBeVisible();
+  await expect(page.getByRole("definition").filter({ hasText: service.name })).toBeVisible();
+  await expect(page.getByRole("definition").filter({ hasText: clinic.name })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Service record" })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   expect(unexpected).toEqual([]);
 });

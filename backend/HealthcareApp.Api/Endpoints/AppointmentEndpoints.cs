@@ -17,12 +17,14 @@ public static class AppointmentEndpoints
         var routes = app.MapGroup("/api/appointments").RequireAuthorization();
         routes.MapPost("", BookDirectAsync);
         routes.MapGet("/booking-options", GetBookingOptionsAsync);
+        routes.MapGet("/booking-availability", GetDirectBookingAvailabilityAsync);
         routes.MapGet("/needs-attention", GetNeedsAttentionAsync);
         routes.MapGet("/needs-attention/count", GetAttentionCountAsync);
         routes.MapGet("/upcoming", GetUpcomingAsync);
         routes.MapPost("/upcoming/search", SearchUpcomingAsync);
         routes.MapPost("/needs-attention/search", SearchConflictsAsync);
         routes.MapGet("/{publicId:guid}", GetByIdAsync);
+        routes.MapGet("/{publicId:guid}/reschedule-availability", GetRescheduleAvailabilityAsync);
         routes.MapPut("/{publicId:guid}/reschedule", RescheduleAsync);
         routes.MapPost("/{publicId:guid}/cancel", CancelAsync);
         routes.MapPost("/{publicId:guid}/complete", CompleteAsync);
@@ -338,6 +340,64 @@ public static class AppointmentEndpoints
         }
     }
 
+    private static async Task<IResult> GetDirectBookingAvailabilityAsync(
+        Guid providerPublicId, Guid clinicalServicePublicId, ClaimsPrincipal user, HttpContext http,
+        HealthcareDbContext db, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null) return Results.Challenge();
+
+        var target = await (
+            from provider in db.Providers
+            join clinic in identity.QuerySchedulingClinics(db) on provider.ClinicId equals clinic.Id
+            where provider.PublicId == providerPublicId
+                && (from link in db.ProviderServices
+                    join service in db.ClinicalServices on link.ClinicalServiceId equals service.Id
+                    where link.ProviderId == provider.Id && service.PublicId == clinicalServicePublicId
+                        && service.AllowsDirectBooking
+                    select link).Any()
+            select new { ProviderId = provider.Id, clinic.TimeZoneId }
+        ).SingleOrDefaultAsync(cancellationToken);
+        return target is null ? Results.NotFound() : await GetBookingAvailabilityAsync(
+            target.ProviderId, target.TimeZoneId, http, db, clock.GetUtcNow(), cancellationToken);
+    }
+
+    private static async Task<IResult> GetRescheduleAvailabilityAsync(
+        Guid publicId, ClaimsPrincipal user, HttpContext http, HealthcareDbContext db,
+        TimeProvider clock, CancellationToken cancellationToken)
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null) return Results.Challenge();
+
+        var now = clock.GetUtcNow();
+        var target = await (
+            from appointment in db.Appointments
+            join service in db.ClinicalServices on appointment.ClinicalServiceId equals service.Id
+            join clinic in identity.QuerySchedulingClinics(db) on service.ClinicId equals clinic.Id
+            where appointment.PublicId == publicId && appointment.Status == AppointmentStatus.Confirmed
+                && appointment.StartUtc > now
+            select new { appointment.ProviderId, clinic.TimeZoneId }
+        ).SingleOrDefaultAsync(cancellationToken);
+        return target is null ? Results.NotFound() : await GetBookingAvailabilityAsync(
+            target.ProviderId, target.TimeZoneId, http, db, now, cancellationToken);
+    }
+
+    private static async Task<IResult> GetBookingAvailabilityAsync(
+        int providerId, string? timeZoneId, HttpContext http, HealthcareDbContext db,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(timeZoneId) || !TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneId, out var timeZone))
+        {
+            return Results.Conflict(new { message = "Set the clinic's time zone before choosing an appointment time." });
+        }
+
+        var (first, last) = AppointmentAvailability.GetBookingWindow(timeZone, now);
+        var days = await AppointmentAvailability.FindDaysAsync(
+            db, providerId, first, last, timeZone, now, cancellationToken);
+        http.Response.Headers.CacheControl = "no-store";
+        return Results.Ok(new { TimeZoneId = timeZoneId, Days = days });
+    }
+
     private static async Task<IResult> RescheduleAsync(
         Guid publicId,
         RescheduleAppointmentRequest request,
@@ -531,6 +591,7 @@ public static class AppointmentEndpoints
             where appointment.PublicId == publicId
                 && (status == AppointmentStatus.Cancelled
                     ? schedulingClinics.Any(clinic => clinic.Id == service.ClinicId)
+                        || ownProviders.Any(provider => provider.Id == appointment.ProviderId)
                     : administrators.Any() || ownProviders.Any(provider => provider.Id == appointment.ProviderId))
             select appointment;
 
@@ -663,7 +724,8 @@ public static class AppointmentEndpoints
                 ProviderName = provider.FirstName + " " + provider.LastName,
                 ServiceName = service.Name,
                 CanSchedule = schedulingClinics.Any(allowed => allowed.Id == clinic.Id),
-                CanComplete = administrators.Any() || ownProviders.Any(own => own.Id == provider.Id),
+                IsOwnProvider = ownProviders.Any(own => own.Id == provider.Id),
+                IsAdministrator = administrators.Any(),
                 ReferralPublicId = db.Referrals.Where(referral => referral.Id == appointment.ReferralId)
                     .Select(referral => (Guid?)referral.PublicId).FirstOrDefault(),
                 appointment.StartUtc,
@@ -692,8 +754,8 @@ public static class AppointmentEndpoints
             booking.ServiceName,
             CanReschedule = booking.CanSchedule && booking.Status == AppointmentStatus.Confirmed
                 && booking.StartUtc > now,
-            CanCancel = booking.CanSchedule && booking.Status == AppointmentStatus.Confirmed,
-            CanComplete = booking.CanComplete && booking.Status == AppointmentStatus.Confirmed
+            CanCancel = (booking.CanSchedule || booking.IsOwnProvider) && booking.Status == AppointmentStatus.Confirmed,
+            CanComplete = (booking.IsAdministrator || booking.IsOwnProvider) && booking.Status == AppointmentStatus.Confirmed
                 && booking.StartUtc <= now,
             booking.OverlapsProviderTimeOff,
             booking.ReferralPublicId,
@@ -755,8 +817,10 @@ public static class AppointmentEndpoints
         }
 
         var clinics = identity.QuerySchedulingClinics(db);
+        var ownProviders = identity.QueryOwnProviders(db);
         if (!await clinics.AnyAsync(cancellationToken)
-            && !await identity.QueryAccounts(db).AnyAsync(account => account.IsAdministrator, cancellationToken))
+            && !await identity.QueryAccounts(db).AnyAsync(account => account.IsAdministrator, cancellationToken)
+            && !(needsAttention && await ownProviders.AnyAsync(cancellationToken)))
         {
             return Results.Forbid();
         }
@@ -770,10 +834,12 @@ public static class AppointmentEndpoints
             join patient in db.Patients on appointment.PatientId equals patient.Id
             join service in db.ClinicalServices on appointment.ClinicalServiceId equals service.Id
             join provider in db.Providers on appointment.ProviderId equals provider.Id
-            join clinic in clinics on service.ClinicId equals clinic.Id
+            join clinic in db.Clinics on service.ClinicId equals clinic.Id
             where appointment.Status == AppointmentStatus.Confirmed
                 && appointment.StartUtc > earliestStart
                 && row.OverlapsProviderTimeOff == needsAttention
+                && (clinics.Any(allowed => allowed.Id == clinic.Id)
+                    || (needsAttention && ownProviders.Any(own => own.Id == provider.Id)))
             select new
             {
                 appointment.Id,

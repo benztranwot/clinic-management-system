@@ -1,7 +1,7 @@
 import { Spinner } from "../../../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
-import { cancelAppointment } from "../../../api/appointments";
+import { AppointmentRequestError, cancelAppointment } from "../../../api/appointments";
 import { appointmentWriteKey, refreshAppointmentViews } from "../appointmentQueries";
 import { ActionIcon } from "../../../components/ActionIcon";
 
@@ -27,6 +27,11 @@ export default function CancelAppointmentButton({
     },
     retry: false,
     onSuccess: () => refreshAppointmentViews(queryClient, userId, publicId),
+    onError: (error) => {
+      if (error instanceof AppointmentRequestError && error.status === 409) {
+        return refreshAppointmentViews(queryClient, userId, publicId);
+      }
+    },
   });
 
   return (
@@ -37,7 +42,7 @@ export default function CancelAppointmentButton({
           data-variant="danger"
           disabled={writing}
           onClick={() => {
-            if (window.confirm("Cancel this appointment and release its time slot?")) cancel.mutate();
+            if (window.confirm("Cancel this appointment?")) cancel.mutate();
           }}
         >
           {cancel.isPending ? <Spinner /> : <ActionIcon name="calendarX" />}

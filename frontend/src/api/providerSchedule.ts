@@ -1,3 +1,5 @@
+import type { AppointmentDetails } from "./appointments";
+
 export type CalendarSlot = {
   startUtc: string;
   endUtc: string;
@@ -11,6 +13,7 @@ export type CalendarAppointment = CalendarSlot & {
   publicId: string;
   serviceName: string;
   patientName: string;
+  status: AppointmentDetails["status"];
   duringTimeOff: boolean;
 };
 
@@ -22,6 +25,7 @@ export type CalendarDay = {
   dayOff: boolean;
   dayOffPublicId: string | null;
   canMarkUnavailable: boolean;
+  timeOff: CalendarSlot[];
   appointments: CalendarAppointment[];
 };
 

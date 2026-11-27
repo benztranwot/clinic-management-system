@@ -1,14 +1,14 @@
 import LoadingStatus from "../components/LoadingStatus";
 import WorkspacePagination from "../components/WorkspacePagination";
 import { readPage } from "../components/useListSearch";
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import WorkspaceFilterDialog from "../components/WorkspaceFilterDialog";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { searchUpcomingAppointments, type AppointmentSummary, type UpcomingAppointmentSearch } from "../api/appointments";
-import CancelAppointmentButton from "../features/appointments/components/CancelAppointmentButton";
-import { appointmentLists, type AppointmentListView } from "../features/appointments/appointmentLists";
+import { AppointmentStatusBadge, TimeOffConflictBadge } from "../features/appointments/components/AppointmentStatusBadge";
+import { appointmentLists, appointmentPageSize, type AppointmentListView } from "../features/appointments/appointmentLists";
 import { useReferralAccount } from "../features/referrals/hooks/useReferralAccount";
 import { ActionIcon } from "../components/ActionIcon";
 
@@ -21,47 +21,44 @@ function AppointmentCard({
   returnSearch?: string;
   patientFilter?: string;
 }) {
+  const statusId = useId();
   const timeZone = appointment.timeZoneId ?? "UTC";
   const start = new Date(appointment.startUtc);
   const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone });
   const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
+  const when = `${date.format(start)} · ${time.formatRange(start, new Date(appointment.endUtc))}`;
 
   return (
-    <li className="appointment-card">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
+    <li className="min-w-0">
+      <Link className="appointment-card h-full hover:bg-[var(--muted)]"
+        aria-label={`View appointment: ${appointment.patientName} · ${appointment.serviceName} · ${when} (${timeZone})`}
+        aria-describedby={statusId}
+        to={{ pathname: "/appointments/" + appointment.publicId, search: returnSearch }}
+        state={{ appointmentList: view, patientFilter, filterOwner: userId }}>
+        <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
           <p className="wrap-break-word font-semibold">{appointment.patientName}
             <span className="ml-2 text-sm font-normal text-subtle">{appointment.serviceName}</span>
           </p>
+          <div id={statusId} className="flex flex-wrap gap-1">
+            <AppointmentStatusBadge status="Confirmed" />
+            {view === "conflicts" && <TimeOffConflictBadge>Overlaps provider time off</TimeOffConflictBadge>}
+          </div>
         </div>
-        <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-sm font-medium">
-          {appointmentLists[view].badge}
-        </span>
-      </div>
-      <p className="text-sm">
-        <time dateTime={appointment.startUtc} className="font-medium">
-          {date.format(start)} · {time.formatRange(start, new Date(appointment.endUtc))}
-        </time>
-        {" "}({timeZone})
-      </p>
-      <p className="text-sm text-subtle">{appointment.providerName} · {appointment.clinicName}</p>
-      <div className="flex flex-wrap gap-2">
-        <Link className="workspace-button"
-          to={{ pathname: "/appointments/" + appointment.publicId, search: returnSearch }}
-          state={{ appointmentList: view, patientFilter, filterOwner: userId }}>
-          <ActionIcon name="eye" />
-          View appointment
-        </Link>
-        {view === "conflicts" && !appointment.referralPublicId && (
-          <CancelAppointmentButton publicId={appointment.publicId} userId={userId} canCancel />
-        )}
-      </div>
+        <p className="text-sm">
+          <time dateTime={appointment.startUtc} className="font-medium">{when}</time>
+          {" "}({timeZone})
+        </p>
+        <p className="flex items-center justify-between gap-2 text-sm text-subtle">
+          <span>{appointment.providerName} · {appointment.clinicName}</span>
+          <span className="shrink-0"><ActionIcon name="forward" /></span>
+        </p>
+      </Link>
     </li>
   );
 }
 
 function AppointmentList({
-  userId, view, appointments, error, retry, controls, pagination, returnSearch, patientFilter,
+  userId, view, appointments, error, retry, controls, pagination, returnSearch, patientFilter, onClearFilters,
 }: {
   userId: string;
   view: AppointmentListView;
@@ -72,23 +69,34 @@ function AppointmentList({
   pagination?: ReactNode;
   returnSearch?: string;
   patientFilter?: string;
+  onClearFilters?: () => void;
 }) {
   const { title, empty } = appointmentLists[view];
 
   return (
-    <section className="workspace-panel workspace-list-panel mx-auto w-full max-w-6xl space-y-4" aria-labelledby="appointment-list-heading">
+    <section className="workspace-panel mx-auto w-full max-w-6xl space-y-4" aria-labelledby="appointment-list-heading">
       <div className="page-heading">
         <h1 id="appointment-list-heading" className="page-title">{title}</h1>
         <div className="flex flex-wrap gap-2">
           {controls}
         </div>
       </div>
+      {onClearFilters && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-subtle">Filters active</span>
+          <button type="button" data-variant="secondary" onClick={onClearFilters}>
+            <ActionIcon name="reset" />Clear filters
+          </button>
+        </div>
+      )}
       {error ? (
         <div className="space-y-2"><p role="alert">{error.message}</p><button type="button" data-variant="secondary" onClick={retry}>Try again</button></div>
       ) : !appointments ? (
         <LoadingStatus>Loading appointments…</LoadingStatus>
       ) : appointments.length === 0 ? (
-        <p className="text-sm text-subtle">{empty}</p>
+        <p className="text-sm text-subtle" role="status">
+          {onClearFilters ? "No appointments match these filters." : empty}
+        </p>
       ) : (
         <ul className="appointment-grid" aria-labelledby="appointment-list-heading">
           {appointments.map((appointment) => (
@@ -140,8 +148,9 @@ function SchedulingAppointments({ userId, view }: { userId: string; view: Appoin
     fromUtc: from ? localMidnight(from) : undefined,
     untilUtc: through ? localMidnight(through, true) : undefined,
     latestFirst: params.get("sort") === "latest",
-    page: readPage(params.get("page"), 8),
+    page: readPage(params.get("page"), appointmentPageSize),
   };
+  const hasFilters = Boolean(search.clinic || search.service || search.provider || patientFilter || from || through);
   const [dateError, setDateError] = useState("");
   const filtersDialog = useRef<HTMLDialogElement>(null);
   const query = useQuery({
@@ -183,16 +192,22 @@ function SchedulingAppointments({ userId, view }: { userId: string; view: Appoin
     setParams(next, { state: { patientFilter, filterOwner: userId } });
   }
 
+  function clearFilters() {
+    setDateError("");
+    setParams({}, { state: null });
+  }
+
   return (
     <AppointmentList
       userId={userId} view={view} appointments={query.data?.items}
       returnSearch={location.search} patientFilter={patientFilter}
       error={query.error} retry={() => void query.refetch()}
+      onClearFilters={hasFilters ? clearFilters : undefined}
       controls={<>
         <WorkspaceFilterDialog dialogRef={filtersDialog} title={"Filter " + appointmentLists[view].title.toLowerCase()}>
           <form key={location.key} className="space-y-4"
             aria-label={"Filter " + appointmentLists[view].title.toLowerCase()} onSubmit={applyFilters}
-            onReset={() => { setDateError(""); setParams({}, { state: null }); }}>
+            onReset={clearFilters}>
             <div className="grid gap-3 sm:grid-cols-2">
               {nameFields.map(([name, label]) => (
                 <label key={name} className="grid gap-1 text-sm font-medium">
@@ -233,7 +248,7 @@ function SchedulingAppointments({ userId, view }: { userId: string; view: Appoin
           <ActionIcon name="plus" />Create appointment
         </Link>}
       </>}
-      pagination={<WorkspacePagination itemCount={query.isSuccess ? query.data.items.length : 0} page={search.page} pageSize={query.data?.pageSize ?? 8} count={query.data?.totalCount}
+      pagination={<WorkspacePagination itemCount={query.isSuccess ? query.data.items.length : 0} page={search.page} pageSize={query.data?.pageSize ?? appointmentPageSize} count={query.data?.totalCount}
         hasMore={query.data?.hasMore ?? false} busy={query.isFetching}
         onPage={goToPage} label={appointmentLists[view].title + " pages"} />}
 

@@ -10,8 +10,14 @@ internal static class AppointmentAvailability
 
     public static bool IsInBookingWindow(DateOnly date, TimeZoneInfo timeZone, DateTimeOffset now)
     {
+        var (first, last) = GetBookingWindow(timeZone, now);
+        return date >= first && date <= last;
+    }
+
+    public static (DateOnly First, DateOnly Last) GetBookingWindow(TimeZoneInfo timeZone, DateTimeOffset now)
+    {
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, timeZone).DateTime);
-        return date > today && date <= today.AddDays(DaysAhead);
+        return (today.AddDays(1), today.AddDays(DaysAhead));
     }
 
     public static async Task<AppointmentSlot[]> FindAsync(
@@ -23,28 +29,48 @@ internal static class AppointmentAvailability
         CancellationToken cancellationToken
     )
     {
-        var dayOfWeek = (int)date.DayOfWeek;
-        if (!ProviderWeeklyHours.IsWeekday(dayOfWeek))
+        var days = await FindDaysAsync(db, providerId, date, date, timeZone, now, cancellationToken);
+        return days[0].Slots;
+    }
+
+    public static async Task<AppointmentAvailabilityDay[]> FindDaysAsync(
+        HealthcareDbContext db,
+        int providerId,
+        DateOnly first,
+        DateOnly last,
+        TimeZoneInfo timeZone,
+        DateTimeOffset now,
+        CancellationToken cancellationToken
+    )
+    {
+        var dates = Enumerable.Range(0, last.DayNumber - first.DayNumber + 1)
+            .Select(first.AddDays).ToArray();
+        if (dates.All(date => !ProviderWeeklyHours.IsWeekday((int)date.DayOfWeek)))
         {
-            return [];
+            return dates.Select(date => new AppointmentAvailabilityDay(date, "OutsideWorkingHours", [])).ToArray();
         }
 
-        var hours = await db.ProviderWeeklyHours.AsNoTracking()
-            .SingleOrDefaultAsync(
-                day => day.ProviderId == providerId && day.DayOfWeek == dayOfWeek,
-                cancellationToken
-            ) ?? ProviderWeeklyHours.CreateDefault(providerId, dayOfWeek);
+        var weeklyHours = await db.ProviderWeeklyHours.AsNoTracking()
+            .Where(day => day.ProviderId == providerId)
+            .ToDictionaryAsync(day => day.DayOfWeek, cancellationToken);
+        var candidatesByDate = dates.Select(date =>
+        {
+            var weekday = (int)date.DayOfWeek;
+            var hours = weeklyHours.GetValueOrDefault(weekday) ?? ProviderWeeklyHours.CreateDefault(providerId, weekday);
+            var slots = ProviderWeeklyHours.IsWeekday(weekday)
+                ? GetCandidates(date, hours, timeZone).Where(slot => slot.StartUtc > now).ToArray()
+                : [];
+            return new { Date = date, Slots = slots };
+        }).ToArray();
 
-        var candidates = GetCandidates(date, hours, timeZone)
-            .Where(slot => slot.StartUtc > now)
-            .ToArray();
+        var candidates = candidatesByDate.SelectMany(day => day.Slots).ToArray();
         if (candidates.Length == 0)
         {
-            return [];
+            return dates.Select(date => new AppointmentAvailabilityDay(date, "OutsideWorkingHours", [])).ToArray();
         }
 
-        var firstStart = candidates[0].StartUtc;
-        var lastEnd = candidates[^1].EndUtc;
+        var firstStart = candidates.Min(slot => slot.StartUtc);
+        var lastEnd = candidates.Max(slot => slot.EndUtc);
         var timeOff = await db.ProviderTimeOff
             .Where(block =>
                 block.ProviderId == providerId && block.StartUtc < lastEnd && firstStart < block.EndUtc
@@ -62,11 +88,16 @@ internal static class AppointmentAvailability
             .ToListAsync(cancellationToken);
         var bookedStarts = bookings.ToHashSet();
 
-        return candidates.Where(slot =>
-                !bookedStarts.Contains(slot.StartUtc)
-                && !timeOff.Any(block => block.StartUtc < slot.EndUtc && slot.StartUtc < block.EndUtc)
-            )
-            .ToArray();
+        return candidatesByDate.Select(day =>
+        {
+            if (day.Slots.Length == 0) return new AppointmentAvailabilityDay(day.Date, "OutsideWorkingHours", []);
+            var workingSlots = day.Slots.Where(slot =>
+                !timeOff.Any(block => block.StartUtc < slot.EndUtc && slot.StartUtc < block.EndUtc)).ToArray();
+            if (workingSlots.Length == 0) return new AppointmentAvailabilityDay(day.Date, "DayOff", []);
+
+            var openSlots = workingSlots.Where(slot => !bookedStarts.Contains(slot.StartUtc)).ToArray();
+            return new AppointmentAvailabilityDay(day.Date, openSlots.Length == 0 ? "FullyBooked" : "Available", openSlots);
+        }).ToArray();
     }
 
     internal static AppointmentSlot[] GetCandidates(
@@ -124,3 +155,4 @@ internal static class AppointmentAvailability
 }
 
 internal sealed record AppointmentSlot(DateTimeOffset StartUtc, DateTimeOffset EndUtc);
+internal sealed record AppointmentAvailabilityDay(DateOnly Date, string Status, AppointmentSlot[] Slots);

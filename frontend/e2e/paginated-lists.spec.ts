@@ -14,12 +14,12 @@ const rows = Array.from({ length: 23 }, (_, i) => ({
   startUtc: "2026-11-25T15:00:00Z", endUtc: "2026-11-25T15:30:00Z", referralPublicId: null,
 }));
 
-async function expectDesktopFit(page: Page) {
+async function expectDesktopFit(page: Page, full = true) {
   const navigation = await page.getByRole("navigation", { name: "Main navigation" }).boundingBox();
   const main = await page.getByRole("main").boundingBox();
   expect(navigation && main && navigation.x + navigation.width <= main.x).toBeTruthy();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
-  await expectPanelHeight(page, true);
+  await expectPanelHeight(page, full);
 }
 
 async function expectPanelHeight(page: Page, full: boolean) {
@@ -48,10 +48,16 @@ async function mockLists(page: Page, patientCount = rows.length) {
       // A filtered match comes from outside the initial ten records.
       const term = body.firstName || body.name || body.patient;
       const source = path === "/api/patients/search" ? patients : rows;
-      const filtered = term === "almost-full" ? source.slice(0, 15) : term ? source.filter(row => row.publicId === id(23)) : source;
-      const pageSize = path.includes("/appointments/") ? 8 : path === "/api/referrals/search" ? 10 : 16;
+      const filtered = term === "No matches" ? [] : term === "almost-full" ? source.slice(0, 15)
+        : term ? source.filter(row => row.publicId === id(23)) : source;
+      const pageSize = path.includes("/appointments/") ? 14 : path === "/api/referrals/search" ? 10 : 16;
       return route.fulfill({ json: { items: filtered.slice((body.page - 1) * pageSize, body.page * pageSize),
         page: body.page, pageSize, totalCount: filtered.length, hasMore: body.page * pageSize < filtered.length } });
+    }
+    const appointment = rows.find(row => path === `/api/appointments/${row.publicId}`);
+    if (request.method() === "GET" && appointment) {
+      return route.fulfill({ json: { ...appointment, status: "Confirmed", providerPublicId: id(81),
+        canComplete: false, canCancel: true, canReschedule: true, overlapsProviderTimeOff: false } });
     }
     if (path === `/api/patients/${id(17)}`) {
       if (request.method() === "GET") {
@@ -132,8 +138,17 @@ for (const view of ["upcoming", "availability-conflicts"]) {
     const { requests, unexpected } = await mockLists(page);
     await page.goto(`/appointments/${view}`);
     await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("listitem")).toHaveCount(8);
-    await expectDesktopFit(page);
+    const cards = page.getByRole("listitem");
+    await expect(cards).toHaveCount(14);
+    await expect(cards.first().getByRole("link", { name: /^View appointment: Patient 1 Morgan/ })).toHaveCount(1);
+    await expect(cards.first().getByRole("button")).toHaveCount(0);
+    await expectDesktopFit(page, false);
+    const grid = await page.locator(".appointment-grid").boundingBox();
+    const pagination = await page.getByRole("navigation", { name: /pages$/ }).boundingBox();
+    expect(grid && pagination).toBeTruthy();
+    const gap = pagination!.y - grid!.y - grid!.height;
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThanOrEqual(24);
     if (view === "upcoming") {
       const filters = await page.getByRole("button", { name: "Filters", exact: true }).boundingBox();
       const create = await page.getByRole("link", { name: "Create appointment", exact: true }).boundingBox();
@@ -143,6 +158,15 @@ for (const view of ["upcoming", "availability-conflicts"]) {
     expect(columns).toBe(2);
     await page.getByRole("button", { name: "Next", exact: true }).click();
     await expect.poll(() => requests.at(-1)?.body.page).toBe(2);
+    await expect(cards).toHaveCount(9);
+    const pageTwoCard = page.getByRole("link", { name: /^View appointment: Patient 15 Morgan/ });
+    await pageTwoCard.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "Appointment details", exact: true })).toBeVisible();
+    const backName = view === "upcoming" ? "Back to upcoming appointments" : "Back to availability conflicts";
+    await page.getByRole("link", { name: backName, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/appointments/${view}\\?page=2$`));
+    await expect(pageTwoCard).toBeVisible();
     await page.getByRole("button", { name: "Filters", exact: true }).click();
     await page.getByRole("dialog").getByLabel("Patient", { exact: true }).fill("Patient 23");
     await page.getByRole("button", { name: "Apply filters" }).click();
@@ -150,6 +174,18 @@ for (const view of ["upcoming", "availability-conflicts"]) {
     await expectPanelHeight(page, false);
     expect(page.url()).not.toContain("Patient");
     expect(requests.at(-1)?.body.page).toBe(1);
+    await page.getByRole("link", { name: /^View appointment: Patient 23 Morgan/ }).click();
+    await page.getByRole("link", { name: backName, exact: true }).click();
+    await expect(cards).toHaveCount(1);
+    await expect(page.getByText("Filters active", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+    const patientFilter = page.getByRole("dialog").getByLabel("Patient", { exact: true });
+    await expect(patientFilter).toHaveValue("Patient 23");
+    await patientFilter.fill("No matches");
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect(page.getByText("No appointments match these filters.")).toBeVisible();
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await expect(cards).toHaveCount(14);
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileColumns = await page.locator(".appointment-grid").evaluate(el => getComputedStyle(el).gridTemplateColumns.split(" ").length);
     expect(mobileColumns).toBe(1);

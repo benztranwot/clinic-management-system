@@ -250,7 +250,7 @@ function ProviderDirectory({
       <div className="page-heading">
         <div>
           <h1 id="providers-heading" className="page-title">{selectedId ? "Provider details" : "Providers"}</h1>
-          <p className="queue-meta">{clinic.name}</p>
+          {!selectedId && <p className="queue-meta">{clinic.name}</p>}
         </div>
         {selectedId === null && canManage && formMode !== "create" && (
           <button type="button" onClick={() => {
@@ -274,7 +274,7 @@ function ProviderDirectory({
       ) : !belongsToClinic ? (
         <p role="alert">This provider was not found at this clinic.</p>
       ) : (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-4">
           {detail.isPending && <LoadingStatus>Loading provider details…</LoadingStatus>}
           {detail.isError && (
             <div>
@@ -287,19 +287,16 @@ function ProviderDirectory({
           )}
           {provider && detail.isSuccess && (
             <>
-              <dl>
-                <dt className="text-sm font-medium">Provider name</dt>
-                <dd>{provider.firstName} {provider.lastName}</dd>
+              <dl className="grid gap-4 rounded-lg border border-panel-border p-4 sm:grid-cols-2">
+                <div>
+                  <dt className="font-medium">Provider name</dt>
+                  <dd className="wrap-break-word">{provider.firstName} {provider.lastName}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium">Clinic</dt>
+                  <dd className="wrap-break-word">{clinic.name}</dd>
+                </div>
               </dl>
-              {formMode !== "edit" && (
-                <ProviderServices
-                  key={provider.publicId}
-                  userId={userId}
-                  clinicPublicId={clinicPublicId}
-                  providerPublicId={provider.publicId}
-                  disabled={change.isPending}
-                />
-              )}
               {canManage && formMode === "edit" && (
                 <ProviderForm
                   key={provider.publicId}
@@ -310,34 +307,49 @@ function ProviderDirectory({
                 />
               )}
               {canManage && formMode !== "edit" && (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={change.isPending || isChangingAssignment}
-                    onClick={() => {
-                      change.reset();
-                      setNotice("");
-                      setFormMode("edit");
-                    }}
-                  >
-                    <ActionIcon name="pencil" />
-                    Edit provider
-                  </button>
-                  <button
-                    type="button"
-                    disabled={change.isPending || isChangingAssignment}
-                    data-variant="danger"
-                    onClick={() => {
-                      const name = provider.firstName + " " + provider.lastName;
-                      if (window.confirm("Permanently delete " + name + "?")) {
-                        submitChange({ action: "delete", publicId: provider.publicId });
-                      }
-                    }}
-                  >
-                    {change.isPending ? <Spinner /> : <ActionIcon name="trash" />}
-                    {change.isPending ? "Deleting…" : "Delete provider"}
-                  </button>
-                </div>
+                <section className="rounded-lg border border-panel-border p-4" aria-labelledby="provider-management-heading">
+                  <div className="page-heading">
+                    <h2 id="provider-management-heading" className="font-semibold">Provider management</h2>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        data-variant="secondary"
+                        disabled={change.isPending || isChangingAssignment}
+                        onClick={() => {
+                          change.reset();
+                          setNotice("");
+                          setFormMode("edit");
+                        }}
+                      >
+                        <ActionIcon name="pencil" />
+                        Edit provider
+                      </button>
+                      <button
+                        type="button"
+                        disabled={change.isPending || isChangingAssignment}
+                        data-variant="danger"
+                        onClick={() => {
+                          const name = provider.firstName + " " + provider.lastName;
+                          if (window.confirm("Permanently delete " + name + "?")) {
+                            submitChange({ action: "delete", publicId: provider.publicId });
+                          }
+                        }}
+                      >
+                        {change.isPending ? <Spinner /> : <ActionIcon name="trash" />}
+                        {change.isPending ? "Deleting…" : "Delete provider"}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              )}
+              {formMode !== "edit" && (
+                <ProviderServices
+                  key={provider.publicId}
+                  userId={userId}
+                  clinicPublicId={clinicPublicId}
+                  providerPublicId={provider.publicId}
+                  disabled={change.isPending}
+                />
               )}
             </>
           )}
@@ -368,26 +380,25 @@ function ProvidersPage() {
   const selectedId = publicId?.toLowerCase() ?? null;
 
   return (
-    <section
-      aria-label="Providers"
-      className="workspace-panel mx-auto w-full max-w-4xl space-y-4"
-    >
+    <div className="mx-auto w-full max-w-4xl space-y-3">
       <Link to={clinicPublicId ? "/clinics/" + clinicPublicId : "/clinics"}
         className="workspace-button" data-variant="secondary">
         <ActionIcon name="back" />
         {clinicPublicId ? "Back to clinic" : "Back to clinics"}
       </Link>
-      {user?.sub && clinicPublicId ? (
-        <ProviderDirectory
-          key={user.sub + ":" + clinicPublicId + ":" + (selectedId ?? "")}
-          userId={user.sub}
-          clinicPublicId={clinicPublicId}
-          selectedId={selectedId}
-        />
-      ) : (
-        <p className="mt-3" role="alert">Unable to open this clinic’s providers.</p>
-      )}
-    </section>
+      <section aria-label="Providers" className="workspace-panel space-y-4">
+        {user?.sub && clinicPublicId ? (
+          <ProviderDirectory
+            key={user.sub + ":" + clinicPublicId + ":" + (selectedId ?? "")}
+            userId={user.sub}
+            clinicPublicId={clinicPublicId}
+            selectedId={selectedId}
+          />
+        ) : (
+          <p className="mt-3" role="alert">Unable to open this clinic’s providers.</p>
+        )}
+      </section>
+    </div>
   );
 }
 

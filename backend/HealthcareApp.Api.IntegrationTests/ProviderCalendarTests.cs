@@ -73,13 +73,30 @@ public class ProviderCalendarTests
             var partial = new ProviderTimeOff
             {
                 ProviderId = provider.Id,
-                StartUtc = appointment.StartUtc.AddHours(1),
-                EndUtc = appointment.StartUtc.AddMinutes(90),
+                StartUtc = appointment.StartUtc.AddMinutes(-Appointment.DurationMinutes),
+                EndUtc = appointment.StartUtc,
             };
             db.AddRange(appointment, partial, new ClinicMembership
             {
                 AppAccountId = account.Id, ClinicId = clinic.Id, Role = ClinicStaffRole.Clinician,
             });
+            db.AddRange(new ProviderWeeklyHours
+            {
+                ProviderId = provider.Id, DayOfWeek = (int)DayOfWeek.Wednesday, StartMinute = 540, EndMinute = 570,
+            }, new Appointment
+            {
+                ProviderId = provider.Id, PatientId = patient.Id, ClinicalServiceId = service.Id,
+                StartUtc = new DateTimeOffset(2030, 1, 9, 15, 0, 0, TimeSpan.Zero),
+                Status = AppointmentStatus.Confirmed, BookedByAppAccountId = account.Id,
+            });
+            var historyStart = new DateTimeOffset(2029, 12, 20, 15, 0, 0, TimeSpan.Zero);
+            var historyStatuses = new[] { AppointmentStatus.Completed, AppointmentStatus.Cancelled, AppointmentStatus.Confirmed };
+            db.Appointments.AddRange(historyStatuses.Select((status, index) => new Appointment
+            {
+                ProviderId = provider.Id, PatientId = patient.Id, ClinicalServiceId = service.Id,
+                StartUtc = historyStart.AddMinutes(index * Appointment.DurationMinutes),
+                Status = status, BookedByAppAccountId = account.Id,
+            }));
             await db.SaveChangesAsync();
 
             using var anonymous = await client.GetAsync(url);
@@ -97,7 +114,18 @@ public class ProviderCalendarTests
             Assert.True(response.Headers.CacheControl?.NoStore);
             var calendar = await response.Content.ReadFromJsonAsync<JsonElement>();
             Assert.Equal("2030-01-06", calendar.GetProperty("today").GetString());
-            Assert.Equal(90, calendar.GetProperty("days").GetArrayLength());
+            var days = calendar.GetProperty("days");
+            Assert.Equal(151, days.GetArrayLength());
+            Assert.Equal("2029-12-01", days[0].GetProperty("date").GetString());
+            Assert.Equal("2030-04-30", days[150].GetProperty("date").GetString());
+            Assert.False(days[150].GetProperty("canMarkUnavailable").GetBoolean());
+
+            var pastDay = GetDay(calendar, "2029-12-20");
+            Assert.False(pastDay.GetProperty("canMarkUnavailable").GetBoolean());
+            Assert.Empty(pastDay.GetProperty("availableSlots").EnumerateArray());
+            Assert.Empty(pastDay.GetProperty("startedSlots").EnumerateArray());
+            Assert.Equal(historyStatuses.Select(status => status.ToString()),
+                pastDay.GetProperty("appointments").EnumerateArray().Select(item => item.GetProperty("status").GetString()));
             var openDay = GetDay(calendar, "2030-01-07");
             Assert.Equal(14, openDay.GetProperty("openSlots").GetInt32());
             var slots = openDay.GetProperty("availableSlots");
@@ -107,6 +135,35 @@ public class ProviderCalendarTests
             var scheduled = Assert.Single(openDay.GetProperty("appointments").EnumerateArray());
             Assert.Equal(appointment.PublicId, scheduled.GetProperty("publicId").GetGuid());
             Assert.Equal("Taylor Demo", scheduled.GetProperty("patientName").GetString());
+            Assert.False(scheduled.GetProperty("duringTimeOff").GetBoolean());
+            var partialInterval = Assert.Single(openDay.GetProperty("timeOff").EnumerateArray());
+            Assert.Equal(partial.StartUtc, partialInterval.GetProperty("startUtc").GetDateTimeOffset());
+            Assert.Equal(partial.EndUtc, partialInterval.GetProperty("endUtc").GetDateTimeOffset());
+
+            var rescheduleAvailabilityUrl = $"/api/appointments/{appointment.PublicId}/reschedule-availability";
+            using var clinicianRescheduleDates = await client.GetAsync(rescheduleAvailabilityUrl);
+            Assert.Equal(HttpStatusCode.NotFound, clinicianRescheduleDates.StatusCode);
+            tokens.AuthorizeSubject(client, frontDeskSubject);
+            using var datesResponse = await client.GetAsync(rescheduleAvailabilityUrl);
+            datesResponse.EnsureSuccessStatusCode();
+            Assert.True(datesResponse.Headers.CacheControl?.NoStore);
+            var rescheduleDates = await datesResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(30, rescheduleDates.GetProperty("days").GetArrayLength());
+            Assert.Equal("2030-01-07", rescheduleDates.GetProperty("days")[0].GetProperty("date").GetString());
+            Assert.Equal("2030-02-05", rescheduleDates.GetProperty("days")[29].GetProperty("date").GetString());
+            var partialDay = GetDay(rescheduleDates, "2030-01-07");
+            Assert.Equal("Available", partialDay.GetProperty("status").GetString());
+            Assert.Equal(14, partialDay.GetProperty("slots").GetArrayLength());
+            var sunday = GetDay(rescheduleDates, "2030-01-13");
+            Assert.Equal("OutsideWorkingHours", sunday.GetProperty("status").GetString());
+            Assert.Empty(sunday.GetProperty("slots").EnumerateArray());
+            var fullyBooked = GetDay(rescheduleDates, "2030-01-09");
+            Assert.Equal("FullyBooked", fullyBooked.GetProperty("status").GetString());
+            Assert.Empty(fullyBooked.GetProperty("slots").EnumerateArray());
+            tokens.AuthorizeSubject(client, otherFrontDeskSubject);
+            using var otherClinicDates = await client.GetAsync(rescheduleAvailabilityUrl);
+            Assert.Equal(HttpStatusCode.NotFound, otherClinicDates.StatusCode);
+            tokens.AuthorizeSubject(client, subject);
 
             foreach (var weekend in new[] { "2030-01-06", "2030-01-12" })
             {
@@ -125,6 +182,8 @@ public class ProviderCalendarTests
 
             using var invalid = await client.PostAsync(url + "/2030-01-05/time-off", null);
             Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+            using var outsideTimeOffWindow = await client.PostAsync(url + "/2030-04-30/time-off", null);
+            Assert.Equal(HttpStatusCode.BadRequest, outsideTimeOffWindow.StatusCode);
             using var blocked = await client.PostAsync(url + "/2030-01-07/time-off", null);
             Assert.Equal(HttpStatusCode.NoContent, blocked.StatusCode);
             using var repeated = await client.PostAsync(url + "/2030-01-07/time-off", null);
@@ -136,13 +195,18 @@ public class ProviderCalendarTests
             Assert.Equal(0, blockedDay.GetProperty("openSlots").GetInt32());
             Assert.True(blockedDay.GetProperty("appointments")[0].GetProperty("duringTimeOff").GetBoolean());
 
-            using var clinicianQueue = await client.GetAsync(queueUrl);
-            Assert.Equal(HttpStatusCode.Forbidden, clinicianQueue.StatusCode);
+            var clinicianQueue = await client.GetFromJsonAsync<JsonElement>(queueUrl);
+            Assert.Equal(appointment.PublicId, Assert.Single(clinicianQueue.EnumerateArray()).GetProperty("publicId").GetGuid());
+            var clinicianCount = await client.GetFromJsonAsync<JsonElement>(queueUrl + "/count");
+            Assert.Equal(1, clinicianCount.GetProperty("count").GetInt32());
 
             tokens.AuthorizeSubject(client, otherFrontDeskSubject);
             Assert.Empty((await client.GetFromJsonAsync<JsonElement>(queueUrl)).EnumerateArray());
 
             tokens.AuthorizeSubject(client, frontDeskSubject);
+            var allDayUnavailable = GetDay(await client.GetFromJsonAsync<JsonElement>(rescheduleAvailabilityUrl), "2030-01-07");
+            Assert.Equal("DayOff", allDayUnavailable.GetProperty("status").GetString());
+            Assert.Empty(allDayUnavailable.GetProperty("slots").EnumerateArray());
             using var conflictResponse = await client.GetAsync(queueUrl);
             conflictResponse.EnsureSuccessStatusCode();
             Assert.True(conflictResponse.Headers.CacheControl?.NoStore);
@@ -159,6 +223,7 @@ public class ProviderCalendarTests
             Assert.Equal(14, restored.GetProperty("openSlots").GetInt32());
             Assert.Equal(appointment.PublicId, restored.GetProperty("appointments")[0].GetProperty("publicId").GetGuid());
             Assert.Equal(partial.PublicId, await db.ProviderTimeOff.Select(block => block.PublicId).SingleAsync());
+            Assert.Empty((await client.GetFromJsonAsync<JsonElement>(queueUrl)).EnumerateArray());
 
             tokens.AuthorizeSubject(client, frontDeskSubject);
             Assert.Empty((await client.GetFromJsonAsync<JsonElement>(queueUrl)).EnumerateArray());
@@ -184,6 +249,18 @@ public class ProviderCalendarTests
             using var availability = await client.GetAsync(
                 $"/api/providers/{provider.PublicId}/availability?date=2030-01-07");
             Assert.Equal(HttpStatusCode.BadRequest, availability.StatusCode);
+
+            var midnight = new DateTimeOffset(2030, 1, 9, 6, 0, 0, TimeSpan.Zero);
+            db.ProviderTimeOff.Add(new ProviderTimeOff
+            {
+                ProviderId = provider.Id, StartUtc = midnight.AddHours(-1), EndUtc = midnight.AddHours(1),
+            });
+            await db.SaveChangesAsync();
+            var overnightCalendar = await client.GetFromJsonAsync<JsonElement>(url);
+            var endOfDay = Assert.Single(GetDay(overnightCalendar, "2030-01-08").GetProperty("timeOff").EnumerateArray());
+            var startOfDay = Assert.Single(GetDay(overnightCalendar, "2030-01-09").GetProperty("timeOff").EnumerateArray());
+            Assert.Equal(midnight, endOfDay.GetProperty("endUtc").GetDateTimeOffset());
+            Assert.Equal(midnight, startOfDay.GetProperty("startUtc").GetDateTimeOffset());
         }
         finally
         {

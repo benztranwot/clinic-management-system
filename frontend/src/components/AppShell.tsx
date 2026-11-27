@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, NavLink } from "react-router";
+import { Link, NavLink, useLocation } from "react-router";
 import { appointmentLists } from "../features/appointments/appointmentLists";
 import { useAppointmentAttention } from "../features/appointments/hooks/useAppointmentAttention";
 import type { ReferralAccount } from "../api/referrals";
@@ -100,28 +100,27 @@ function ThemeSelect() {
 }
 
 function SchedulingLinks({ userId, account }: { userId: string; account?: ReferralAccount }) {
-  const isClinician = account?.memberships.some(({ role }) => role === "Clinician");
+  const hasSchedule = account?.providerPublicId && account.memberships.some(({ role }) => role === "Clinician");
   const canSchedule = account?.isAdministrator || account?.memberships.some(({ role }) => role === "FrontDesk");
-  const attention = useAppointmentAttention(canSchedule ? userId : undefined);
+  const canSeeConflicts = canSchedule || hasSchedule;
+  const attention = useAppointmentAttention(canSeeConflicts ? userId : undefined);
 
   return (
     <>
-      {account?.providerPublicId && isClinician && <NavLink to="/my-schedule">My schedule</NavLink>}
-      {canSchedule && (
-        <>
-          <NavLink to={appointmentLists.upcoming.path}>{appointmentLists.upcoming.title}</NavLink>
-          <NavLink to={appointmentLists.conflicts.path} className="workspace-nav-count">
-            <span>{appointmentLists.conflicts.title}</span>
-            {attention.isSuccess && (
-              <>
-                <span aria-hidden="true" className="rounded-full bg-[var(--muted)] px-2 text-xs tabular-nums">
-                  {attention.data.count}
-                </span>
-                <span className="sr-only">{attention.data.count} appointments with availability conflicts</span>
-              </>
-            )}
-          </NavLink>
-        </>
+      {hasSchedule && <NavLink to="/my-schedule">My schedule</NavLink>}
+      {canSchedule && <NavLink to={appointmentLists.upcoming.path}>{appointmentLists.upcoming.title}</NavLink>}
+      {canSeeConflicts && (
+        <NavLink to={appointmentLists.conflicts.path} className="workspace-nav-count">
+          <span>{appointmentLists.conflicts.title}</span>
+          {attention.isSuccess && (
+            <>
+              <span aria-hidden="true" className="rounded-full bg-[var(--muted)] px-2 text-xs tabular-nums">
+                {attention.data.count}
+              </span>
+              <span className="sr-only">{attention.data.count} appointments with availability conflicts</span>
+            </>
+          )}
+        </NavLink>
       )}
     </>
   );
@@ -143,12 +142,28 @@ export default function AppShell({
   accountName, accountEmail, homePath, account, showStaffNavigation, userId, signingOut, onSignOut, children,
 }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuToggle = useRef<HTMLButtonElement>(null);
+  const main = useRef<HTMLElement>(null);
+  const focusMainOnNavigation = useRef(false);
+  const { key: locationKey } = useLocation();
   const hasNavigation = Boolean(accountName && (showStaffNavigation || account?.patientPublicId));
+
+  useEffect(() => {
+    if (!focusMainOnNavigation.current) return;
+    focusMainOnNavigation.current = false;
+    main.current?.focus();
+  }, [locationKey]);
 
   return (
     <div className={accountName ? "app workspace" : "app guest"}>
       <a href="#main-content" className="skip-link">Skip to content</a>
-      <header className="workspace-header">
+      <header className="workspace-header" onKeyDown={(event) => {
+        if (event.key === "Escape" && menuOpen && !event.defaultPrevented) {
+          event.preventDefault();
+          setMenuOpen(false);
+          menuToggle.current?.focus();
+        }
+      }}>
         <Link to={homePath} className="workspace-brand" onClick={() => setMenuOpen(false)}>
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
@@ -156,14 +171,18 @@ export default function AppShell({
           Clinic Management
         </Link>
         {hasNavigation && (
-          <button type="button" className="workspace-menu-toggle" data-variant="secondary"
+          <button ref={menuToggle} type="button" className="workspace-menu-toggle" data-variant="secondary"
             aria-controls="workspace-navigation" aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}>Menu</button>
         )}
         {hasNavigation && (
           <nav id="workspace-navigation" aria-label="Main navigation" className="workspace-nav"
             data-expanded={menuOpen} onClick={(event) => {
-              if (event.target instanceof Element && event.target.closest("a")) setMenuOpen(false);
+              if (menuOpen && event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+                  && event.target instanceof Element && event.target.closest("a")) {
+                focusMainOnNavigation.current = true;
+                setMenuOpen(false);
+              }
             }}>
             {showStaffNavigation && (
               <>
@@ -200,7 +219,7 @@ export default function AppShell({
           )}
         </div>
       </header>
-      <main id="main-content" tabIndex={-1} className="workspace-main">{children}</main>
+      <main ref={main} id="main-content" tabIndex={-1} className="workspace-main">{children}</main>
     </div>
   );
 }

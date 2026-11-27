@@ -1,32 +1,71 @@
 import LoadingStatus from "../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { AppointmentRequestError, getMyAppointments, type PatientAppointment } from "../api/appointments";
 import { ActionIcon } from "../components/ActionIcon";
+import { AppointmentStatusBadge } from "../features/appointments/components/AppointmentStatusBadge";
+import AppointmentTime from "../features/appointments/components/AppointmentTime";
 
 function AppointmentCard({ appointment }: { appointment: PatientAppointment }) {
-  const timeZone = appointment.timeZoneId ?? "UTC";
-  const start = new Date(appointment.startUtc);
-  const date = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone });
-  const time = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
-
   return (
-    <li className="appointment-card">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <h2 className="wrap-break-word font-semibold">{appointment.serviceName}</h2>
-        <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-sm font-medium">
-          {appointment.status === "Confirmed" ? "Scheduled" : appointment.status}
-        </span>
-      </div>
-      <p className="text-sm">
-        <time dateTime={appointment.startUtc}>
-          {date.format(start)} · {time.formatRange(start, new Date(appointment.endUtc))}
-        </time>
-        {" "}({timeZone})
-      </p>
-      <p className="text-sm text-subtle">{appointment.providerName} · {appointment.clinicName}</p>
+    <li className="min-w-0">
+      <Link className="appointment-card h-full hover:bg-[var(--muted)]" to={"/my-appointments/" + appointment.publicId}
+        aria-label={"View appointment: " + appointment.serviceName}
+        aria-describedby={`appointment-time-${appointment.publicId} appointment-status-${appointment.publicId}`}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h3 className="wrap-break-word font-semibold">{appointment.serviceName}</h3>
+          <span id={"appointment-status-" + appointment.publicId}><AppointmentStatusBadge status={appointment.status} /></span>
+        </div>
+        <p className="text-sm" id={"appointment-time-" + appointment.publicId}>
+          <AppointmentTime appointment={appointment} />
+        </p>
+        <p className="flex items-center justify-between gap-2 text-sm text-subtle">
+          <span>{appointment.providerName} · {appointment.clinicName}</span>
+          <span className="shrink-0"><ActionIcon name="forward" /></span>
+        </p>
+      </Link>
     </li>
   );
+}
+
+function AppointmentGroups({ appointments }: { appointments: PatientAppointment[] }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const upcoming: PatientAppointment[] = [];
+  const history: PatientAppointment[] = [];
+  for (const appointment of appointments) {
+    if (appointment.status === "Confirmed" && Date.parse(appointment.startUtc) >= now) {
+      upcoming.push(appointment);
+    } else {
+      history.push(appointment);
+    }
+  }
+  upcoming.sort((first, second) => Date.parse(first.startUtc) - Date.parse(second.startUtc));
+
+  return <>
+    <section className="space-y-3" aria-labelledby="upcoming-heading">
+      <h2 className="text-lg font-semibold" id="upcoming-heading">Upcoming</h2>
+      {upcoming.length ? (
+        <ul className="appointment-grid" aria-labelledby="upcoming-heading">
+          {upcoming.map(appointment => <AppointmentCard key={appointment.publicId} appointment={appointment} />)}
+        </ul>
+      ) : <p className="text-sm text-subtle">You have no upcoming appointments.</p>}
+    </section>
+    {history.length > 0 && (
+      <section className="space-y-3" aria-labelledby="history-heading">
+        <h2 className="text-lg font-semibold" id="history-heading">History</h2>
+        <ul className="appointment-grid" aria-labelledby="history-heading">
+          {history.map(appointment => <AppointmentCard key={appointment.publicId} appointment={appointment} />)}
+        </ul>
+      </section>
+    )}
+  </>;
 }
 
 export default function MyAppointmentsPage({ userId }: { userId?: string }) {
@@ -69,9 +108,7 @@ export default function MyAppointmentsPage({ userId }: { userId?: string }) {
       ) : query.data.length === 0 ? (
         <p className="text-sm text-subtle">You have no appointments yet.</p>
       ) : (
-        <ul className="appointment-grid" aria-labelledby="my-appointments-heading">
-          {query.data.map((appointment) => <AppointmentCard key={appointment.publicId} appointment={appointment} />)}
-        </ul>
+        <AppointmentGroups appointments={query.data} />
       )}
     </section>
   );

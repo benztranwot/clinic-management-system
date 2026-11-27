@@ -23,6 +23,8 @@ const ReferralsPage = lazy(() => import("./pages/ReferralsPage"));
 const ReferralDetailsPage = lazy(() => import("./pages/ReferralDetailsPage"));
 const MyReferralsPage = lazy(() => import("./pages/MyReferralsPage"));
 const MyAppointmentsPage = lazy(() => import("./pages/MyAppointmentsPage"));
+const MyAppointmentDetailsPage = lazy(() => import("./pages/MyAppointmentDetailsPage"));
+const MyReferralDetailsPage = lazy(() => import("./pages/MyReferralDetailsPage"));
 const NewReferralPage = lazy(() => import("./pages/NewReferralPage"));
 const AppointmentListPage = lazy(() => import("./pages/AppointmentAttentionPage"));
 const NewAppointmentPage = lazy(() => import("./pages/NewAppointmentPage"));
@@ -185,7 +187,9 @@ function App() {
                   </section>
                 : <Navigate to={homePath} replace />} />
             <Route path="/my-referrals" element={<MyReferralsPage />} />
+            <Route path="/my-referrals/:publicId" element={<MyReferralDetailsPage userId={userId} />} />
             <Route path="/my-appointments" element={<MyAppointmentsPage userId={userId} />} />
+            <Route path="/my-appointments/:publicId" element={<MyAppointmentDetailsPage userId={userId} />} />
             <Route path="/clinics" element={<ClinicsPage />} />
             <Route path="/clinics/new" element={<ClinicsPage create />} />
             <Route path="/clinics/:clinicPublicId" element={<ClinicDetailsPage />} />

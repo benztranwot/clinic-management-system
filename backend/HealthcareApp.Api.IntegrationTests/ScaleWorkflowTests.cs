@@ -242,13 +242,15 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
             Assert.True(expected.Length > 40, "The scale dataset must exercise several search pages.");
             tokens.AuthorizeSubject(client, "auth0|scale-front-desk");
             const string searchUrl = "/api/appointments/upcoming/search";
+            const int appointmentPageSize = 14;
             var firstPage = await MeasureAsync("Appointment search page 1", () =>
                 client.PostAsJsonAsync(searchUrl, new { page = 1 }));
-            Assert.Equal(expected.Take(8).Select(item => item.PublicId), PageIds(firstPage));
+            Assert.Equal(appointmentPageSize, firstPage.GetProperty("pageSize").GetInt32());
+            Assert.Equal(expected.Take(appointmentPageSize).Select(item => item.PublicId), PageIds(firstPage));
 
             var secondPage = await MeasureAsync("Appointment search page 2", () =>
                 client.PostAsJsonAsync(searchUrl, new { page = 2 }));
-            Assert.Equal(expected.Skip(8).Take(8).Select(item => item.PublicId), PageIds(secondPage));
+            Assert.Equal(expected.Skip(appointmentPageSize).Take(appointmentPageSize).Select(item => item.PublicId), PageIds(secondPage));
 
             var sample = expected[0];
             var until = sample.StartUtc.AddDays(1);
@@ -263,12 +265,12 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
                     && item.StartUtc >= sample.StartUtc && item.StartUtc < until)
                 .Select(item => item.PublicId).ToArray();
             Assert.NotEmpty(filteredIds);
-            Assert.Equal(filteredIds.Take(8), PageIds(filtered));
-            Assert.Equal(filteredIds.Length > 8, filtered.GetProperty("hasMore").GetBoolean());
+            Assert.Equal(filteredIds.Take(appointmentPageSize), PageIds(filtered));
+            Assert.Equal(filteredIds.Length > appointmentPageSize, filtered.GetProperty("hasMore").GetBoolean());
 
             var descending = await MeasureAsync("Appointment search newest first", () =>
                 client.PostAsJsonAsync(searchUrl, new { latestFirst = true, page = 1 }));
-            Assert.Equal(expected.Reverse().Take(8).Select(item => item.PublicId), PageIds(descending));
+            Assert.Equal(expected.Reverse().Take(appointmentPageSize).Select(item => item.PublicId), PageIds(descending));
 
             var allPageIds = new List<Guid>();
             for (var page = 1; allPageIds.Count < expected.Length; page++)
@@ -277,12 +279,15 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);
                 var result = await response.Content.ReadFromJsonAsync<JsonElement>();
                 var ids = PageIds(result);
-                Assert.InRange(ids.Length, 1, 8);
+                Assert.InRange(ids.Length, 1, appointmentPageSize);
                 allPageIds.AddRange(ids);
                 Assert.Equal(allPageIds.Count < expected.Length, result.GetProperty("hasMore").GetBoolean());
             }
             Assert.Equal(expected.Select(item => item.PublicId), allPageIds);
-            using var pastLastPage = await client.PostAsJsonAsync(searchUrl, new { page = (expected.Length + 7) / 8 + 1 });
+            using var pastLastPage = await client.PostAsJsonAsync(searchUrl, new
+            {
+                page = (expected.Length + appointmentPageSize - 1) / appointmentPageSize + 1,
+            });
             Assert.Equal(HttpStatusCode.OK, pastLastPage.StatusCode);
             var emptyPage = await pastLastPage.Content.ReadFromJsonAsync<JsonElement>();
             Assert.Empty(PageIds(emptyPage));
@@ -295,20 +300,35 @@ public class ScaleWorkflowTests(ITestOutputHelper output)
             conflictResponse.EnsureSuccessStatusCode();
             var conflictPage = await conflictResponse.Content.ReadFromJsonAsync<JsonElement>();
             Assert.Equal(conflicts.GetArrayLength(), conflictPage.GetProperty("totalCount").GetInt32());
-            Assert.Equal(conflicts.EnumerateArray().Take(8).Select(item => item.GetProperty("publicId").GetGuid()), PageIds(conflictPage));
+            Assert.Equal(conflicts.EnumerateArray().Take(appointmentPageSize)
+                .Select(item => item.GetProperty("publicId").GetGuid()), PageIds(conflictPage));
             using var noConflictMatch = await client.PostAsJsonAsync("/api/appointments/needs-attention/search", new { patient = "No such patient" });
             noConflictMatch.EnsureSuccessStatusCode();
             Assert.Empty(PageIds(await noConflictMatch.Content.ReadFromJsonAsync<JsonElement>()));
 
             tokens.AuthorizeSubject(client, "auth0|scale-provider");
-            var calendar = await MeasureAsync("Provider 90-day calendar", () => client.GetAsync("/api/me/calendar"));
+            var calendar = await MeasureAsync("Provider five-month calendar", () => client.GetAsync("/api/me/calendar"));
             var days = calendar.GetProperty("days");
-            Assert.Equal(90, days.GetArrayLength());
+            var zone = TimeZoneInfo.FindSystemTimeZoneById(calendar.GetProperty("timeZoneId").GetString()!);
+            var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, zone).DateTime);
+            var currentMonth = new DateOnly(today.Year, today.Month, 1);
+            var firstDate = currentMonth.AddMonths(-1);
+            var endDate = currentMonth.AddMonths(4);
+            var expectedDayCount = endDate.DayNumber - firstDate.DayNumber;
+            Assert.Equal(expectedDayCount, days.GetArrayLength());
+            Assert.Equal(firstDate, DateOnly.Parse(days[0].GetProperty("date").GetString()!));
+            Assert.Equal(endDate.AddDays(-1), DateOnly.Parse(days[expectedDayCount - 1].GetProperty("date").GetString()!));
             var providerId = await db.AppAccounts.Where(account => account.Subject == "auth0|scale-provider")
                 .Select(account => account.ProviderId).SingleAsync();
-            var expectedCalendarIds = await db.Appointments.Where(appointment => appointment.ProviderId == providerId
-                    && appointment.Status == AppointmentStatus.Confirmed && appointment.StartUtc > now)
-                .Select(appointment => appointment.PublicId).ToArrayAsync();
+            var providerAppointments = await db.Appointments.Where(appointment => appointment.ProviderId == providerId)
+                .Select(appointment => new { appointment.PublicId, appointment.StartUtc, appointment.Status }).ToArrayAsync();
+            var expectedCalendarIds = providerAppointments.Where(appointment =>
+                {
+                    var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(appointment.StartUtc, zone).DateTime);
+                    return localDate >= firstDate && localDate < endDate
+                        && (appointment.Status == AppointmentStatus.Confirmed || appointment.StartUtc < now);
+                })
+                .Select(appointment => appointment.PublicId);
             var calendarIds = days.EnumerateArray().SelectMany(day => day.GetProperty("appointments").EnumerateArray())
                 .Select(appointment => appointment.GetProperty("publicId").GetGuid()).ToArray();
             Assert.Equal(expectedCalendarIds.Order(), calendarIds.Order());

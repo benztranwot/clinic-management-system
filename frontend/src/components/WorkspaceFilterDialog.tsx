@@ -14,7 +14,7 @@ export default function WorkspaceFilterDialog({ dialogRef, title, onOpen, childr
         onOpen?.();
         dialogRef.current?.showModal();
       }}><ActionIcon name="filter" />Filters</button>
-      <dialog ref={dialogRef} className="workspace-filter-dialog workspace-panel" aria-labelledby={headingId}>
+      <dialog ref={dialogRef} className="workspace-dialog workspace-panel" aria-labelledby={headingId}>
         <h2 id={headingId} className="mb-4 text-lg font-semibold">{title}</h2>
         {children}
       </dialog>

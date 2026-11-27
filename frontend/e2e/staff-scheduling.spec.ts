@@ -86,10 +86,18 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
         }
       }
       if (role === "FrontDesk") {
+        if (method === "GET" && path === appointmentPath + "/reschedule-availability") {
+          return route.fulfill({ json: { timeZoneId: timeZone, days: [
+            { date: originalDate, status: "DayOff", slots: [] },
+            { date: rescheduleDate, status: "Available", slots: taken ? [replacementSlot] : [takenSlot, replacementSlot] },
+            { date: "2026-11-12", status: "FullyBooked", slots: [] },
+            { date: "2026-11-15", status: "OutsideWorkingHours", slots: [] },
+            { date: "2026-12-01", status: "Available", slots: [{ startUtc: "2026-12-01T15:00:00Z", endUtc: "2026-12-01T15:30:00Z" }] },
+          ] } });
+        }
         if (method === "GET" && path === availabilityPath) {
           const date = url.searchParams.get("date");
-          const slots = date === originalDate ? [originalSlot]
-            : date === rescheduleDate ? (taken ? [replacementSlot] : [takenSlot, replacementSlot]) : [];
+          const slots = date === originalDate ? [originalSlot] : [];
           return route.fulfill({ json: { date, slots, timeZoneId: timeZone } });
         }
         if (method === "POST" && path === referralPath + "/appointments" && status === "ReadyToSchedule" && !appointment) {
@@ -146,10 +154,20 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
     await reviewPage.clock.setFixedTime(now);
     const referralUrl = "/referrals/" + referralId + "?clinic=" + clinicId;
     await reviewPage.goto(referralUrl);
-    await reviewPage.getByRole("button", { name: "Edit referral" }).click();
-    await reviewPage.getByRole("combobox", { name: "Status", exact: true }).selectOption("ReadyToSchedule");
-    await reviewPage.getByRole("button", { name: "Update referral" }).click();
-    await expect(reviewPage.getByText("Status: Ready to schedule", { exact: true })).toBeVisible();
+    const edit = reviewPage.getByRole("region", { name: "Referral status" })
+      .getByRole("button", { name: "Edit referral", exact: true });
+    const editor = reviewPage.getByRole("dialog", { name: "Edit referral", exact: true });
+    await edit.press("Enter");
+    await expect(editor.getByRole("combobox", { name: "Status", exact: true })).toBeFocused();
+    await reviewPage.keyboard.press("Escape");
+    await expect(editor).toBeHidden();
+    await expect(edit).toBeFocused();
+    expect(writes).toEqual([]);
+    await edit.click();
+    await editor.getByRole("combobox", { name: "Status", exact: true }).selectOption("ReadyToSchedule");
+    await editor.getByRole("button", { name: "Save changes", exact: true }).click();
+    await expect(editor).toBeHidden();
+    await expect(reviewPage.getByRole("definition").filter({ hasText: "Ready to schedule" })).toBeVisible();
     await expect(reviewPage.getByRole("button", { name: "Book appointment" })).toHaveCount(0);
 
     await mockClinicApi(frontDesk, "FrontDesk");
@@ -158,19 +176,37 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
     await bookingPage.goto(referralUrl);
     const book = bookingPage.getByRole("region", { name: "Book an appointment" });
     await expect(bookingPage.getByRole("button", { name: "Edit referral" })).toHaveCount(0);
+    const openBooking = book.getByRole("button", { name: "Book appointment", exact: true });
+    await expect(book.getByLabel("Appointment date")).toBeHidden();
+    await openBooking.press("Enter");
+    await expect(book.getByLabel("Appointment date")).toBeFocused();
+    await book.getByRole("button", { name: "Cancel booking", exact: true }).click();
+    await expect(book.getByLabel("Appointment date")).toBeHidden();
+    await expect(openBooking).toBeFocused();
+    await openBooking.click();
     await expect(book.getByLabel("Appointment date")).toHaveAttribute("min", originalDate);
     await book.getByLabel("Appointment date").fill(originalDate);
     await book.getByLabel("Available time").selectOption(originalSlot.startUtc);
-    await book.getByRole("button", { name: "Book appointment" }).click();
-    await expect(bookingPage.getByRole("region", { name: "Scheduled appointment" })).toBeVisible();
-    await bookingPage.getByRole("link", { name: "View appointment" }).click();
+    await book.getByRole("button", { name: "Confirm booking", exact: true }).click();
+    const scheduled = bookingPage.getByRole("region", { name: "Scheduled appointment" });
+    const viewAppointment = scheduled.getByRole("link", { name: "View appointment" });
+    await expect(viewAppointment).toBeFocused();
+    await viewAppointment.click();
     await expect(bookingPage.getByRole("heading", { name: "Appointment details" })).toBeVisible();
     await expect(bookingPage.getByRole("button", { name: "Complete appointment" })).toHaveCount(0);
     const scheduledTime = bookingPage.locator("time[datetime]");
     await expect(scheduledTime).toHaveAttribute("datetime", originalSlot.startUtc);
 
     await bookingPage.getByRole("button", { name: "Reschedule", exact: true }).click();
-    await bookingPage.getByLabel("New appointment date").fill(rescheduleDate);
+    const picker = bookingPage.getByRole("region", { name: "New appointment date" });
+    await expect(picker.getByRole("button", { name: /November 10, 2026, Day off/ })).toBeDisabled();
+    await expect(picker.getByRole("button", { name: /November 12, 2026, Fully booked/ })).toBeDisabled();
+    await expect(picker.getByRole("button", { name: /November 15, 2026, Outside working hours/ })).toBeDisabled();
+    await expect(bookingPage.getByRole("button", { name: "Save new time" })).toBeDisabled();
+    await picker.getByRole("button", { name: "Next month" }).click();
+    await expect(picker.getByRole("heading")).toHaveText("December 2026");
+    await picker.getByRole("button", { name: "Previous month" }).click();
+    await picker.getByRole("button", { name: /November 11, 2026, Available/ }).press("Enter");
     await bookingPage.getByLabel("New appointment time").selectOption(takenSlot.startUtc);
     await bookingPage.getByRole("button", { name: "Save new time" }).click();
     await expect(bookingPage.getByRole("alert")).toHaveText(conflictMessage);
@@ -187,7 +223,7 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
     await bookingPage.getByRole("button", { name: "Cancel appointment" }).click();
     await expect(bookingPage.getByText("Cancelled", { exact: true })).toBeVisible();
     await bookingPage.getByRole("link", { name: "View referral" }).click();
-    await expect(bookingPage.getByText("Status: Ready to schedule", { exact: true })).toBeVisible();
+    await expect(bookingPage.getByRole("definition").filter({ hasText: "Ready to schedule" })).toBeVisible();
     await expect(bookingPage.getByRole("heading", { name: "Book an appointment" })).toBeVisible();
 
     expect(unexpected).toEqual([]);

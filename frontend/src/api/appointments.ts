@@ -27,9 +27,22 @@ export type PatientAppointment = Pick<AppointmentSummary,
   "publicId" | "startUtc" | "endUtc" | "clinicName" | "timeZoneId" | "providerName" | "serviceName"
 > & Pick<AppointmentDetails, "status">;
 
+export type PatientAppointmentDetails = PatientAppointment & {
+  clinicAddress: string;
+  referralPublicId: string | null;
+};
+
 export async function getMyAppointments(accessToken: string, signal: AbortSignal): Promise<PatientAppointment[]> {
   const response = await requestAppointment("/api/me/appointments", accessToken,
     "Unable to load your appointments.", { signal });
+  return response.json();
+}
+
+export async function getMyAppointment(
+  accessToken: string, publicId: string, signal: AbortSignal,
+): Promise<PatientAppointmentDetails> {
+  const response = await requestAppointment("/api/me/appointments/" + encodeURIComponent(publicId), accessToken,
+    "Unable to load your appointment.", { signal });
   return response.json();
 }
 
@@ -105,6 +118,33 @@ export async function completeAppointment(publicId: string, accessToken: string)
     "Unable to complete the appointment.", { method: "POST" });
 }
 
+export type BookingDay = {
+  date: string;
+  status: "Available" | "OutsideWorkingHours" | "DayOff" | "FullyBooked";
+  slots: Array<{ startUtc: string; endUtc: string }>;
+};
+
+type BookingAvailability = { timeZoneId: string; days: BookingDay[] };
+
+export async function getDirectBookingAvailability(
+  option: BookingOption, accessToken: string, signal: AbortSignal,
+): Promise<BookingAvailability> {
+  const params = new URLSearchParams({
+    providerPublicId: option.providerPublicId, clinicalServicePublicId: option.clinicalServicePublicId,
+  });
+  const response = await requestAppointment("/api/appointments/booking-availability?" + params, accessToken,
+    "Unable to load dates for booking.", { signal });
+  return response.json();
+}
+
+export async function getRescheduleAvailability(
+  publicId: string, accessToken: string, signal: AbortSignal,
+): Promise<BookingAvailability> {
+  const path = "/api/appointments/" + encodeURIComponent(publicId) + "/reschedule-availability";
+  const response = await requestAppointment(path, accessToken, "Unable to load dates for rescheduling.", { signal });
+  return response.json();
+}
+
 export async function rescheduleAppointment(
   publicId: string,
   accessToken: string,
@@ -135,7 +175,9 @@ export async function getBookingOptions(token: string, signal: AbortSignal): Pro
   return response.json();
 }
 
-export function searchBookingPatients(token: string, search: { firstName: string; lastName: string; page: number }, signal: AbortSignal) {
+export function searchBookingPatients(token: string, search: {
+  firstName: string; lastName: string; dateOfBirth?: string; page: number;
+}, signal: AbortSignal) {
   return searchPage<PatientSummary>("/api/patients/search", token, search, signal,
     status => new AppointmentRequestError(status, status === 403 ? "Your account cannot look up patients. Contact an administrator." : "Unable to load patients."));
 }

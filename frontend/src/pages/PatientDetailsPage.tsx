@@ -151,25 +151,35 @@ function PatientDetails({
     );
   }
   return (
-    <div className="mt-4">
-      <h3 className="font-semibold">{patient.firstName} {patient.lastName}</h3>
-      <dl className="mt-3">
-        <dt className="text-sm font-medium">Date of birth</dt>
-        <dd><time dateTime={patient.dateOfBirth}>{patient.dateOfBirth}</time></dd>
+    <div className="mt-4 space-y-4">
+      <dl className="grid gap-4 rounded-lg border border-panel-border p-4 sm:grid-cols-2">
+        <div>
+          <dt className="font-medium">Patient</dt>
+          <dd className="wrap-break-word">{patient.firstName} {patient.lastName}</dd>
+        </div>
+        <div>
+          <dt className="font-medium">Date of birth</dt>
+          <dd><time dateTime={patient.dateOfBirth}>{patient.dateOfBirth}</time></dd>
+        </div>
       </dl>
       {canManage && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link className="workspace-button" state={state} to={"/patients/" + publicId + "/edit"}><ActionIcon name="pencil" />Edit patient</Link>
-          <button
-            type="button"
-            disabled={deletion.isPending}
-            data-variant="danger"
-            onClick={handleDelete}
-          >
-            {deletion.isPending ? <Spinner /> : <ActionIcon name="trash" />}
-            {deletion.isPending ? "Deleting…" : "Delete patient"}
-          </button>
-        </div>
+        <section className="rounded-lg border border-panel-border p-4" aria-labelledby="patient-actions-heading">
+          <div className="page-heading">
+            <h2 id="patient-actions-heading" className="font-semibold">Patient record</h2>
+            <div className="flex flex-wrap gap-2">
+              <Link className="workspace-button" data-variant="secondary" state={state} to={"/patients/" + publicId + "/edit"}><ActionIcon name="pencil" />Edit patient</Link>
+              <button
+                type="button"
+                disabled={deletion.isPending}
+                data-variant="danger"
+                onClick={handleDelete}
+              >
+                {deletion.isPending ? <Spinner /> : <ActionIcon name="trash" />}
+                {deletion.isPending ? "Deleting…" : "Delete patient"}
+              </button>
+            </div>
+          </div>
+        </section>
       )}
       {deletion.isError && <p className="mt-3" role="alert">{deleteError}</p>}
       {showSaved && (
@@ -195,23 +205,22 @@ function PatientDetailsPage({ edit = false }: { edit?: boolean }) {
   const { publicId } = useParams<"publicId">();
 
   return (
-    <section
-      aria-labelledby="patient-details-heading"
-      className="workspace-panel mx-auto w-full max-w-4xl space-y-4"
-    >
-      <div className="page-heading">
+    <div className="mx-auto w-full max-w-4xl space-y-3">
+      <Link state={edit ? state : state?.listReturn?.state}
+        to={edit && publicId ? "/patients/" + publicId : { pathname: "/patients", search: state?.listReturn?.search }}
+        className="workspace-button" data-variant="secondary">
+        <ActionIcon name="back" />
+        {edit ? "Back to patient" : "Back to patients"}
+      </Link>
+      <section className="workspace-panel space-y-4" aria-labelledby="patient-details-heading">
         <h1 id="patient-details-heading" className="page-title">{edit ? "Edit patient" : "Patient details"}</h1>
-        <Link state={edit ? state : state?.listReturn?.state} to={edit && publicId ? "/patients/" + publicId : { pathname: "/patients", search: state?.listReturn?.search }} className="workspace-button" data-variant="secondary">
-          <ActionIcon name="back" />
-          {edit ? "Back to patient" : "Back to patients"}
-        </Link>
-      </div>
-      {user?.sub && publicId ? (
-        <PatientDetails key={publicId + ":" + edit} userId={user.sub} publicId={publicId} edit={edit} />
-      ) : (
-        <p className="mt-3" role="alert">Unable to open this patient record.</p>
-      )}
-    </section>
+        {user?.sub && publicId ? (
+          <PatientDetails key={publicId + ":" + edit} userId={user.sub} publicId={publicId} edit={edit} />
+        ) : (
+          <p className="mt-3" role="alert">Unable to open this patient record.</p>
+        )}
+      </section>
+    </div>
   );
 }
 

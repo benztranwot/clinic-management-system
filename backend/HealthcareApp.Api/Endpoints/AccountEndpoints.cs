@@ -16,11 +16,10 @@ public static class AccountEndpoints
         // Return only the signed-in user's account and clinic roles.
         app.MapGet("/api/me", GetMeAsync).RequireAuthorization();
 
-        // Patients can list referrals linked to their own patient record.
-        app.MapGet("/api/me/referrals", GetMyReferralsAsync).RequireAuthorization();
+        // Patient reads always use the account's patient link.
+        app.MapGet("/api/me/referrals/{publicId:guid?}", GetMyReferralsAsync).RequireAuthorization();
 
-        // Use the patient link from the account for every appointment in this list.
-        app.MapGet("/api/me/appointments", GetMyAppointmentsAsync).RequireAuthorization("ReadAppointments");
+        app.MapGet("/api/me/appointments/{publicId:guid?}", GetMyAppointmentsAsync).RequireAuthorization("ReadAppointments");
     }
 
     private static async Task<IResult> GetMeAsync(
@@ -98,8 +97,10 @@ public static class AccountEndpoints
     }
 
     private static async Task<IResult> GetMyReferralsAsync(
+        Guid? publicId,
         ClaimsPrincipal user,
         HttpContext http,
+        IAuthorizationService authorization,
         HealthcareDbContext db,
         CancellationToken cancellationToken
     )
@@ -119,16 +120,24 @@ public static class AccountEndpoints
                     from referral in db.Referrals
                     join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
                     join clinic in db.Clinics on service.ClinicId equals clinic.Id
+                    join provider in db.Providers on referral.AssignedProviderId equals provider.Id
                     where referral.PatientId == account.PatientId
+                        && (publicId == null || referral.PublicId == publicId)
                     orderby referral.CreatedAtUtc descending, referral.Id descending
                     select new
                     {
                         referral.PublicId,
                         ServiceName = service.Name,
                         ClinicName = clinic.Name,
+                        ClinicAddress = clinic.Address,
+                        ProviderName = provider.FirstName + " " + provider.LastName,
                         referral.Status,
-                        HasConfirmedAppointment = db.Appointments.Any(appointment =>
-                            appointment.ReferralId == referral.Id && appointment.Status == AppointmentStatus.Confirmed),
+                        ConfirmedAppointmentPublicId = db.Appointments
+                            .Where(appointment => appointment.ReferralId == referral.Id
+                                && appointment.PatientId == account.PatientId
+                                && appointment.Status == AppointmentStatus.Confirmed)
+                            .Select(appointment => (Guid?)appointment.PublicId)
+                            .FirstOrDefault(),
                         referral.CreatedAtUtc,
                     }
                 ).ToList(),
@@ -142,6 +151,28 @@ public static class AccountEndpoints
 
         http.Response.Headers.CacheControl = "no-store";
 
+        if (publicId is not null)
+        {
+            var referral = account.Referrals.SingleOrDefault();
+            if (referral is null) return Results.NotFound();
+
+            var stage = ReferralEndpoints.GetStage(referral.Status, referral.ConfirmedAppointmentPublicId.HasValue);
+            var canSeeAppointment = stage == "Scheduled"
+                && (await authorization.AuthorizeAsync(user, "ReadAppointments")).Succeeded;
+            return Results.Ok(new
+            {
+                referral.PublicId,
+                referral.ServiceName,
+                referral.ClinicName,
+                referral.ClinicAddress,
+                referral.ProviderName,
+                Status = referral.Status.ToString(),
+                Stage = stage,
+                referral.CreatedAtUtc,
+                AppointmentPublicId = canSeeAppointment ? referral.ConfirmedAppointmentPublicId : null,
+            });
+        }
+
         return Results.Ok(
             account.Referrals.Select(referral => new
             {
@@ -149,13 +180,14 @@ public static class AccountEndpoints
                 referral.ServiceName,
                 referral.ClinicName,
                 Status = referral.Status.ToString(),
-                Stage = ReferralEndpoints.GetStage(referral.Status, referral.HasConfirmedAppointment),
+                Stage = ReferralEndpoints.GetStage(referral.Status, referral.ConfirmedAppointmentPublicId.HasValue),
                 referral.CreatedAtUtc,
             })
         );
     }
 
     private static async Task<IResult> GetMyAppointmentsAsync(
+        Guid? publicId,
         ClaimsPrincipal user,
         HttpContext http,
         HealthcareDbContext db,
@@ -178,6 +210,7 @@ public static class AccountEndpoints
                     join clinic in db.Clinics on service.ClinicId equals clinic.Id
                     join provider in db.Providers on appointment.ProviderId equals provider.Id
                     where appointment.PatientId == account.PatientId
+                        && (publicId == null || appointment.PublicId == publicId)
                     orderby appointment.StartUtc descending, appointment.Id descending
                     select new
                     {
@@ -186,8 +219,13 @@ public static class AccountEndpoints
                         appointment.Status,
                         ServiceName = service.Name,
                         ClinicName = clinic.Name,
+                        ClinicAddress = clinic.Address,
                         clinic.TimeZoneId,
                         ProviderName = provider.FirstName + " " + provider.LastName,
+                        ReferralPublicId = db.Referrals
+                            .Where(referral => referral.Id == appointment.ReferralId && referral.PatientId == account.PatientId)
+                            .Select(referral => (Guid?)referral.PublicId)
+                            .FirstOrDefault(),
                     }
                 ).ToList(),
             })
@@ -199,6 +237,27 @@ public static class AccountEndpoints
         }
 
         http.Response.Headers.CacheControl = "no-store";
+
+        if (publicId is not null)
+        {
+            var appointment = account.Appointments.SingleOrDefault();
+            if (appointment is null) return Results.NotFound();
+
+            return Results.Ok(new
+            {
+                appointment.PublicId,
+                appointment.StartUtc,
+                EndUtc = appointment.StartUtc.AddMinutes(Appointment.DurationMinutes),
+                Status = appointment.Status.ToString(),
+                appointment.ServiceName,
+                appointment.ClinicName,
+                appointment.ClinicAddress,
+                appointment.TimeZoneId,
+                appointment.ProviderName,
+                appointment.ReferralPublicId,
+            });
+        }
+
         return Results.Ok(account.Appointments.Select(appointment => new
         {
             appointment.PublicId,

@@ -80,7 +80,7 @@ Existing administrator-managed account links retain access. For an unlinked sign
 
 ## Workspace lists
 
-Referrals load 10 records per page, clinics and patients load 16, and upcoming appointments and availability conflicts load 8. Filters run on the server before paging. Each search returns `{ items, page, pageSize, totalCount, hasMore }` and uses `Cache-Control: no-store`.
+Referrals load 10 records per page, clinics and patients load 16, and upcoming appointments and availability conflicts load 14. Filters run on the server before paging. Each search returns `{ items, page, pageSize, totalCount, hasMore }` and uses `Cache-Control: no-store`.
 
 | POST route | Optional filters |
 | --- | --- |
@@ -89,17 +89,17 @@ Referrals load 10 records per page, clinics and patients load 16, and upcoming a
 | `/api/clinics/search` | `name`, `address`, `timeZone` |
 | `/api/patients/search` | `firstName`, `lastName`, `dateOfBirth` (YYYY-MM-DD) |
 | `/api/appointments/upcoming/search` | `patient`, `clinic`, `service`, `provider`, `fromUtc`, `untilUtc`, `latestFirst` |
-| `/api/appointments/needs-attention/search` | Same appointment filters |
+| `/api/appointments/needs-attention/search` | Same appointment filters. Clinicians can see conflicts on their own schedules. |
 
 All search bodies accept a one-based `page` (default 1). Text filters match substrings, use the database's collation, and accept up to 200 characters. Appointment dates use an inclusive start and exclusive end; the interface converts the selected local dates to UTC. Patient search text stays in request bodies and navigation state rather than URLs. Results use a unique tie-breaker for stable ordering. Existing GET lists remain available to lookup forms and API consumers. The navigation badge uses `/api/appointments/needs-attention/count` instead of downloading conflict records.
 
 The signed-in desktop layout uses a sidebar and compact tables or two card columns, with a collapsible menu and one card column on smaller screens. Long details, forms, and narrow or zoomed views can scroll so records and controls remain accessible. Appointment details automatically recheck completion eligibility around the start time and every 15 seconds afterward for administrators and the assigned clinician, stopping when eligible or no longer confirmed. The server capability remains authoritative.
 
-Upcoming appointments includes a Create appointment flow. `/api/appointments/booking-options` exposes eligible provider/service combinations only within the administrator's or front-desk member's scheduling clinics, and only for services that allow direct booking. The patient picker uses the existing protected `/api/patients/search` endpoint, so the caller still needs patient-read permission. Availability and creation reuse the existing provider-availability and appointment-booking routes; referral requirements, clinic access, and slot conflicts remain server-enforced. Upcoming and conflict lists and the conflict badge update every 30 seconds while visible, and after writes; error states retain a retry action.
+Upcoming appointments includes a Create appointment flow. `/api/appointments/booking-options` and `/api/appointments/booking-availability` expose eligible provider/service combinations and dates within the caller's scheduling clinics for services that allow direct booking. The patient picker uses the protected `/api/patients/search` endpoint to find matches by name or exact date of birth. Create appointment and Reschedule use the same calendar and slot rules. The server checks availability again when staff save. Upcoming and conflict lists and the conflict badge update every 30 seconds while visible and after writes.
 
 Page and data loading states share a spinner with a readable status message. Pending form actions use the same decorative spinner with their action label. Spinner animation stops for reduced-motion preferences, and errors retain explicit recovery actions where retry is appropriate.
 
-Main list panels fill the available content height only when the current page contains its full page size (10 referrals, 16 clinics/patients, or 8 appointments/conflicts). Partial, filtered, empty, loading, and error pages stay at their natural content height. This uses the displayed item count rather than the overall result count, so the last page also stays compact when incomplete. Detail and creation forms retain natural height.
+Main list panels fill the available content height only when the current page contains its full page size (10 referrals, 16 clinics/patients, or 14 appointments/conflicts). Partial, filtered, empty, loading, and error pages stay at their natural content height. This uses the displayed item count rather than the overall result count, so the last page also stays compact when incomplete. Detail and creation forms retain natural height.
 
 ## Development checks
 
