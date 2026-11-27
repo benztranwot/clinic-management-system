@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { ActionIcon } from "./ActionIcon";
+import { ActionIcon } from "../../../components/ActionIcon";
 
 export default function PatientDetailsPanel({ title, backTo, backLabel, children }: {
   title: string; backTo: string; backLabel: string; children: ReactNode;

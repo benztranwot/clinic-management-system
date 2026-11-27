@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router";
 import { getMyReferral, referralErrorMessage, ReferralRequestError, referralStatusLabels } from "../api/referrals";
 import { ActionIcon } from "../components/ActionIcon";
 import LoadingStatus from "../components/LoadingStatus";
-import PatientDetailsPanel from "../components/PatientDetailsPanel";
+import PatientDetailsPanel from "../features/patients/components/PatientDetailsPanel";
 import ReferralStatusBadge from "../features/referrals/components/ReferralStatusBadge";
 
 const createdDate = new Intl.DateTimeFormat(undefined, { dateStyle: "long" });

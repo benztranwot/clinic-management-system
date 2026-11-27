@@ -1,6 +1,7 @@
+using HealthcareApp.Api.Data;
 using Microsoft.AspNetCore.Authorization;
 
-namespace HealthcareApp.Api.Data;
+namespace HealthcareApp.Api.Middleware;
 
 public sealed class WorkspaceSelectionMiddleware(RequestDelegate next)
 {

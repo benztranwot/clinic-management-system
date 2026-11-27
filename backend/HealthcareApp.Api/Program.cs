@@ -1,8 +1,12 @@
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Endpoints;
+using HealthcareApp.Api.Middleware;
 using HealthcareApp.Api.Security;
 using HealthcareApp.Api.Workspaces;
+using HealthcareApp.Application.Interfaces;
+using HealthcareApp.Application.Scheduling;
+using HealthcareApp.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +39,8 @@ var connectionString =
 builder.Services.AddDbContext<HealthcareDbContext>(options =>
     options.UseSqlServer(connectionString)
 );
+builder.Services.AddScoped<IAppointmentAvailabilityReader, EfAppointmentAvailabilityReader>();
+builder.Services.AddScoped<AppointmentAvailability>();
 
 // Read the Auth0 settings required to validate incoming access tokens.
 var auth0Authority =

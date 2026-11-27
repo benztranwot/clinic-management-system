@@ -1,6 +1,6 @@
 import LoadingStatus from "../components/LoadingStatus";
 import WorkspacePagination from "../components/WorkspacePagination";
-import { readPage } from "../components/useListSearch";
+import { readPage } from "../utils/readPage";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import WorkspaceFilterDialog from "../components/WorkspaceFilterDialog";
 import { useAuth0 } from "@auth0/auth0-react";

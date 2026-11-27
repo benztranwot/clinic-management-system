@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace HealthcareApp.Api.Data;
 
-internal static class ProviderCalendarLock
+public static class ProviderCalendarLock
 {
     // Serialize calendar writes for one provider until the transaction ends.
     public static Task<bool> TryAcquireAsync(

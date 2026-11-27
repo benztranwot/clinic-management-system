@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { BookingDay } from "../../../api/appointments";
 import { ActionIcon } from "../../../components/ActionIcon";
-import { addCalendarDays } from "../clinicDates";
+import { addCalendarDays } from "../../../utils/clinicDates";
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const fullDate = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" });

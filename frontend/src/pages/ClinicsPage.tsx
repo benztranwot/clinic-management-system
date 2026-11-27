@@ -2,7 +2,7 @@ import { useWorkspacePermission } from "../auth/useWorkspacePermission";
 import LoadingStatus from "../components/LoadingStatus";
 import DirectoryFilters from "../components/DirectoryFilters";
 import WorkspacePagination from "../components/WorkspacePagination";
-import { useListSearch } from "../components/useListSearch";
+import { useListSearch } from "../hooks/useListSearch";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";

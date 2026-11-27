@@ -1,9 +1,6 @@
 import { useLocation, useSearchParams } from "react-router";
 
-export function readPage(value: string | null, pageSize = 10) {
-  const page = Number(value);
-  return Number.isInteger(page) && page >= 1 && page <= Math.floor(2147483647 / pageSize) ? page : 1;
-}
+import { readPage } from "../utils/readPage";
 
 // Keep directory search text (including patient names) out of URLs and referrer headers.
 export function useListSearch<T extends Record<string, string>>(key: string, userId: string, empty: T) {

@@ -5,6 +5,10 @@
 !backend/HealthcareApp.Api/**
 !backend/HealthcareApp.Domain
 !backend/HealthcareApp.Domain/**
+!backend/HealthcareApp.Application
+!backend/HealthcareApp.Application/**
+!backend/HealthcareApp.Infrastructure
+!backend/HealthcareApp.Infrastructure/**
 **/bin
 **/obj
 **/.env*

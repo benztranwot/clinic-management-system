@@ -13,7 +13,7 @@ import {
 import { Link, useLocation, useSearchParams } from "react-router";
 import { ActionIcon } from "../components/ActionIcon";
 import { AppointmentStatusBadge, TimeOffConflictBadge } from "../features/appointments/components/AppointmentStatusBadge";
-import { dateInTimeZone } from "../features/appointments/clinicDates";
+import { dateInTimeZone } from "../utils/clinicDates";
 import "./ProviderSchedulePage.css";
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

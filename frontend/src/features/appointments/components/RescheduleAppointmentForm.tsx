@@ -4,7 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppointmentRequestError, getRescheduleAvailability, rescheduleAppointment, type AppointmentDetails } from "../../../api/appointments";
 import { appointmentWriteKey, refreshAppointmentViews } from "../appointmentQueries";
-import { dateInTimeZone } from "../clinicDates";
+import { dateInTimeZone } from "../../../utils/clinicDates";
 import { ActionIcon } from "../../../components/ActionIcon";
 import BookingDatePicker from "./BookingDatePicker";
 

@@ -7,7 +7,7 @@ import { AppointmentRequestError, createDirectAppointment, getBookingOptions, ge
 import type { PatientSummary } from "../api/patients";
 import { ActionIcon } from "../components/ActionIcon";
 import BookingDatePicker from "../features/appointments/components/BookingDatePicker";
-import { dateInTimeZone } from "../features/appointments/clinicDates";
+import { dateInTimeZone } from "../utils/clinicDates";
 import { refreshAppointmentViews } from "../features/appointments/appointmentQueries";
 
 const inputClass = "w-full min-w-0 rounded-md border border-panel-border px-3 py-2";
