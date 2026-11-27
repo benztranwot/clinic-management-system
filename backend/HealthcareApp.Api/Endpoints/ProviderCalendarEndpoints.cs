@@ -10,7 +10,7 @@ namespace HealthcareApp.Api.Endpoints;
 
 public static class ProviderCalendarEndpoints
 {
-    private const int CalendarDays = 90;
+    private const int TimeOffWindowDays = 90;
 
     public static void MapProviderCalendarEndpoints(this IEndpointRouteBuilder app)
     {
@@ -35,8 +35,12 @@ public static class ProviderCalendarEndpoints
 
         var now = clock.GetUtcNow();
         var today = LocalDate(now, timeZone);
-        var windowStart = DayStartUtc(today, timeZone);
-        var windowEnd = DayStartUtc(today.AddDays(CalendarDays), timeZone);
+        var currentMonth = new DateOnly(today.Year, today.Month, 1);
+        var firstDate = currentMonth.AddMonths(-1);
+        var endDate = currentMonth.AddMonths(4);
+        var windowStart = DayStartUtc(firstDate, timeZone);
+        var windowEnd = DayStartUtc(endDate, timeZone);
+        var timeOffEnd = today.AddDays(TimeOffWindowDays);
 
         var weeklyHours = await db.ProviderWeeklyHours.AsNoTracking()
             .Where(hours => hours.ProviderId == provider.Id)
@@ -51,13 +55,14 @@ public static class ProviderCalendarEndpoints
             join service in db.ClinicalServices on appointment.ClinicalServiceId equals service.Id
             join patient in db.Patients on appointment.PatientId equals patient.Id
             where appointment.ProviderId == provider.Id
-                && appointment.Status == AppointmentStatus.Confirmed
+                && (appointment.Status == AppointmentStatus.Confirmed || appointment.StartUtc < now)
                 && appointment.StartUtc >= windowStart && appointment.StartUtc < windowEnd
-            orderby appointment.StartUtc
+            orderby appointment.StartUtc, appointment.Id
             select new
             {
                 appointment.PublicId,
                 appointment.StartUtc,
+                appointment.Status,
                 ServiceName = service.Name,
                 PatientName = patient.FirstName + " " + patient.LastName,
             }
@@ -65,9 +70,10 @@ public static class ProviderCalendarEndpoints
         var bookingsByDate = appointments.ToLookup(item => LocalDate(item.StartUtc, timeZone));
 
         // Build every day from three bounded reads instead of querying for each cell.
-        var days = Enumerable.Range(0, CalendarDays).Select(offset =>
+        var days = Enumerable.Range(0, endDate.DayNumber - firstDate.DayNumber).Select(offset =>
         {
-            var date = today.AddDays(offset);
+            var date = firstDate.AddDays(offset);
+            var isPast = date < today;
             var dayStart = DayStartUtc(date, timeZone);
             var dayEnd = DayStartUtc(date.AddDays(1), timeZone);
             var blocks = timeOff.Where(block => block.StartUtc < dayEnd && dayStart < block.EndUtc).ToArray();
@@ -77,7 +83,7 @@ public static class ProviderCalendarEndpoints
             var bookedStarts = bookings.Select(item => item.StartUtc).ToHashSet();
             var weekday = (int)date.DayOfWeek;
             var hours = weeklyHours.GetValueOrDefault(weekday) ?? ProviderWeeklyHours.CreateDefault(provider.Id, weekday);
-            var unbookedSlots = ProviderWeeklyHours.IsWeekday(weekday)
+            var unbookedSlots = !isPast && ProviderWeeklyHours.IsWeekday(weekday)
                 ? AppointmentAvailability.GetCandidates(date, hours, timeZone)
                     .Where(slot => !bookedStarts.Contains(slot.StartUtc)
                         && !blocks.Any(block => block.StartUtc < slot.EndUtc && slot.StartUtc < block.EndUtc))
@@ -97,8 +103,13 @@ public static class ProviderCalendarEndpoints
                     HasEnded = slot.EndUtc <= now,
                 }),
                 DayOff = dayOff,
-                DayOffPublicId = fullDay?.PublicId,
-                CanMarkUnavailable = !dayOff && dayEnd > dayStart && dayEnd > now,
+                DayOffPublicId = isPast ? null : fullDay?.PublicId,
+                CanMarkUnavailable = !isPast && date < timeOffEnd && !dayOff && dayEnd > dayStart && dayEnd > now,
+                TimeOff = blocks.OrderBy(block => block.StartUtc).Select(block => new
+                {
+                    StartUtc = block.StartUtc < dayStart ? dayStart : block.StartUtc,
+                    EndUtc = block.EndUtc > dayEnd ? dayEnd : block.EndUtc,
+                }),
                 Appointments = bookings.Select(item => new
                 {
                     item.PublicId,
@@ -106,6 +117,7 @@ public static class ProviderCalendarEndpoints
                     EndUtc = item.StartUtc.AddMinutes(Appointment.DurationMinutes),
                     item.ServiceName,
                     item.PatientName,
+                    Status = item.Status.ToString(),
                     DuringTimeOff = blocks.Any(block => block.StartUtc < item.StartUtc.AddMinutes(Appointment.DurationMinutes)
                         && item.StartUtc < block.EndUtc),
                 }),
@@ -142,7 +154,7 @@ public static class ProviderCalendarEndpoints
 
         var today = LocalDate(clock.GetUtcNow(), timeZone);
         if (!DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var selected)
-            || selected < today || selected >= today.AddDays(CalendarDays))
+            || selected < today || selected >= today.AddDays(TimeOffWindowDays))
         {
             return Results.BadRequest(new { message = "Choose a date within the next 90 calendar days." });
         }

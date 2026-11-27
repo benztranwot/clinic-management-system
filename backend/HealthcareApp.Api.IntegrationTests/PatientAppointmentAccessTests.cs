@@ -22,10 +22,15 @@ public class PatientAppointmentAccessTests
 
         using var anonymous = await client.GetAsync(Route);
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        var appointmentUrl = $"{Route}/{Guid.NewGuid()}";
+        using var anonymousDetail = await client.GetAsync(appointmentUrl);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousDetail.StatusCode);
 
         tokens.Authorize(client, "manage:appointments");
         using var missingRead = await client.GetAsync(Route);
         Assert.Equal(HttpStatusCode.Forbidden, missingRead.StatusCode);
+        using var detailMissingRead = await client.GetAsync(appointmentUrl);
+        Assert.Equal(HttpStatusCode.Forbidden, detailMissingRead.StatusCode);
     }
 
     [Fact]
@@ -80,12 +85,15 @@ public class PatientAppointmentAccessTests
             };
 
             var ownBooking = Book(patient, start);
-            db.Appointments.AddRange(ownBooking, Book(otherPatient, start.AddHours(1)));
+            var otherBooking = Book(otherPatient, start.AddHours(1));
+            db.Appointments.AddRange(ownBooking, otherBooking);
             await db.SaveChangesAsync();
 
             tokens.AuthorizeSubject(client, staffSubject, "read:appointments");
             using var unlinked = await client.GetAsync(Route);
             Assert.Equal(HttpStatusCode.Forbidden, unlinked.StatusCode);
+            using var unlinkedDetail = await client.GetAsync($"{Route}/{ownBooking.PublicId}");
+            Assert.Equal(HttpStatusCode.Forbidden, unlinkedDetail.StatusCode);
 
             tokens.AuthorizeSubject(client, emptySubject, "read:appointments");
             using var empty = await client.GetAsync(Route);
@@ -103,6 +111,18 @@ public class PatientAppointmentAccessTests
             Assert.Equal(start.AddMinutes(30), booking.GetProperty("endUtc").GetDateTimeOffset());
             Assert.Equal(clinic.TimeZoneId, booking.GetProperty("timeZoneId").GetString());
             Assert.False(booking.TryGetProperty("patientId", out _));
+
+            using var detail = await client.GetAsync($"{Route}/{ownBooking.PublicId}");
+            Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+            Assert.True(detail.Headers.CacheControl?.NoStore);
+            var detailBody = await detail.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(ownBooking.PublicId, detailBody.GetProperty("publicId").GetGuid());
+            Assert.Equal(clinic.Address, detailBody.GetProperty("clinicAddress").GetString());
+            Assert.Equal(JsonValueKind.Null, detailBody.GetProperty("referralPublicId").ValueKind);
+            Assert.False(detailBody.TryGetProperty("bookedByAppAccountId", out _));
+
+            using var otherDetail = await client.GetAsync($"{Route}/{otherBooking.PublicId}");
+            Assert.Equal(HttpStatusCode.NotFound, otherDetail.StatusCode);
         }
         finally
         {

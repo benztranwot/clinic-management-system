@@ -8,10 +8,13 @@ const statusStyles = {
   Closed: "bg-slate-100 text-slate-700 ring-slate-200",
 } satisfies Record<keyof typeof referralStatusLabels, string>;
 
-function ReferralStatusBadge({ status }: { status: keyof typeof referralStatusLabels }) {
+function ReferralStatusBadge({ status, showStatusLabel = true }: {
+  status: keyof typeof referralStatusLabels;
+  showStatusLabel?: boolean;
+}) {
   return (
     <span className={"inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset " + statusStyles[status]}>
-      <span className="sr-only">Status: </span>
+      {showStatusLabel && <span className="sr-only">Status: </span>}
       {referralStatusLabels[status]}
     </span>
   );

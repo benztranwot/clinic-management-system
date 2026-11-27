@@ -15,7 +15,7 @@ public static class ListPaging
 {
     public const int ReferralSize = 10;
     public const int DirectorySize = 16;
-    public const int AppointmentSize = 8;
+    public const int AppointmentSize = 14;
 
     public static bool IsValid(int page, int pageSize, params string?[] terms) =>
         page >= 1 && page <= int.MaxValue / pageSize && terms.All(term => term is null || term.Length <= 200);

@@ -138,6 +138,7 @@ public static class ProviderTimeOffEndpoints
         Guid publicId,
         ClaimsPrincipal user,
         HealthcareDbContext db,
+        TimeProvider clock,
         CancellationToken cancellationToken
     )
     {
@@ -161,14 +162,39 @@ public static class ProviderTimeOffEndpoints
             return Results.Conflict(new { message = "The provider calendar is busy. Try again." });
         }
 
-        if (!await providers.AnyAsync(provider => provider.Id == providerId.Value, cancellationToken))
+        var clinic = await (
+            from provider in providers
+            join currentClinic in db.Clinics on provider.ClinicId equals currentClinic.Id
+            where provider.Id == providerId.Value
+            select new { currentClinic.TimeZoneId }
+        ).SingleOrDefaultAsync(cancellationToken);
+        if (clinic is null)
         {
             return Results.Forbid();
         }
 
-        var deleted = await db.ProviderTimeOff.Where(block =>
-                block.ProviderId == providerId.Value && block.PublicId == publicId)
-            .ExecuteDeleteAsync(cancellationToken);
+        var target = db.ProviderTimeOff.Where(block =>
+            block.ProviderId == providerId.Value && block.PublicId == publicId);
+        var start = await target.Select(block => (DateTimeOffset?)block.StartUtc)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (start is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!TimeZoneInfo.TryFindSystemTimeZoneById(clinic.TimeZoneId, out var timeZone))
+        {
+            return Results.Conflict(new { message = "Set the clinic’s time zone before removing time off." });
+        }
+
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(), timeZone).DateTime);
+        var blockDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(start.Value, timeZone).DateTime);
+        if (blockDate < today)
+        {
+            return Results.Conflict(new { message = "Time off on a past clinic date cannot be removed." });
+        }
+
+        var deleted = await target.ExecuteDeleteAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return deleted == 0 ? Results.NotFound() : Results.NoContent();

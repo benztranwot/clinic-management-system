@@ -241,7 +241,7 @@ function ServiceDirectory({
       <div className="page-heading">
         <div>
           <h1 id="services-heading" className="page-title">{selectedId ? "Service details" : "Services"}</h1>
-          <p className="queue-meta">{clinic.name}</p>
+          {!selectedId && <p className="queue-meta">{clinic.name}</p>}
         </div>
         {selectedId === null && canManage && formMode !== "create" && (
           <button type="button" onClick={() => {
@@ -265,7 +265,7 @@ function ServiceDirectory({
       ) : !belongsToClinic ? (
         <p role="alert">This service was not found at this clinic.</p>
       ) : (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-4">
           {detail.isPending && <LoadingStatus>Loading service details…</LoadingStatus>}
           {detail.isError && (
             <div>
@@ -278,9 +278,15 @@ function ServiceDirectory({
           )}
           {service && detail.isSuccess && (
             <>
-              <dl>
-                <dt className="text-sm font-medium">Service name</dt>
-                <dd>{service.name}</dd>
+              <dl className="grid gap-4 rounded-lg border border-panel-border p-4 sm:grid-cols-2">
+                <div>
+                  <dt className="font-medium">Service name</dt>
+                  <dd className="wrap-break-word">{service.name}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium">Clinic</dt>
+                  <dd className="wrap-break-word">{clinic.name}</dd>
+                </div>
               </dl>
               {canManage && formMode === "edit" && (
                 <ServiceForm
@@ -292,33 +298,39 @@ function ServiceDirectory({
                 />
               )}
               {canManage && formMode !== "edit" && (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={change.isPending}
-                    onClick={() => {
-                      change.reset();
-                      setNotice("");
-                      setFormMode("edit");
-                    }}
-                  >
-                    <ActionIcon name="pencil" />
-                    Edit service
-                  </button>
-                  <button
-                    type="button"
-                    disabled={change.isPending}
-                    data-variant="danger"
-                    onClick={() => {
-                      if (window.confirm("Permanently delete " + service.name + "?")) {
-                        submitChange({ action: "delete", publicId: service.publicId });
-                      }
-                    }}
-                  >
-                    {change.isPending ? <Spinner /> : <ActionIcon name="trash" />}
-                    {change.isPending ? "Deleting…" : "Delete service"}
-                  </button>
-                </div>
+                <section className="rounded-lg border border-panel-border p-4" aria-labelledby="service-actions-heading">
+                  <div className="page-heading">
+                    <h2 id="service-actions-heading" className="font-semibold">Service record</h2>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        data-variant="secondary"
+                        disabled={change.isPending}
+                        onClick={() => {
+                          change.reset();
+                          setNotice("");
+                          setFormMode("edit");
+                        }}
+                      >
+                        <ActionIcon name="pencil" />
+                        Edit service
+                      </button>
+                      <button
+                        type="button"
+                        disabled={change.isPending}
+                        data-variant="danger"
+                        onClick={() => {
+                          if (window.confirm("Permanently delete " + service.name + "?")) {
+                            submitChange({ action: "delete", publicId: service.publicId });
+                          }
+                        }}
+                      >
+                        {change.isPending ? <Spinner /> : <ActionIcon name="trash" />}
+                        {change.isPending ? "Deleting…" : "Delete service"}
+                      </button>
+                    </div>
+                  </div>
+                </section>
               )}
             </>
           )}
@@ -353,26 +365,25 @@ function ServicesPage() {
   const selectedId = publicId?.toLowerCase() ?? null;
 
   return (
-    <section
-      aria-label="Services"
-      className="workspace-panel mx-auto w-full max-w-4xl space-y-4"
-    >
+    <div className="mx-auto w-full max-w-4xl space-y-3">
       <Link to={clinicPublicId ? "/clinics/" + clinicPublicId : "/clinics"}
         className="workspace-button" data-variant="secondary">
         <ActionIcon name="back" />
         {clinicPublicId ? "Back to clinic" : "Back to clinics"}
       </Link>
-      {user?.sub && clinicPublicId ? (
-        <ServiceDirectory
-          key={user.sub + ":" + clinicPublicId + ":" + (selectedId ?? "")}
-          userId={user.sub}
-          clinicPublicId={clinicPublicId}
-          selectedId={selectedId}
-        />
-      ) : (
-        <p className="mt-3" role="alert">Unable to open this clinic’s services.</p>
-      )}
-    </section>
+      <section aria-label="Services" className="workspace-panel space-y-4">
+        {user?.sub && clinicPublicId ? (
+          <ServiceDirectory
+            key={user.sub + ":" + clinicPublicId + ":" + (selectedId ?? "")}
+            userId={user.sub}
+            clinicPublicId={clinicPublicId}
+            selectedId={selectedId}
+          />
+        ) : (
+          <p className="mt-3" role="alert">Unable to open this clinic’s services.</p>
+        )}
+      </section>
+    </div>
   );
 }
 

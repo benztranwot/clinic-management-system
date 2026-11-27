@@ -21,6 +21,8 @@ public class PatientReferralAccessTests
         using var response = await client.GetAsync(ReferralsUrl);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        using var detail = await client.GetAsync($"{ReferralsUrl}/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.Unauthorized, detail.StatusCode);
     }
 
     [Fact]
@@ -102,6 +104,7 @@ public class PatientReferralAccessTests
                 AssignedProviderId = provider.Id,
                 ReferringProviderName = "Dr. Demo",
                 Reason = "First patient referral",
+                Status = ReferralStatus.ReadyToSchedule,
             };
             var secondReferral = new Referral
             {
@@ -113,6 +116,26 @@ public class PatientReferralAccessTests
                 Status = ReferralStatus.Closed,
             };
             db.Referrals.AddRange(firstReferral, secondReferral);
+            await db.SaveChangesAsync();
+
+            var start = new DateTimeOffset(2030, 1, 7, 15, 0, 0, TimeSpan.Zero);
+            var linkedAppointment = new Appointment
+            {
+                PatientId = firstPatient.Id,
+                ClinicalServiceId = service.Id,
+                ProviderId = provider.Id,
+                ReferralId = firstReferral.Id,
+                StartUtc = start,
+                BookedByAppAccountId = staff.Id,
+            };
+            db.Appointments.AddRange(linkedAppointment, new Appointment
+            {
+                PatientId = firstPatient.Id,
+                ClinicalServiceId = service.Id,
+                ProviderId = provider.Id,
+                StartUtc = start.AddDays(1),
+                BookedByAppAccountId = staff.Id,
+            });
             await db.SaveChangesAsync();
 
             // Supplying a different patient ID cannot change the account's scope.
@@ -130,6 +153,32 @@ public class PatientReferralAccessTests
             Assert.False(firstRow.TryGetProperty("reason", out _));
             Assert.False(firstRow.TryGetProperty("missingInformationNote", out _));
 
+            var ownDetailUrl = $"{ReferralsUrl}/{firstReferral.PublicId}";
+            using var detailWithoutAppointmentRead = await client.GetAsync(ownDetailUrl);
+            Assert.Equal(HttpStatusCode.OK, detailWithoutAppointmentRead.StatusCode);
+            var privateDetail = await detailWithoutAppointmentRead.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("Scheduled", privateDetail.GetProperty("stage").GetString());
+            Assert.Equal(JsonValueKind.Null, privateDetail.GetProperty("appointmentPublicId").ValueKind);
+
+            tokens.AuthorizeSubject(client, firstSubject, "read:appointments");
+            using var ownDetail = await client.GetAsync(ownDetailUrl);
+            Assert.Equal(HttpStatusCode.OK, ownDetail.StatusCode);
+            Assert.True(ownDetail.Headers.CacheControl?.NoStore);
+            var detail = await ownDetail.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(firstReferral.PublicId, detail.GetProperty("publicId").GetGuid());
+            Assert.Equal(clinic.Address, detail.GetProperty("clinicAddress").GetString());
+            Assert.Equal(linkedAppointment.PublicId, detail.GetProperty("appointmentPublicId").GetGuid());
+            Assert.False(detail.TryGetProperty("reason", out _));
+            Assert.False(detail.TryGetProperty("missingInformationNote", out _));
+
+            using var linkedAppointmentDetail = await client.GetAsync($"/api/me/appointments/{linkedAppointment.PublicId}");
+            Assert.Equal(HttpStatusCode.OK, linkedAppointmentDetail.StatusCode);
+            var visit = await linkedAppointmentDetail.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(firstReferral.PublicId, visit.GetProperty("referralPublicId").GetGuid());
+
+            using var otherDetail = await client.GetAsync($"{ReferralsUrl}/{secondReferral.PublicId}");
+            Assert.Equal(HttpStatusCode.NotFound, otherDetail.StatusCode);
+
             tokens.AuthorizeSubject(client, secondSubject);
             using var secondResponse = await client.GetAsync(ReferralsUrl);
             Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
@@ -141,6 +190,8 @@ public class PatientReferralAccessTests
             tokens.AuthorizeSubject(client, staffSubject, "read:referrals");
             using var staffResponse = await client.GetAsync(ReferralsUrl);
             Assert.Equal(HttpStatusCode.Forbidden, staffResponse.StatusCode);
+            using var staffDetail = await client.GetAsync(ownDetailUrl);
+            Assert.Equal(HttpStatusCode.Forbidden, staffDetail.StatusCode);
         }
         finally
         {

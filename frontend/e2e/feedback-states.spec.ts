@@ -11,6 +11,53 @@ async function expectCompactPanel(page: Page) {
 
 const account = { isAdministrator: true, canCreateReferrals: true, providerPublicId: null, patientPublicId: null, memberships: [] };
 
+test("mobile navigation returns focus on Escape and moves it to content after navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route(url => url.pathname.startsWith("/api/"), route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/me") {
+      return route.fulfill({ json: { ...account, isAdministrator: false, canCreateReferrals: false,
+        patientPublicId: "11111111-1111-4111-8111-111111111111" } });
+    }
+    if (["/api/me/referrals", "/api/me/appointments"].includes(path)) return route.fulfill({ json: [] });
+    return route.fulfill({ status: 404 });
+  });
+
+  await page.goto("/my-referrals");
+  const menu = page.getByRole("button", { name: "Menu", exact: true });
+  const appointments = page.getByRole("link", { name: "My appointments", exact: true });
+  await expect(menu).toBeVisible();
+  await menu.press("Enter");
+  await appointments.focus();
+  await appointments.press("Escape");
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).toBeFocused();
+
+  await menu.press("Enter");
+  await appointments.focus();
+  await appointments.press("Tab");
+  const theme = page.getByLabel(/^Theme:/);
+  await expect(theme).toBeFocused();
+  await theme.press("Enter");
+  await page.getByRole("button", { name: "Light", exact: true }).press("Escape");
+  await expect(theme).toBeFocused();
+  await expect(menu).toHaveAttribute("aria-expanded", "true");
+
+  const main = page.getByRole("main");
+  await main.focus();
+  await expect(main).toBeFocused();
+  await main.press("Escape");
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).toBeFocused();
+
+  await menu.press("Enter");
+  await appointments.focus();
+  await appointments.press("Enter");
+  await expect(page.getByRole("heading", { name: "My appointments", exact: true })).toBeVisible();
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("main")).toBeFocused();
+});
+
 test("a loading spinner respects reduced motion and a failed referral queue can recover", async ({ page }) => {
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -70,7 +117,7 @@ test("server-denied patient and booking views do not expose records or creation 
   await expect(page.getByRole("link", { name: "Register patient", exact: true })).toHaveCount(0);
   await page.goto("/appointments/new");
   await expect(page.getByRole("alert")).toContainText("access");
-  await expect(page.getByRole("combobox", { name: "Patient", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Choose a patient", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Create appointment", exact: true })).toHaveCount(0);
   expect(unexpected).toEqual([]);
 });

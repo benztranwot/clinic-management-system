@@ -1,6 +1,7 @@
 import LoadingStatus from "../components/LoadingStatus";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { getMyReferrals, referralErrorMessage, ReferralRequestError } from "../api/referrals";
 import ReferralStatusBadge from "../features/referrals/components/ReferralStatusBadge";
 import { ActionIcon } from "../components/ActionIcon";
@@ -45,18 +46,27 @@ function MyReferrals({ userId }: { userId: string }) {
       ) : (
         <ul className="appointment-grid" aria-labelledby="my-referrals-heading">
           {query.data.map((referral) => (
-            <li key={referral.publicId} className="appointment-card">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <h2 className="wrap-break-word font-semibold">{referral.serviceName}</h2>
-                  <p className="text-sm text-subtle">{referral.clinicName}</p>
+            <li key={referral.publicId} className="min-w-0">
+              <Link className="appointment-card h-full hover:bg-[var(--muted)]" to={"/my-referrals/" + referral.publicId}
+                aria-label={"View referral: " + referral.serviceName + " at " + referral.clinicName}
+                aria-describedby={"referral-status-" + referral.publicId}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h2 className="wrap-break-word font-semibold">{referral.serviceName}</h2>
+                    <p className="text-sm text-subtle">{referral.clinicName}</p>
+                  </div>
+                  <span id={"referral-status-" + referral.publicId}>
+                    <ReferralStatusBadge status={referral.status === "MissingInformation" ? referral.status : referral.stage} />
+                  </span>
                 </div>
-                <ReferralStatusBadge status={referral.stage} />
-              </div>
-              {referral.status === "MissingInformation" && <p className="text-sm">More information is needed.</p>}
-              <p className="text-sm text-subtle">
-                Created <time dateTime={referral.createdAtUtc}>{createdDate.format(new Date(referral.createdAtUtc))}</time>
-              </p>
+                {referral.status === "MissingInformation" && (
+                  <p className="text-sm">Contact the receiving clinic to ask what information is needed.</p>
+                )}
+                <p className="flex items-center justify-between gap-2 text-sm text-subtle">
+                  <span>Created <time dateTime={referral.createdAtUtc}>{createdDate.format(new Date(referral.createdAtUtc))}</time></span>
+                  <span className="shrink-0"><ActionIcon name="forward" /></span>
+                </p>
+              </Link>
             </li>
           ))}
         </ul>

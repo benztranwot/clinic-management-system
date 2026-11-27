@@ -34,7 +34,7 @@ and response bytes for the following routes.
 
 - The all-clinic and single-clinic referral queues.
 - Appointment search pages 1 and 2, combined filters, and descending ordering.
-- The provider's 90-day calendar.
+- The provider's five-month calendar.
 
 Keep the generated `TestResults/scale/scale-baseline.trx` as the measurement record.
 These are sequential, in-process TestServer measurements against LocalDB. They

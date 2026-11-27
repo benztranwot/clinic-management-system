@@ -32,59 +32,67 @@ export default function ClinicDetailsPage({ edit = false }: { edit?: boolean }) 
   const status = query.error instanceof ClinicRequestError ? query.error.status : undefined;
 
   return (
-    <section className="workspace-panel mx-auto w-full max-w-4xl space-y-4" aria-labelledby="clinic-details-heading">
-      <div className="page-heading">
+    <div className="mx-auto w-full max-w-4xl space-y-3">
+      <Link state={edit ? state : state?.listReturn?.state}
+        to={edit ? detailsPath : { pathname: "/clinics", search: state?.listReturn?.search }}
+        className="workspace-button" data-variant="secondary">
+        <ActionIcon name="back" />
+        {edit ? "Back to clinic" : "Back to clinics"}
+      </Link>
+      <section className="workspace-panel space-y-4" aria-labelledby="clinic-details-heading">
         <h1 id="clinic-details-heading" className="page-title">
           {edit ? "Edit clinic" : query.data?.clinic.name ?? "Clinic details"}
         </h1>
-        <Link state={edit ? state : state?.listReturn?.state} to={edit ? detailsPath : { pathname: "/clinics", search: state?.listReturn?.search }} className="workspace-button" data-variant="secondary">
-          <ActionIcon name="back" />
-          {edit ? "Back to clinic" : "Back to clinics"}
-        </Link>
-      </div>
-      {!userId || !clinicPublicId ? (
-        <p role="alert">Unable to open this clinic record.</p>
-      ) : query.isPending ? (
-        <LoadingStatus>Loading clinic…</LoadingStatus>
-      ) : query.isError ? (
-        <div className="space-y-2">
-          <p role="alert">{status === 404 ? "Clinic not found." : status === 403
-            ? "Your account doesn’t have permission to view clinics." : "Unable to load this clinic."}</p>
-          {status !== 403 && status !== 404 && (
-            <button type="button" data-variant="secondary" disabled={query.isFetching}
-              onClick={() => void query.refetch()}><ActionIcon name="refresh" />Try again</button>
-          )}
-        </div>
-      ) : edit ? (
-        (workspaceCanManage || query.data.canManage) ? (
-          <ClinicForm key={clinicPublicId} userId={userId} clinic={query.data.clinic}
-            onCancel={() => void navigate(detailsPath, { state })}
-            onSaved={() => void navigate(detailsPath, { replace: true, state })} />
-        ) : <p role="alert">Your account doesn’t have permission to edit clinics.</p>
-      ) : (
-        <div className="space-y-4">
-          <dl className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <dt className="text-sm font-medium text-subtle">Address</dt>
-              <dd>{query.data.clinic.address}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-subtle">Time zone</dt>
-              <dd>{query.data.clinic.timeZoneId}</dd>
-            </div>
-          </dl>
-          <ClinicDirectories userId={userId} clinicId={clinicPublicId} />
-          {(workspaceCanManage || query.data.canManage) && (
-            <div className="flex flex-wrap items-start gap-2 border-t border-panel-border pt-4">
-              <Link className="workspace-button" state={state} to={detailsPath + "/edit"}><ActionIcon name="pencil" />Edit clinic</Link>
-              <DeleteClinicButton clinic={query.data.clinic} userId={userId} disabled={false}
-                onNotice={(message) => {
-                  if (message === "Clinic deleted.") void navigate("/clinics", { replace: true, state: { clinicDeleted: true } });
-                }} />
-            </div>
-          )}
-        </div>
-      )}
-    </section>
+        {!userId || !clinicPublicId ? (
+          <p role="alert">Unable to open this clinic record.</p>
+        ) : query.isPending ? (
+          <LoadingStatus>Loading clinic…</LoadingStatus>
+        ) : query.isError ? (
+          <div className="space-y-2">
+            <p role="alert">{status === 404 ? "Clinic not found." : status === 403
+              ? "Your account doesn’t have permission to view clinics." : "Unable to load this clinic."}</p>
+            {status !== 403 && status !== 404 && (
+              <button type="button" data-variant="secondary" disabled={query.isFetching}
+                onClick={() => void query.refetch()}><ActionIcon name="refresh" />Try again</button>
+            )}
+          </div>
+        ) : edit ? (
+          (workspaceCanManage || query.data.canManage) ? (
+            <ClinicForm key={clinicPublicId} userId={userId} clinic={query.data.clinic}
+              onCancel={() => void navigate(detailsPath, { state })}
+              onSaved={() => void navigate(detailsPath, { replace: true, state })} />
+          ) : <p role="alert">Your account doesn’t have permission to edit clinics.</p>
+        ) : (
+          <div className="space-y-4">
+            <dl className="grid gap-4 rounded-lg border border-panel-border p-4 sm:grid-cols-2">
+              <div>
+                <dt className="font-medium">Address</dt>
+                <dd>{query.data.clinic.address}</dd>
+              </div>
+              <div>
+                <dt className="font-medium">Time zone</dt>
+                <dd>{query.data.clinic.timeZoneId}</dd>
+              </div>
+            </dl>
+            {(workspaceCanManage || query.data.canManage) && (
+              <section className="rounded-lg border border-panel-border p-4" aria-labelledby="clinic-management-heading">
+                <div className="page-heading">
+                  <h2 id="clinic-management-heading" className="font-semibold">Clinic management</h2>
+                  <div className="flex flex-wrap items-start gap-2">
+                    <Link className="workspace-button" data-variant="secondary" state={state}
+                      to={detailsPath + "/edit"}><ActionIcon name="pencil" />Edit clinic</Link>
+                    <DeleteClinicButton clinic={query.data.clinic} userId={userId} disabled={false}
+                      onNotice={(message) => {
+                        if (message === "Clinic deleted.") void navigate("/clinics", { replace: true, state: { clinicDeleted: true } });
+                      }} />
+                  </div>
+                </div>
+              </section>
+            )}
+            <ClinicDirectories userId={userId} clinicId={clinicPublicId} />
+          </div>
+        )}
+      </section>
+    </div>
   );
 }

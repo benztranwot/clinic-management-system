@@ -1,7 +1,8 @@
 import LoadingStatus, { Spinner } from "../../../components/LoadingStatus";
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { addCalendarDays, dateInTimeZone } from "../../appointments/clinicDates";
 import {
   bookReferralAppointment,
@@ -18,6 +19,24 @@ function slotLabel(slot: AppointmentSlot, timeZone: string) {
   return format.formatRange(new Date(slot.startUtc), new Date(slot.endUtc));
 }
 
+function appointmentNextStep(referral: ReferralDetails) {
+  const stage = referral.status === "MissingInformation" ? referral.status : referral.stage;
+  switch (stage) {
+    case "PendingReview":
+      return "The receiving clinician needs to review this referral before front desk can book an appointment.";
+    case "MissingInformation":
+      return "The referring team needs to provide the requested information so the receiving clinician can finish reviewing this referral.";
+    case "ReadyToSchedule":
+      return referral.canSchedule
+        ? "Choose an available time with the assigned provider."
+        : "Front desk can now book an appointment with the assigned provider.";
+    case "Scheduled":
+      return "The receiving clinic has booked an appointment for this referral.";
+    case "Closed":
+      return "This referral is closed. Contact the referring team if additional care is needed.";
+  }
+}
+
 function ReferralAppointmentPanel({
   referral,
   userId,
@@ -30,15 +49,20 @@ function ReferralAppointmentPanel({
   mutationKey: readonly string[];
 }) {
   const headingId = useId();
+  const formId = useId();
+  const dateInput = useRef<HTMLInputElement>(null);
+  const appointmentLink = useRef<HTMLAnchorElement>(null);
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
   const [observedTime, setObservedTime] = useState(() => new Date());
+  const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState("");
   const [selection, setSelection] = useState<{ startUtc: string; clinicDay: string } | null>(null);
   const [notice, setNotice] = useState("");
 
-  const canBook = referral.canSchedule && referral.stage === "ReadyToSchedule";
   const appointment = referral.confirmedAppointment;
+  const appointmentId = appointment?.publicId;
+  const canBook = !appointment && referral.canSchedule && referral.stage === "ReadyToSchedule";
   const timeZone = referral.clinicTimeZoneId;
   const providerId = referral.assignedProviderPublicId;
   const today = timeZone ? dateInTimeZone(observedTime, timeZone) : "";
@@ -48,7 +72,15 @@ function ReferralAppointmentPanel({
   const availabilityKey = ["provider-availability", userId, providerId];
 
   useEffect(() => {
-    if (!canBook || !timeZone) return;
+    if (bookingOpen) dateInput.current?.focus();
+  }, [bookingOpen]);
+
+  useEffect(() => {
+    if (appointmentId && notice) appointmentLink.current?.focus();
+  }, [appointmentId, notice]);
+
+  useEffect(() => {
+    if (!bookingOpen || !canBook || !timeZone) return;
     const clinicTimeZone = timeZone;
 
     function refreshClinicDay() {
@@ -66,11 +98,11 @@ function ReferralAppointmentPanel({
       window.removeEventListener("focus", refreshClinicDay);
       document.removeEventListener("visibilitychange", refreshClinicDay);
     };
-  }, [canBook, timeZone]);
+  }, [bookingOpen, canBook, timeZone]);
 
   const availability = useQuery({
     queryKey: [...availabilityKey, date, today],
-    enabled: canBook && !!timeZone && dateInRange,
+    enabled: bookingOpen && canBook && !!timeZone && dateInRange,
     queryFn: async ({ signal }) => {
       const accessToken = await getAccessTokenSilently();
       if (!accessToken) throw new Error("Auth0 did not return an access token.");
@@ -101,9 +133,11 @@ function ReferralAppointmentPanel({
     },
     retry: false,
     onSuccess: async () => {
+      await refreshSchedule();
+      setBookingOpen(false);
+      setDate("");
       setSelection(null);
       setNotice("Appointment booked.");
-      await refreshSchedule();
     },
     onError: async (error) => {
       if (error instanceof ReferralRequestError && [400, 404, 409].includes(error.status)) {
@@ -118,9 +152,18 @@ function ReferralAppointmentPanel({
     ? availability.data?.slots.find((slot) => slot.startUtc === selection.startUtc)
     : undefined;
 
+  function toggleBooking() {
+    setBookingOpen(!bookingOpen);
+    setObservedTime(new Date());
+    setDate("");
+    setSelection(null);
+    setNotice("");
+    change.reset();
+  }
+
   function book(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || !canBook || !timeZone || !dateInRange || !availability.isSuccess || !selectedSlot) return;
+    if (busy || !bookingOpen || !canBook || !timeZone || !dateInRange || !availability.isSuccess || !selectedSlot) return;
 
     const now = new Date();
     if (dateInTimeZone(now, timeZone) !== today) {
@@ -131,13 +174,29 @@ function ReferralAppointmentPanel({
     change.mutate(selectedSlot.startUtc);
   }
 
-  if (!canBook && !appointment && !notice && !change.isError) return null;
-
   return (
-    <section aria-labelledby={headingId} className="space-y-3 border-t border-panel-border pt-4">
-      <h3 id={headingId} className="font-semibold">
-        {appointment ? "Scheduled appointment" : canBook ? "Book an appointment" : "Appointment"}
-      </h3>
+    <section aria-labelledby={headingId} className="grid gap-3 rounded-lg border border-panel-border p-4">
+      <div>
+        <div className="page-heading">
+          <h3 id={headingId} className="font-semibold">
+            {appointment ? "Scheduled appointment" : canBook ? "Book an appointment" : "Appointment"}
+          </h3>
+          {appointment && (
+            <Link ref={appointmentLink} className="workspace-button" to={"/appointments/" + appointment.publicId}
+              state={{ fromReferral: true }}>
+              <ActionIcon name="eye" />View appointment
+            </Link>
+          )}
+          {canBook && timeZone && (
+            <button type="button" data-variant={bookingOpen ? "secondary" : undefined} aria-expanded={bookingOpen}
+              aria-controls={formId} onClick={toggleBooking} disabled={busy}>
+              <ActionIcon name={bookingOpen ? "close" : "calendarCheck"} />
+              {bookingOpen ? "Cancel booking" : "Book appointment"}
+            </button>
+          )}
+        </div>
+        {!appointment && <p className="mt-3 text-sm text-subtle">{appointmentNextStep(referral)}</p>}
+      </div>
       {appointment && (
         <p>
           <time dateTime={appointment.startUtc}>
@@ -150,11 +209,12 @@ function ReferralAppointmentPanel({
       )}
       {canBook && !timeZone && <p role="alert">Set the receiving clinic’s time zone before booking.</p>}
       {canBook && timeZone && (
-        <form className="space-y-3" onSubmit={book}>
-          <fieldset className="space-y-3" disabled={busy}>
+        <form id={formId} hidden={!bookingOpen} className="space-y-3" onSubmit={book}>
+          <fieldset className="space-y-3" disabled={busy || !bookingOpen}>
             <label className="block text-sm font-medium">
               Appointment date
               <input
+                ref={dateInput}
                 type="date"
                 className="mt-1 block rounded-md border border-field-border px-3 py-2"
                 value={date}
@@ -206,7 +266,7 @@ function ReferralAppointmentPanel({
             )}
             <button type="submit" disabled={!dateInRange || !selectedSlot || !availability.isSuccess}>
               {change.isPending ? <Spinner /> : <ActionIcon name="calendarCheck" />}
-              {change.isPending ? "Booking…" : "Book appointment"}
+              {change.isPending ? "Booking…" : "Confirm booking"}
             </button>
           </fieldset>
         </form>
