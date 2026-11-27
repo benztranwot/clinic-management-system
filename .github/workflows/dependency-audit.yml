@@ -1,0 +1,67 @@
+name: Dependency audit
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Advisories appear without code changes, so check weekly as well.
+  schedule:
+    - cron: "0 14 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: Audit npm packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit all dependencies
+        run: npm audit --audit-level=critical
+
+  nuget-audit:
+    name: Audit NuGet packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore packages
+        run: dotnet restore HealthcareApp.slnx
+
+      - name: List vulnerable packages
+        run: |
+          dotnet list HealthcareApp.slnx package --vulnerable --include-transitive | tee vulnerable.txt
+          # The command exits successfully even when it finds advisories.
+          if grep -q "has the following vulnerable packages" vulnerable.txt; then
+            echo "Vulnerable NuGet packages found." >&2
+            exit 1
+          fi

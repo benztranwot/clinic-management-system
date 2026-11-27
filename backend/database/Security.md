@@ -35,13 +35,25 @@ Clinical queries and writes are scoped to the workspace selected from the authen
 
 ## HTTP protections
 
-API responses use `Cache-Control: no-store`, including application error responses. nginx adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`.
+API responses use `Cache-Control: no-store`, including application error responses. nginx adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy` (camera, microphone, geolocation, payment, and USB disabled), and `Cross-Origin-Opener-Policy: same-origin`.
 
-The current Content Security Policy is a baseline: `base-uri 'self'; object-src 'none'; frame-ancestors 'none'`. It does not yet restrict script or connection sources. An Auth0-compatible source policy and HTTPS configuration must be verified against the deployed origin during hosting preparation.
+The Content Security Policy allows scripts, styles, and fonts from the site's own origin only, images from the origin and `data:` URLs, and Auth0 requests and the silent sign-in frame only for the configured tenant:
+
+```text
+default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://<AUTH0_DOMAIN>; frame-src https://<AUTH0_DOMAIN>; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'
+```
+
+The web container renders this policy from `AUTH0_DOMAIN` at startup and refuses to start when the value is missing or is not a plain host name. Check the browser console for CSP violations after changing the frontend or the Auth0 domain, for example when moving to an Auth0 custom domain.
+
+`Strict-Transport-Security: max-age=31536000; includeSubDomains` is sent only when the request reached the site over HTTPS, either directly or through a proxy that sets `X-Forwarded-Proto: https`. `includeSubDomains` applies to every subdomain of the public host; remove it in `frontend/nginx/default.conf.template` if any subdomain must stay on HTTP.
+
+nginx forwards one client address to the API. It reads `X-Forwarded-For` only from `TRUSTED_PROXY_CIDR`, which defaults to loopback, so a visitor cannot choose their own address. The API accepts forwarded headers only from private network ranges by default (the Compose network). Override them with `ForwardedHeaders__KnownNetworks__0`, `__1`, and so on when the API runs on a different network.
+
+Static files are gzip-compressed. Fingerprinted files under `/assets/` are cached for a year; `index.html` is revalidated on each load so a deployment takes effect immediately. API responses are not compressed.
 
 nginx limits request bodies to 64 KiB. Oversized requests return HTTP 413 before reaching the API. No file-upload routes are currently supported.
 
-Authenticated API traffic is limited to 120 requests per minute for each issuer/subject pair, per API instance. Tabs and refreshed access tokens share the quota. Excess requests return HTTP 429 with `Retry-After` and a problem response. Health checks are exempt. Counters reset with the API process and are not shared between instances. This limiter does not throttle anonymous traffic or provide denial-of-service protection at the hosting edge.
+Authenticated API traffic is limited to 120 requests per minute for each issuer/subject pair, per API instance. Tabs and refreshed access tokens share the quota. API requests without a valid token are limited to 60 per minute per client address. Visitor workspace creation (`POST /api/me/workspace`) is also limited to 10 attempts per hour per client address, so one visitor cannot use up the daily workspace quota with several sign-ins. Excess requests return HTTP 429 with `Retry-After` and a problem response. Health checks are exempt. Counters reset with the API process and are not shared between instances. Visitors behind one shared address (an office network, for example) share the address-based limits. These limits are not denial-of-service protection; use the host's edge protection and Auth0 Attack Protection for that.
 
 ## Verification
 

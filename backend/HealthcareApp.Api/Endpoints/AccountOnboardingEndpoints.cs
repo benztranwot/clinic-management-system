@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
+using HealthcareApp.Api.Security;
 using HealthcareApp.Api.Workspaces;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authentication;
@@ -15,7 +16,8 @@ public static class AccountOnboardingEndpoints
     public static void MapAccountOnboardingEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/me/onboarding", GetAsync).RequireAuthorization();
-        app.MapPost("/api/me/workspace", CreateWorkspaceAsync).RequireAuthorization();
+        app.MapPost("/api/me/workspace", CreateWorkspaceAsync).RequireAuthorization()
+            .RequireRateLimiting(ApiRateLimiting.VisitorWorkspaceCreationPolicy);
     }
 
     private static async Task<IResult> GetAsync(HttpContext http, HealthcareDbContext db,

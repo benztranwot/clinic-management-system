@@ -7,7 +7,7 @@ appointment ownership as appropriate to each route.
 
 | Workflow | Entry points |
 | --- | --- |
-| Health and session | `GET /api/health`, `GET /api/me` |
+| Health and session | `GET /api/health`, `GET /api/health/ready` (checks the database), `GET /api/me` |
 | Patient records | `GET /api/me/appointments`, `GET /api/me/referrals`. Append the record's public ID to open a detail. |
 | Clinic directories | `/api/clinics`, `/api/patients`, and the provider and service routes under each clinic. |
 | Referrals | `/api/referrals` for referral review and intake. `POST /api/referrals/{referralPublicId}/appointments` books an eligible referral. |

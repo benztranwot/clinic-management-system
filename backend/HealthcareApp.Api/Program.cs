@@ -1,6 +1,7 @@
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Endpoints;
+using HealthcareApp.Api.Health;
 using HealthcareApp.Api.Middleware;
 using HealthcareApp.Api.Security;
 using HealthcareApp.Api.Workspaces;
@@ -9,7 +10,9 @@ using HealthcareApp.Application.Scheduling;
 using HealthcareApp.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
@@ -43,13 +46,14 @@ builder.Services.AddScoped<IAppointmentAvailabilityReader, EfAppointmentAvailabi
 builder.Services.AddScoped<AppointmentAvailability>();
 
 // Read the Auth0 settings required to validate incoming access tokens.
-var auth0Authority =
-    builder.Configuration["Auth0:Authority"]
-    ?? throw new InvalidOperationException("Auth0 authority is missing.");
+// Each environment supplies its own tenant; no default tenant is built in.
+var auth0Authority = builder.Configuration["Auth0:Authority"];
+if (string.IsNullOrWhiteSpace(auth0Authority))
+    throw new InvalidOperationException("Auth0 authority is missing. Set Auth0:Authority (or Auth0__Authority).");
 
-var auth0Audience =
-    builder.Configuration["Auth0:Audience"]
-    ?? throw new InvalidOperationException("Auth0 audience is missing.");
+var auth0Audience = builder.Configuration["Auth0:Audience"];
+if (string.IsNullOrWhiteSpace(auth0Audience))
+    throw new InvalidOperationException("Auth0 audience is missing. Set Auth0:Audience (or Auth0__Audience).");
 
 // Read the email profile only from the configured identity provider.
 builder.Services.AddHttpClient<Auth0EmailProfileClient>(client =>
@@ -87,8 +91,16 @@ builder.Services.AddScoped<IAuthorizationHandler, WorkspacePermissionHandler>();
 builder.Services.AddApiAuthorization();
 
 builder.Services.AddApiRateLimiting();
+builder.Services.AddTrustedForwardedHeaders(builder.Configuration);
+
+// The readiness check also confirms the database is reachable.
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", timeout: TimeSpan.FromSeconds(5));
 
 var app = builder.Build();
+
+// Read the client address from nginx before rate limiting uses it.
+app.UseForwardedHeaders();
 
 // Apply the privacy policy to every API response, including errors.
 app.Use(
@@ -146,12 +158,18 @@ app.UseRateLimiter();
 app.UseAuthorization();
 app.UseMiddleware<WorkspaceSelectionMiddleware>();
 
-// Define a simple response at the root URL.
-app.MapGet("/", () => "Hello World!");
-
 // Define a health route that shows the API is responding.
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }))
     .DisableRateLimiting();
+
+// Report whether the API can serve requests, including database access.
+app.MapHealthChecks("/api/health/ready", new HealthCheckOptions
+{
+    ResponseWriter = (context, report) => context.Response.WriteAsJsonAsync(new
+    {
+        status = report.Status == HealthStatus.Healthy ? "ok" : "unavailable",
+    }),
+}).DisableRateLimiting();
 
 // Define a protected route for checking access-token authentication.
 app.MapGet("/api/auth/check", () => Results.Ok(new { message = "Authentication succeeded." }))

@@ -1,0 +1,48 @@
+name: Docker build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-images:
+    name: Build container images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Build every image Compose uses so a broken Dockerfile fails before deployment.
+      - name: Build the API runtime image
+        run: docker build --file backend/Dockerfile --target runtime --tag clinic-api:ci .
+
+      - name: Build the migration image
+        run: docker build --file backend/Dockerfile --target migrations --tag clinic-migrate:ci .
+
+      # Placeholder public Auth0 values; the image is not published.
+      - name: Build the web image
+        run: >
+          docker build frontend --tag clinic-web:ci
+          --build-arg VITE_AUTH0_DOMAIN=ci.example.auth0.com
+          --build-arg VITE_AUTH0_CLIENT_ID=ci-client-id
+          --build-arg VITE_AUTH0_AUDIENCE=https://clinic-management-api
+
+      - name: Check the web server configuration
+        run: |
+          # The container must refuse to start without an Auth0 domain.
+          if docker run --rm clinic-web:ci nginx -t; then
+            echo "The web image started without AUTH0_DOMAIN." >&2
+            exit 1
+          fi
+
+          # With settings, the rendered nginx configuration must be valid.
+          docker run --rm --add-host api:127.0.0.1 -e AUTH0_DOMAIN=ci.example.auth0.com clinic-web:ci nginx -t
