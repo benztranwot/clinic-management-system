@@ -8,6 +8,7 @@ From `frontend`, run the frontend checks with PowerShell.
 
 ```powershell
 npm.cmd ci
+npm.cmd exec -- playwright install chromium
 npm.cmd run lint
 npm.cmd run test:typecheck
 npm.cmd run build

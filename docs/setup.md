@@ -105,6 +105,8 @@ Run these from the repository root on Windows with SQL Server LocalDB installed:
 
 ```powershell
 .\scripts\Test-Backend.ps1
+npm.cmd --prefix frontend ci
+npm.cmd --prefix frontend exec -- playwright install chromium
 npm.cmd --prefix frontend run lint
 npm.cmd --prefix frontend run test:typecheck
 npm.cmd --prefix frontend run build
