@@ -8,7 +8,7 @@ From the repository root, apply the migrations before seeding the LocalDB develo
 ```powershell
 $connection = 'Server=(localdb)\MSSQLLocalDB;Database=HealthcareApp_Dev;Integrated Security=True;Encrypt=True;TrustServerCertificate=True'
 
-dotnet ef database update --project backend/HealthcareApp.Api --context HealthcareDbContext --connection $connection -- --environment Development
+dotnet ef database update --project backend/HealthcareApp.Infrastructure --startup-project backend/HealthcareApp.Api --context HealthcareDbContext --connection $connection -- --environment Development
 sqlcmd -S '(localdb)\MSSQLLocalDB' -E -C -b -I -d HealthcareApp_Dev -i backend/database/SeedDemoData.sql,backend/database/SeedScaleData.sql
 ```
 

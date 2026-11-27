@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
-using HealthcareApp.Api.Scheduling;
+using HealthcareApp.Application.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthcareApp.Api.Endpoints;
@@ -21,6 +21,7 @@ public static class ProviderAvailabilityEndpoints
         ClaimsPrincipal user,
         HttpContext http,
         HealthcareDbContext db,
+        AppointmentAvailability availability,
         TimeProvider clock,
         CancellationToken cancellationToken
     )
@@ -62,8 +63,8 @@ public static class ProviderAvailabilityEndpoints
             return Results.BadRequest(new { message = "Choose a date from tomorrow through 30 days ahead in the clinic’s time zone." });
         }
 
-        var slots = await AppointmentAvailability.FindAsync(
-            db, provider.Id, localDate, timeZone, now, cancellationToken
+        var slots = await availability.FindAsync(
+            provider.Id, localDate, timeZone, now, cancellationToken
         );
 
         http.Response.Headers.CacheControl = "no-store";

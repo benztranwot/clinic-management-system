@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { addCalendarDays, dateInTimeZone } from "../../appointments/clinicDates";
+import { addCalendarDays, dateInTimeZone } from "../../../utils/clinicDates";
 import {
   bookReferralAppointment,
   getReferralAvailability,

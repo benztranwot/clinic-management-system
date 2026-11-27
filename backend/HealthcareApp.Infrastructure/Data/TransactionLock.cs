@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HealthcareApp.Api.Data;
 
-internal static class TransactionLock
+public static class TransactionLock
 {
     public static Task<bool> TryAcquireReferralAsync(
         HealthcareDbContext db,

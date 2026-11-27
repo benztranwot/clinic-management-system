@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router";
 import { AppointmentRequestError, getMyAppointment } from "../api/appointments";
 import { ActionIcon } from "../components/ActionIcon";
 import LoadingStatus from "../components/LoadingStatus";
-import PatientDetailsPanel from "../components/PatientDetailsPanel";
+import PatientDetailsPanel from "../features/patients/components/PatientDetailsPanel";
 import { AppointmentStatusBadge } from "../features/appointments/components/AppointmentStatusBadge";
 import AppointmentTime from "../features/appointments/components/AppointmentTime";
 

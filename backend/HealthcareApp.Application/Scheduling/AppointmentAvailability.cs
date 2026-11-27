@@ -1,10 +1,9 @@
-using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
-using Microsoft.EntityFrameworkCore;
+using HealthcareApp.Application.Interfaces;
 
-namespace HealthcareApp.Api.Scheduling;
+namespace HealthcareApp.Application.Scheduling;
 
-internal static class AppointmentAvailability
+public sealed class AppointmentAvailability(IAppointmentAvailabilityReader reader)
 {
     private const int DaysAhead = 30;
 
@@ -20,8 +19,7 @@ internal static class AppointmentAvailability
         return (today.AddDays(1), today.AddDays(DaysAhead));
     }
 
-    public static async Task<AppointmentSlot[]> FindAsync(
-        HealthcareDbContext db,
+    public async Task<AppointmentSlot[]> FindAsync(
         int providerId,
         DateOnly date,
         TimeZoneInfo timeZone,
@@ -29,12 +27,11 @@ internal static class AppointmentAvailability
         CancellationToken cancellationToken
     )
     {
-        var days = await FindDaysAsync(db, providerId, date, date, timeZone, now, cancellationToken);
+        var days = await FindDaysAsync(providerId, date, date, timeZone, now, cancellationToken);
         return days[0].Slots;
     }
 
-    public static async Task<AppointmentAvailabilityDay[]> FindDaysAsync(
-        HealthcareDbContext db,
+    public async Task<AppointmentAvailabilityDay[]> FindDaysAsync(
         int providerId,
         DateOnly first,
         DateOnly last,
@@ -50,9 +47,7 @@ internal static class AppointmentAvailability
             return dates.Select(date => new AppointmentAvailabilityDay(date, "OutsideWorkingHours", [])).ToArray();
         }
 
-        var weeklyHours = await db.ProviderWeeklyHours.AsNoTracking()
-            .Where(day => day.ProviderId == providerId)
-            .ToDictionaryAsync(day => day.DayOfWeek, cancellationToken);
+        var weeklyHours = await reader.GetWeeklyHoursAsync(providerId, cancellationToken);
         var candidatesByDate = dates.Select(date =>
         {
             var weekday = (int)date.DayOfWeek;
@@ -71,21 +66,8 @@ internal static class AppointmentAvailability
 
         var firstStart = candidates.Min(slot => slot.StartUtc);
         var lastEnd = candidates.Max(slot => slot.EndUtc);
-        var timeOff = await db.ProviderTimeOff
-            .Where(block =>
-                block.ProviderId == providerId && block.StartUtc < lastEnd && firstStart < block.EndUtc
-            )
-            .Select(block => new { block.StartUtc, block.EndUtc })
-            .ToListAsync(cancellationToken);
-        var bookings = await db.Appointments
-            .Where(appointment =>
-                appointment.ProviderId == providerId
-                && appointment.Status == AppointmentStatus.Confirmed
-                && appointment.StartUtc >= firstStart
-                && appointment.StartUtc < lastEnd
-            )
-            .Select(appointment => appointment.StartUtc)
-            .ToListAsync(cancellationToken);
+        var timeOff = await reader.GetTimeOffAsync(providerId, firstStart, lastEnd, cancellationToken);
+        var bookings = await reader.GetConfirmedStartsAsync(providerId, firstStart, lastEnd, cancellationToken);
         var bookedStarts = bookings.ToHashSet();
 
         return candidatesByDate.Select(day =>
@@ -100,7 +82,7 @@ internal static class AppointmentAvailability
         }).ToArray();
     }
 
-    internal static AppointmentSlot[] GetCandidates(
+    public static AppointmentSlot[] GetCandidates(
         DateOnly date,
         ProviderWeeklyHours hours,
         TimeZoneInfo timeZone
@@ -154,5 +136,5 @@ internal static class AppointmentAvailability
     }
 }
 
-internal sealed record AppointmentSlot(DateTimeOffset StartUtc, DateTimeOffset EndUtc);
-internal sealed record AppointmentAvailabilityDay(DateOnly Date, string Status, AppointmentSlot[] Slots);
+public sealed record AppointmentSlot(DateTimeOffset StartUtc, DateTimeOffset EndUtc);
+public sealed record AppointmentAvailabilityDay(DateOnly Date, string Status, AppointmentSlot[] Slots);

@@ -8,7 +8,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../HealthcareApp.Application/HealthcareApp.Application.csproj" />
     <ProjectReference Include="../HealthcareApp.Domain/HealthcareApp.Domain.csproj" />
+    <ProjectReference Include="../HealthcareApp.Infrastructure/HealthcareApp.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -17,8 +19,6 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.14" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.22" />
   </ItemGroup>
 
 </Project>

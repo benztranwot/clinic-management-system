@@ -5,6 +5,7 @@ using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Dtos;
 using HealthcareApp.Api.Models;
 using HealthcareApp.Api.Scheduling;
+using HealthcareApp.Application.Scheduling;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -64,11 +65,12 @@ public static class AppointmentEndpoints
         CreateDirectAppointmentRequest request,
         ClaimsPrincipal user,
         HealthcareDbContext db,
+        AppointmentAvailability availability,
         TimeProvider clock,
         CancellationToken cancellationToken
     ) => BookAsync(
         null, request.PatientPublicId, request.ClinicalServicePublicId,
-        request.ProviderPublicId, request.StartUtc, user, db, clock, cancellationToken
+        request.ProviderPublicId, request.StartUtc, user, db, availability, clock, cancellationToken
     );
 
     private static Task<IResult> BookReferredAsync(
@@ -76,11 +78,12 @@ public static class AppointmentEndpoints
         CreateReferredAppointmentRequest request,
         ClaimsPrincipal user,
         HealthcareDbContext db,
+        AppointmentAvailability availability,
         TimeProvider clock,
         CancellationToken cancellationToken
     ) => BookAsync(
         referralPublicId, null, null, request.ProviderPublicId,
-        request.StartUtc, user, db, clock, cancellationToken
+        request.StartUtc, user, db, availability, clock, cancellationToken
     );
 
     private static async Task<IResult> BookAsync(
@@ -91,6 +94,7 @@ public static class AppointmentEndpoints
         string? startUtc,
         ClaimsPrincipal user,
         HealthcareDbContext db,
+        AppointmentAvailability availability,
         TimeProvider clock,
         CancellationToken cancellationToken
     )
@@ -272,8 +276,8 @@ public static class AppointmentEndpoints
                 return Results.BadRequest(new { message = "Choose a slot from tomorrow through 30 days ahead in the clinic’s time zone." });
             }
 
-            var slots = await AppointmentAvailability.FindAsync(
-                db, target.ProviderId, localDate, timeZone, now, cancellationToken
+            var slots = await availability.FindAsync(
+                target.ProviderId, localDate, timeZone, now, cancellationToken
             );
             if (!slots.Any(slot => slot.StartUtc == start))
             {
@@ -342,7 +346,7 @@ public static class AppointmentEndpoints
 
     private static async Task<IResult> GetDirectBookingAvailabilityAsync(
         Guid providerPublicId, Guid clinicalServicePublicId, ClaimsPrincipal user, HttpContext http,
-        HealthcareDbContext db, TimeProvider clock, CancellationToken cancellationToken)
+        HealthcareDbContext db, AppointmentAvailability availability, TimeProvider clock, CancellationToken cancellationToken)
     {
         var identity = AccountIdentity.FromPrincipal(user);
         if (identity is null) return Results.Challenge();
@@ -359,11 +363,12 @@ public static class AppointmentEndpoints
             select new { ProviderId = provider.Id, clinic.TimeZoneId }
         ).SingleOrDefaultAsync(cancellationToken);
         return target is null ? Results.NotFound() : await GetBookingAvailabilityAsync(
-            target.ProviderId, target.TimeZoneId, http, db, clock.GetUtcNow(), cancellationToken);
+            target.ProviderId, target.TimeZoneId, http, availability, clock.GetUtcNow(), cancellationToken);
     }
 
     private static async Task<IResult> GetRescheduleAvailabilityAsync(
         Guid publicId, ClaimsPrincipal user, HttpContext http, HealthcareDbContext db,
+        AppointmentAvailability availability,
         TimeProvider clock, CancellationToken cancellationToken)
     {
         var identity = AccountIdentity.FromPrincipal(user);
@@ -379,11 +384,11 @@ public static class AppointmentEndpoints
             select new { appointment.ProviderId, clinic.TimeZoneId }
         ).SingleOrDefaultAsync(cancellationToken);
         return target is null ? Results.NotFound() : await GetBookingAvailabilityAsync(
-            target.ProviderId, target.TimeZoneId, http, db, now, cancellationToken);
+            target.ProviderId, target.TimeZoneId, http, availability, now, cancellationToken);
     }
 
     private static async Task<IResult> GetBookingAvailabilityAsync(
-        int providerId, string? timeZoneId, HttpContext http, HealthcareDbContext db,
+        int providerId, string? timeZoneId, HttpContext http, AppointmentAvailability availability,
         DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(timeZoneId) || !TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneId, out var timeZone))
@@ -392,8 +397,8 @@ public static class AppointmentEndpoints
         }
 
         var (first, last) = AppointmentAvailability.GetBookingWindow(timeZone, now);
-        var days = await AppointmentAvailability.FindDaysAsync(
-            db, providerId, first, last, timeZone, now, cancellationToken);
+        var days = await availability.FindDaysAsync(
+            providerId, first, last, timeZone, now, cancellationToken);
         http.Response.Headers.CacheControl = "no-store";
         return Results.Ok(new { TimeZoneId = timeZoneId, Days = days });
     }
@@ -403,6 +408,7 @@ public static class AppointmentEndpoints
         RescheduleAppointmentRequest request,
         ClaimsPrincipal user,
         HealthcareDbContext db,
+        AppointmentAvailability availability,
         TimeProvider clock,
         CancellationToken cancellationToken
     )
@@ -502,8 +508,8 @@ public static class AppointmentEndpoints
                 return Results.BadRequest(new { message = "Choose a slot from tomorrow through 30 days ahead in the clinic’s time zone." });
             }
 
-            var slots = await AppointmentAvailability.FindAsync(
-                db, appointment.ProviderId, localDate, timeZone, now, cancellationToken
+            var slots = await availability.FindAsync(
+                appointment.ProviderId, localDate, timeZone, now, cancellationToken
             );
             if (!slots.Any(slot => slot.StartUtc == start))
             {

@@ -9,7 +9,7 @@ import { AppointmentStatusBadge, TimeOffConflictBadge } from "../features/appoin
 import RescheduleAppointmentForm from "../features/appointments/components/RescheduleAppointmentForm";
 import { appointmentLists } from "../features/appointments/appointmentLists";
 import { appointmentWriteKey, refreshAppointmentViews } from "../features/appointments/appointmentQueries";
-import { dateInTimeZone } from "../features/appointments/clinicDates";
+import { dateInTimeZone } from "../utils/clinicDates";
 import { useReferralAccount } from "../features/referrals/hooks/useReferralAccount";
 import { ActionIcon } from "../components/ActionIcon";
 

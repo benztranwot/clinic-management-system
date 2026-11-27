@@ -3,7 +3,7 @@ using System.Security.Claims;
 using HealthcareApp.Api.Authorization;
 using HealthcareApp.Api.Data;
 using HealthcareApp.Api.Models;
-using HealthcareApp.Api.Scheduling;
+using HealthcareApp.Application.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthcareApp.Api.Endpoints;
