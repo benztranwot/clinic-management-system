@@ -2,7 +2,7 @@ name: clinic-management
 
 services:
   db:
-    # Pin a cumulative update; Dependabot proposes newer tags.
+    # Check docs/deployment.md for the manual SQL Server update process.
     image: mcr.microsoft.com/mssql/server:2022-CU28-ubuntu-22.04
     environment:
       ACCEPT_EULA: "Y"
@@ -65,7 +65,7 @@ services:
     environment:
       # The Content Security Policy allows only this Auth0 tenant.
       AUTH0_DOMAIN: ${AUTH0_DOMAIN}
-      # Set this to the load balancer's range when a TLS proxy sits in front of nginx.
+      # Use the address or dedicated subnet of the proxy that connects to nginx.
       TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1/32}
     ports:
       - "127.0.0.1:8080:80"
@@ -73,7 +73,7 @@ services:
       - api
     healthcheck:
       test:
-        ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health/ready"]
+        ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/api/health/ready"]
       interval: 5s
       timeout: 3s
       retries: 12

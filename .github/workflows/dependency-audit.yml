@@ -58,6 +58,7 @@ jobs:
         run: dotnet restore HealthcareApp.slnx
 
       - name: List vulnerable packages
+        shell: bash
         run: |
           dotnet list HealthcareApp.slnx package --vulnerable --include-transitive | tee vulnerable.txt
           # The command exits successfully even when it finds advisories.

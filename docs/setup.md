@@ -29,7 +29,8 @@ Use Docker Desktop with Linux containers on an Intel or AMD x86-64 machine. The 
    ```powershell
    docker compose up --build -d --wait --wait-timeout 180
    docker compose ps -a
-   Invoke-RestMethod http://localhost:8080/api/health/ready
+   Invoke-RestMethod http://localhost:8080/api/health
+   docker compose exec -T web wget -qO- http://127.0.0.1:8081/api/health/ready
    docker compose exec db sh -c 'SQLCMDPASSWORD=$MSSQL_SA_PASSWORD /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -I -x -d HealthcareApp_Dev -i /seed/SeedDemoData.sql,/seed/SeedScaleData.sql'
    ```
 

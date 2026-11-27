@@ -16,6 +16,6 @@ fi
 
 # An IPv4 or IPv6 address or CIDR range.
 if ! printf '%s' "${TRUSTED_PROXY_CIDR:-}" | grep -Eq '^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$'; then
-    echo "TRUSTED_PROXY_CIDR must be an IP address or CIDR range, for example 10.0.0.0/8." >&2
+    echo "TRUSTED_PROXY_CIDR must be the proxy's IP address or dedicated CIDR range." >&2
     exit 1
 fi

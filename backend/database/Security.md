@@ -45,9 +45,9 @@ default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; f
 
 The web container renders this policy from `AUTH0_DOMAIN` at startup and refuses to start when the value is missing or is not a plain host name. Check the browser console for CSP violations after changing the frontend or the Auth0 domain, for example when moving to an Auth0 custom domain.
 
-`Strict-Transport-Security: max-age=31536000; includeSubDomains` is sent only when the request reached the site over HTTPS, either directly or through a proxy that sets `X-Forwarded-Proto: https`. `includeSubDomains` applies to every subdomain of the public host; remove it in `frontend/nginx/default.conf.template` if any subdomain must stay on HTTP.
+`Strict-Transport-Security: max-age=31536000; includeSubDomains` is sent when nginx sees HTTPS directly or the immediate trusted proxy reports `X-Forwarded-Proto: https`. `includeSubDomains` applies to every subdomain of the public host. Remove it in `frontend/nginx/default.conf.template` if any subdomain must stay on HTTP.
 
-nginx forwards one client address to the API. It reads `X-Forwarded-For` only from `TRUSTED_PROXY_CIDR`, which defaults to loopback, so a visitor cannot choose their own address. The API accepts forwarded headers only from private network ranges by default (the Compose network). Override them with `ForwardedHeaders__KnownNetworks__0`, `__1`, and so on when the API runs on a different network.
+nginx trusts `X-Forwarded-For` and `X-Forwarded-Proto` only from an immediate peer in `TRUSTED_PROXY_CIDR`, which defaults to loopback. In production, use the narrowest range that matches the immediate proxy and configure that proxy to replace client-supplied forwarded headers. nginx forwards one client address to the API. The API accepts forwarded headers from private network ranges by default. Keep the API private to the Compose network and use `ForwardedHeaders__KnownNetworks__0`, `__1`, and so on in the API environment to narrow trust to the web proxy on shared networks.
 
 Static files are gzip-compressed. Fingerprinted files under `/assets/` are cached for a year; `index.html` is revalidated on each load so a deployment takes effect immediately. API responses are not compressed.
 

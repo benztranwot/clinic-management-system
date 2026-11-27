@@ -12,8 +12,8 @@ RUN npm run build
 
 FROM nginx:1.30.8-alpine
 # AUTH0_DOMAIN is required at runtime for the Content Security Policy.
-# TRUSTED_PROXY_CIDR names the proxy allowed to report the visitor's address;
-# the loopback default trusts no external proxy.
+# TRUSTED_PROXY_CIDR identifies the proxy allowed to report the visitor's address
+# and scheme. The default trusts loopback.
 ENV NGINX_ENVSUBST_FILTER="^(AUTH0_DOMAIN|TRUSTED_PROXY_CIDR)$" \
     TRUSTED_PROXY_CIDR="127.0.0.1/32"
 RUN rm -f /etc/nginx/conf.d/default.conf
