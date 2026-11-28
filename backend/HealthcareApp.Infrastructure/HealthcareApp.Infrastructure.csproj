@@ -10,7 +10,7 @@
     <ProjectReference Include="../HealthcareApp.Application/HealthcareApp.Application.csproj" />
     <ProjectReference Include="../HealthcareApp.Domain/HealthcareApp.Domain.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.14" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.22" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />
   </ItemGroup>
 
 </Project>
