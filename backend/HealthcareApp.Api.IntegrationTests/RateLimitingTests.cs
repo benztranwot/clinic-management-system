@@ -87,6 +87,64 @@ public class RateLimitingTests
         Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
     }
 
+    [Fact]
+    public async Task AnonymousRequests_AreLimitedPerClientAddress()
+    {
+        await using var factory = new HealthcareApiFactory();
+        using var client = factory.CreateClient();
+        // The test server has no socket address, so the forwarded address identifies the client.
+        client.DefaultRequestHeaders.Add("X-Forwarded-For", "198.51.100.7");
+
+        for (var request = 0; request < 60; request++)
+        {
+            using var response = await client.GetAsync("/api/auth/check");
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using var rejected = await client.GetAsync("/api/auth/check");
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
+        Assert.True(rejected.Headers.RetryAfter?.Delta is not null);
+        var problem = await rejected.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Please wait before trying again.", problem.GetProperty("message").GetString());
+
+        // Health probes and other addresses keep working.
+        using var health = await client.GetAsync("/api/health");
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+
+        using var otherClient = factory.CreateClient();
+        otherClient.DefaultRequestHeaders.Add("X-Forwarded-For", "198.51.100.8");
+        using var otherAddress = await otherClient.GetAsync("/api/auth/check");
+        Assert.Equal(HttpStatusCode.Unauthorized, otherAddress.StatusCode);
+    }
+
+    [Fact]
+    public async Task VisitorWorkspaceCreation_IsLimitedPerClientAddress()
+    {
+        await using var factory = new HealthcareApiFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Forwarded-For", "198.51.100.20");
+
+        // Rejected sign-ins still count, so repeated attempts from one address slow down.
+        for (var request = 0; request < 10; request++)
+        {
+            using var response = await client.PostAsync("/api/me/workspace", content: null);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using var rejected = await client.PostAsync("/api/me/workspace", content: null);
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
+        Assert.InRange(rejected.Headers.RetryAfter!.Delta!.Value.TotalMinutes, 1, 60);
+
+        // The hourly creation limit does not block other routes from the same address.
+        using var otherRoute = await client.GetAsync("/api/auth/check");
+        Assert.Equal(HttpStatusCode.Unauthorized, otherRoute.StatusCode);
+
+        using var otherClient = factory.CreateClient();
+        otherClient.DefaultRequestHeaders.Add("X-Forwarded-For", "198.51.100.21");
+        using var otherAddress = await otherClient.PostAsync("/api/me/workspace", content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, otherAddress.StatusCode);
+    }
+
     private static async Task ExhaustQuotaAsync(HttpClient client)
     {
         // Exercise the real HTTP pipeline without creating a database or waiting for a window.

@@ -5,22 +5,24 @@ using Microsoft.Extensions.Logging;
 
 namespace HealthcareApp.Api.IntegrationTests;
 
-public class HealthcareApiFactory : WebApplicationFactory<Program>
+public class HealthcareApiFactory(string? connectionString = null) : WebApplicationFactory<Program>
 {
     // Give each test host a separate database.
     public string DatabaseName { get; } = $"HealthcareApp_IntegrationTests_{Guid.NewGuid():N}";
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
-        // Supply the test connection before Program.cs reads its configuration.
+        // Supply the test connection and token settings before Program.cs reads its configuration.
         builder.UseEnvironment("Testing");
         builder.ConfigureHostConfiguration(configuration =>
         {
             configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:HealthcareDatabase"] =
-                        $@"Server=(localdb)\MSSQLLocalDB;Database={DatabaseName};Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+                    ["ConnectionStrings:HealthcareDatabase"] = connectionString
+                        ?? $@"Server=(localdb)\MSSQLLocalDB;Database={DatabaseName};Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+                    ["Auth0:Authority"] = TestJwtIssuer.Issuer,
+                    ["Auth0:Audience"] = TestJwtIssuer.Audience,
                 }
             );
         });

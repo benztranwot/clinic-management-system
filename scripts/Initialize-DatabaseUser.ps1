@@ -18,10 +18,10 @@ try {
     $passwordInput = Read-Host 'Database application password' -AsSecureString
     $plainPassword = [Net.NetworkCredential]::new('', $passwordInput).Password
 
-    if ($plainPassword.Length -lt 8 -or $plainPassword.Length -gt 128 -or
+    if ($plainPassword.Length -lt 12 -or $plainPassword.Length -gt 128 -or
         $plainPassword.IndexOfAny([char[]]@([char]34, [char]39)) -ge 0 -or
         @($plainPassword.ToCharArray() | Where-Object { [char]::IsControl($_) }).Count -gt 0) {
-        throw 'Use 8-128 characters without quotes or control characters, matching the root .env value.'
+        throw 'Use 12-128 characters without quotes or control characters, matching the root .env value.'
     }
 
     $escapedPassword = $plainPassword.Replace("'", "''")

@@ -10,7 +10,7 @@ Use Docker Desktop with Linux containers on an Intel or AMD x86-64 machine. The 
    Copy-Item -LiteralPath .env.example -Destination .env
    ```
 
-   Fill in the Auth0 SPA's domain and client ID, the custom API's audience, and different unique passwords for `MSSQL_SA_PASSWORD` and `MSSQL_APP_PASSWORD`. The migration service uses the administrator password; the API uses the restricted application login. Put each SQL password in single quotes in the file if it contains a dollar sign or spaces. Avoid single and double quotes within the password itself. Use the SPA's public configuration only. The root `.env` is ignored by Git.
+   Fill in the Auth0 SPA's domain and client ID, the custom API's audience, and different unique passwords of at least 12 characters for `MSSQL_SA_PASSWORD` and `MSSQL_APP_PASSWORD`. The migration service uses the administrator password; the API uses the restricted application login. Put each SQL password in single quotes in the file if it contains a dollar sign or spaces. Avoid single and double quotes within the password itself. Use the SPA's public configuration only. The root `.env` is ignored by Git.
 
 2. In the Auth0 SPA's settings, add `http://localhost:8080` to **Allowed Callback URLs**, **Allowed Logout URLs**, and **Allowed Web Origins**. Keep any existing Vite entries. For the demo API, enable RBAC and **Add Permissions in the Access Token**. Use an account with your app's administrator permissions for the walkthrough.
 
@@ -30,6 +30,7 @@ Use Docker Desktop with Linux containers on an Intel or AMD x86-64 machine. The 
    docker compose up --build -d --wait --wait-timeout 180
    docker compose ps -a
    Invoke-RestMethod http://localhost:8080/api/health
+   docker compose exec -T web wget -qO- http://127.0.0.1:8081/api/health/ready
    docker compose exec db sh -c 'SQLCMDPASSWORD=$MSSQL_SA_PASSWORD /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -I -x -d HealthcareApp_Dev -i /seed/SeedDemoData.sql,/seed/SeedScaleData.sql'
    ```
 
@@ -70,7 +71,8 @@ Run `docker compose down` when finished. The named volume keeps the demo data an
 
 Install the .NET 10 SDK, Node.js 24, and SQL Server LocalDB with `sqlcmd`.
 Run the following commands from the repository root. Use the domain and API
-audience from your development Auth0 tenant.
+audience from your development Auth0 tenant. The API has no built-in tenant and
+stops at startup until both Auth0 settings are set.
 
 ```powershell
 dotnet tool restore

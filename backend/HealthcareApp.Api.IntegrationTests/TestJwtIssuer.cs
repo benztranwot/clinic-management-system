@@ -16,7 +16,7 @@ namespace HealthcareApp.Api.IntegrationTests;
 internal sealed class TestJwtIssuer : IDisposable
 {
     internal const string Issuer = "https://auth.integration.test/";
-    private const string Audience = "clinic-management-api-tests";
+    internal const string Audience = "clinic-management-api-tests";
     private readonly RSA _rsa = RSA.Create(2048);
     private readonly RsaSecurityKey _signingKey;
 
