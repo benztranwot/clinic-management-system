@@ -10,7 +10,7 @@ ARG VITE_AUTH0_CLIENT_ID
 ARG VITE_AUTH0_AUDIENCE
 RUN npm run build
 
-FROM nginx:1.30.8-alpine
+FROM nginx:1.31.0-alpine
 # AUTH0_DOMAIN is required at runtime for the Content Security Policy.
 # TRUSTED_PROXY_CIDR identifies the proxy allowed to report the visitor's address
 # and scheme. The default trusts loopback.
