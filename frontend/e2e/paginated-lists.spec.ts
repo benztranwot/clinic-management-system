@@ -83,7 +83,7 @@ for (const list of [
 ]) {
   test(`${list.title}: page size, navigation and filtering reset the page`, async ({ page }) => {
     const { requests, unexpected } = await mockLists(page);
-    await page.setViewportSize({ width: 1440, height: 1080 });
+    await page.setViewportSize({ width: 1440, height: list.route === "/referrals" ? 800 : 1080 });
     await page.goto(list.route);
     const table = page.getByRole("table", { name: list.title });
     await expect(table.getByRole("row")).toHaveCount(list.pageSize + 1);

@@ -10,9 +10,11 @@ to configure Auth0, initialize SQL Server, and start the stack. Open
 
 ## Try the demo
 
-Create a private workspace with fictional clinic records to try booking and
-rescheduling. The [demo guide](docs/demo.md) walks through sign-up and shows
-the patient, front-desk, and provider views.
+[Open the live Clinic Management demo](https://clinic-demo-quan.westus2.cloudapp.azure.com).
+
+Sign in and select **Create my workspace** to try booking and rescheduling
+with your own copy of the fictional clinic records. The [demo guide](docs/demo.md)
+walks through setup and shows the patient, front-desk, and provider views.
 
 ## Documentation
 

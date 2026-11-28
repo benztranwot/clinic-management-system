@@ -127,6 +127,7 @@ public class ReferredAppointmentTests
 
             var referralUrl = $"/api/referrals/{referral.PublicId}";
             var url = $"{referralUrl}/appointments";
+            var availabilityUrl = $"{referralUrl}/booking-availability?providerPublicId={firstProvider.PublicId}";
 
             var edit = new EditReferralRequest(firstProvider.PublicId, "PendingReview", null,
                 secondProvider.PublicId, "MissingInformation", null);
@@ -190,7 +191,25 @@ public class ReferredAppointmentTests
             Assert.Equal(JsonValueKind.Null, readyDetail.GetProperty("missingInformationNote").ValueKind);
             Assert.False(readyDetail.GetProperty("canSchedule").GetBoolean());
 
+            using var clinicianAvailability = await client.GetAsync(availabilityUrl);
+            Assert.Equal(HttpStatusCode.NotFound, clinicianAvailability.StatusCode);
+
             tokens.AuthorizeSubject(client, subject, "read:referrals", "manage:referrals");
+            using var staleProviderAvailability = await client.GetAsync(
+                $"{referralUrl}/booking-availability?providerPublicId={secondProvider.PublicId}");
+            Assert.Equal(HttpStatusCode.NotFound, staleProviderAvailability.StatusCode);
+            using var availability = await client.GetAsync(availabilityUrl);
+            availability.EnsureSuccessStatusCode();
+            Assert.True(availability.Headers.CacheControl?.NoStore);
+            var calendar = await availability.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("America/Chicago", calendar.GetProperty("timeZoneId").GetString());
+            var days = calendar.GetProperty("days");
+            Assert.Equal(30, days.GetArrayLength());
+            Assert.Equal("2030-01-07", days[0].GetProperty("date").GetString());
+            Assert.Equal("Available", days[0].GetProperty("status").GetString());
+            Assert.Equal("OutsideWorkingHours", days[5].GetProperty("status").GetString());
+            Assert.Equal(0, days[5].GetProperty("slots").GetArrayLength());
+
             clock.UtcNow = new DateTimeOffset(2030, 1, 7, 13, 45, 0, TimeSpan.Zero);
             using var sameDay = await client.PostAsJsonAsync(url, firstRequest);
             Assert.Equal(HttpStatusCode.BadRequest, sameDay.StatusCode);

@@ -3,16 +3,17 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { addCalendarDays, dateInTimeZone } from "../../../utils/clinicDates";
+import { dateInTimeZone } from "../../../utils/clinicDates";
 import {
   bookReferralAppointment,
-  getReferralAvailability,
+  getReferralBookingAvailability,
   referralErrorMessage,
   ReferralRequestError,
   type AppointmentSlot,
   type ReferralDetails,
 } from "../../../api/referrals";
 import { ActionIcon } from "../../../components/ActionIcon";
+import BookingDatePicker from "../../appointments/components/BookingDatePicker";
 
 function slotLabel(slot: AppointmentSlot, timeZone: string) {
   const format = new Intl.DateTimeFormat(undefined, { timeStyle: "short", timeZone });
@@ -50,14 +51,14 @@ function ReferralAppointmentPanel({
 }) {
   const headingId = useId();
   const formId = useId();
-  const dateInput = useRef<HTMLInputElement>(null);
+  const bookingForm = useRef<HTMLFormElement>(null);
   const appointmentLink = useRef<HTMLAnchorElement>(null);
   const { getAccessTokenSilently } = useAuth0();
   const queryClient = useQueryClient();
   const [observedTime, setObservedTime] = useState(() => new Date());
   const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState("");
-  const [selection, setSelection] = useState<{ startUtc: string; clinicDay: string } | null>(null);
+  const [selection, setSelection] = useState<{ startUtc: string; clinicDay: string; providerId: string } | null>(null);
   const [notice, setNotice] = useState("");
 
   const appointment = referral.confirmedAppointment;
@@ -66,13 +67,10 @@ function ReferralAppointmentPanel({
   const timeZone = referral.clinicTimeZoneId;
   const providerId = referral.assignedProviderPublicId;
   const today = timeZone ? dateInTimeZone(observedTime, timeZone) : "";
-  const firstDay = today ? addCalendarDays(today, 1) : "";
-  const lastDay = today ? addCalendarDays(today, 30) : "";
-  const dateInRange = !!firstDay && date >= firstDay && date <= lastDay;
   const availabilityKey = ["provider-availability", userId, providerId];
 
   useEffect(() => {
-    if (bookingOpen) dateInput.current?.focus();
+    if (bookingOpen) bookingForm.current?.focus();
   }, [bookingOpen]);
 
   useEffect(() => {
@@ -101,13 +99,14 @@ function ReferralAppointmentPanel({
   }, [bookingOpen, canBook, timeZone]);
 
   const availability = useQuery({
-    queryKey: [...availabilityKey, date, today],
-    enabled: bookingOpen && canBook && !!timeZone && dateInRange,
+    queryKey: [...availabilityKey, "referred", referral.publicId, timeZone, today],
+    enabled: bookingOpen && canBook && !!timeZone,
     queryFn: async ({ signal }) => {
       const accessToken = await getAccessTokenSilently();
       if (!accessToken) throw new Error("Auth0 did not return an access token.");
-      return getReferralAvailability(accessToken, providerId, date, signal);
+      return getReferralBookingAvailability(accessToken, referral.publicId, providerId, signal);
     },
+    refetchInterval: bookingOpen ? 30_000 : false,
     retry: false,
   });
 
@@ -148,8 +147,9 @@ function ReferralAppointmentPanel({
   });
 
   const busy = referralWritePending || change.isPending;
-  const selectedSlot = dateInRange && selection?.clinicDay === today
-    ? availability.data?.slots.find((slot) => slot.startUtc === selection.startUtc)
+  const slots = availability.data?.days.find(day => day.date === date && day.status === "Available")?.slots ?? [];
+  const selectedSlot = selection?.clinicDay === today && selection.providerId === providerId
+    ? slots.find(slot => slot.startUtc === selection.startUtc)
     : undefined;
 
   function toggleBooking() {
@@ -163,7 +163,7 @@ function ReferralAppointmentPanel({
 
   function book(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || !bookingOpen || !canBook || !timeZone || !dateInRange || !availability.isSuccess || !selectedSlot) return;
+    if (busy || !bookingOpen || !canBook || !timeZone || !availability.isSuccess || !selectedSlot) return;
 
     const now = new Date();
     if (dateInTimeZone(now, timeZone) !== today) {
@@ -209,30 +209,12 @@ function ReferralAppointmentPanel({
       )}
       {canBook && !timeZone && <p role="alert">Set the receiving clinic’s time zone before booking.</p>}
       {canBook && timeZone && (
-        <form id={formId} hidden={!bookingOpen} className="space-y-3" onSubmit={book}>
+        <form id={formId} ref={bookingForm} tabIndex={-1} aria-label="Choose appointment date and time"
+          hidden={!bookingOpen} className="space-y-3" onSubmit={book}>
           <fieldset className="space-y-3" disabled={busy || !bookingOpen}>
-            <label className="block text-sm font-medium">
-              Appointment date
-              <input
-                ref={dateInput}
-                type="date"
-                className="mt-1 block rounded-md border border-field-border px-3 py-2"
-                value={date}
-                min={firstDay}
-                max={lastDay}
-                required
-                onChange={(event) => {
-                  setDate(event.target.value);
-                  setSelection(null);
-                  setNotice("");
-                  change.reset();
-                }}
-              />
-            </label>
             <p className="text-sm text-subtle">Times are shown in the receiving clinic’s time zone ({timeZone}).</p>
-            {date && !dateInRange && <p role="alert">Choose a date from tomorrow through 30 days ahead in the clinic’s time zone.</p>}
-            {dateInRange && availability.isPending && <LoadingStatus>Checking available times…</LoadingStatus>}
-            {dateInRange && availability.isError && (
+            {availability.isPending && <LoadingStatus>Checking available dates…</LoadingStatus>}
+            {availability.isError && (
               <div className="space-y-2">
                 <p role="alert">{referralErrorMessage(availability.error, "Unable to load available times.")}</p>
                 <button type="button" data-variant="secondary" onClick={() => void availability.refetch()}>
@@ -241,8 +223,16 @@ function ReferralAppointmentPanel({
                 </button>
               </div>
             )}
-            {dateInRange && availability.isSuccess && (
-              availability.data.slots.length ? (
+            {bookingOpen && availability.isSuccess && (
+              <BookingDatePicker label="Appointment date" days={availability.data.days} date={date} onSelect={nextDate => {
+                setDate(nextDate);
+                setSelection(null);
+                setNotice("");
+                change.reset();
+              }} />
+            )}
+            {availability.isSuccess && date && (
+              slots.length ? (
                 <label className="block text-sm font-medium">
                   Available time
                   <select
@@ -250,12 +240,12 @@ function ReferralAppointmentPanel({
                     value={selectedSlot?.startUtc ?? ""}
                     required
                     onChange={(event) => {
-                      setSelection({ startUtc: event.target.value, clinicDay: today });
+                      setSelection({ startUtc: event.target.value, clinicDay: today, providerId });
                       change.reset();
                     }}
                   >
                     <option value="">Choose a time</option>
-                    {availability.data.slots.map((slot) => (
+                    {slots.map((slot) => (
                       <option key={slot.startUtc} value={slot.startUtc}>
                         {slotLabel(slot, availability.data.timeZoneId)}
                       </option>
@@ -264,7 +254,7 @@ function ReferralAppointmentPanel({
                 </label>
               ) : <p>No open times on this date. Choose another day.</p>
             )}
-            <button type="submit" disabled={!dateInRange || !selectedSlot || !availability.isSuccess}>
+            <button type="submit" disabled={!selectedSlot || !availability.isSuccess}>
               {change.isPending ? <Spinner /> : <ActionIcon name="calendarCheck" />}
               {change.isPending ? "Booking…" : "Confirm booking"}
             </button>

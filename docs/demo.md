@@ -2,7 +2,7 @@
 
 ## Create your private workspace
 
-1. Open Clinic Management. For a local run, follow the [Docker setup](setup.md#run-locally-with-docker-compose).
+1. Open the [live demo](https://clinic-demo-quan.westus2.cloudapp.azure.com). To run it on your machine, follow the [Docker setup](setup.md#run-locally-with-docker-compose).
 2. Select **Sign in with username and password**, then select **Sign up** on the Auth0 page.
 3. Verify your email using the message from Auth0. If the app still shows **Verify your email**, select **Check verification**.
 4. Select **Create my workspace**. The app opens a private copy of the fictional clinic records.
