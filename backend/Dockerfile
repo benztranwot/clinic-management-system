@@ -21,7 +21,7 @@ RUN dotnet publish backend/HealthcareApp.Api/HealthcareApp.Api.csproj \
 FROM build AS migrations
 ENTRYPOINT ["dotnet", "ef", "database", "update", "--project", "backend/HealthcareApp.Infrastructure", "--startup-project", "backend/HealthcareApp.Api", "--configuration", "Release", "--no-build"]
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.15 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 USER $APP_UID
