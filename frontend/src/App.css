@@ -394,6 +394,20 @@
   font-size: 0.8125rem;
 }
 
+@media (min-width: 64rem) {
+  .referral-queue-panel .queue-table {
+    line-height: 1.35;
+  }
+
+  .referral-queue-panel .queue-table :is(th, td) {
+    padding-block: 0.4rem;
+  }
+
+  .referral-queue-panel .queue-meta {
+    margin-top: 0.1rem;
+  }
+}
+
 .queue-empty {
   padding: 1rem;
   border: 1px dashed var(--border);

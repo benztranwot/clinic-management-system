@@ -32,6 +32,8 @@ public static class AppointmentEndpoints
 
         app.MapPost("/api/referrals/{referralPublicId:guid}/appointments", BookReferredAsync)
             .RequireAuthorization();
+        app.MapGet("/api/referrals/{referralPublicId:guid}/booking-availability", GetReferredBookingAvailabilityAsync)
+            .RequireAuthorization();
     }
 
     private static async Task<bool> CanScheduleAsync(AccountIdentity identity, HealthcareDbContext db, CancellationToken cancellationToken) =>
@@ -360,6 +362,29 @@ public static class AppointmentEndpoints
                     where link.ProviderId == provider.Id && service.PublicId == clinicalServicePublicId
                         && service.AllowsDirectBooking
                     select link).Any()
+            select new { ProviderId = provider.Id, clinic.TimeZoneId }
+        ).SingleOrDefaultAsync(cancellationToken);
+        return target is null ? Results.NotFound() : await GetBookingAvailabilityAsync(
+            target.ProviderId, target.TimeZoneId, http, availability, clock.GetUtcNow(), cancellationToken);
+    }
+
+    private static async Task<IResult> GetReferredBookingAvailabilityAsync(
+        Guid referralPublicId, Guid providerPublicId, ClaimsPrincipal user, HttpContext http,
+        HealthcareDbContext db, AppointmentAvailability availability, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        var identity = AccountIdentity.FromPrincipal(user);
+        if (identity is null) return Results.Challenge();
+
+        var target = await (
+            from referral in db.Referrals
+            join service in db.ClinicalServices on referral.ClinicalServiceId equals service.Id
+            join clinic in identity.QuerySchedulingClinics(db) on service.ClinicId equals clinic.Id
+            join provider in db.Providers on referral.AssignedProviderId equals provider.Id
+            where referral.PublicId == referralPublicId && referral.Status == ReferralStatus.ReadyToSchedule
+                && provider.PublicId == providerPublicId && provider.ClinicId == clinic.Id
+                && db.ProviderServices.Any(link => link.ProviderId == provider.Id && link.ClinicalServiceId == service.Id)
+                && !db.Appointments.Any(appointment => appointment.ReferralId == referral.Id
+                    && appointment.Status != AppointmentStatus.Cancelled)
             select new { ProviderId = provider.Id, clinic.TimeZoneId }
         ).SingleOrDefaultAsync(cancellationToken);
         return target is null ? Results.NotFound() : await GetBookingAvailabilityAsync(

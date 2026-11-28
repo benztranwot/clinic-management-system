@@ -1,4 +1,5 @@
 import { searchPage } from "./paging";
+import type { BookingAvailability } from "./appointments";
 import { ClinicRequestError } from "./clinics";
 import { PatientRequestError } from "./patients";
 import { ProviderRequestError, type Provider } from "./providers";
@@ -70,12 +71,6 @@ export type AppointmentSlot = {
 };
 
 export type ReferralAppointment = AppointmentSlot & { publicId: string };
-
-export type ReferralAvailability = {
-  date: string;
-  timeZoneId: string;
-  slots: AppointmentSlot[];
-};
 
 export type ReferralInput = {
   patientPublicId: string;
@@ -236,15 +231,15 @@ export async function saveReferralUpdate(accessToken: string, publicId: string, 
   await referralRequest(referralPath(publicId), accessToken, { method: "PATCH", body: update });
 }
 
-export function getReferralAvailability(
+export function getReferralBookingAvailability(
   accessToken: string,
+  referralPublicId: string,
   providerPublicId: string,
-  date: string,
   signal: AbortSignal,
 ) {
-  const path = "/api/providers/" + encodeURIComponent(providerPublicId) + "/availability";
-  return readReferralResponse<ReferralAvailability>(
-    path + "?" + new URLSearchParams({ date }),
+  const path = referralPath(referralPublicId) + "/booking-availability";
+  return readReferralResponse<BookingAvailability>(
+    path + "?" + new URLSearchParams({ providerPublicId }),
     accessToken,
     { signal },
   );

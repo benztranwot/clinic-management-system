@@ -11,7 +11,7 @@ const timeZone = "America/Chicago";
 const referralPath = "/api/referrals/" + referralId;
 const appointmentPath = "/api/appointments/" + appointmentId;
 const clinicReferralPath = "/api/clinics/" + clinicId + "/referrals/" + referralId;
-const availabilityPath = "/api/providers/" + providerId + "/availability";
+const availabilityPath = referralPath + "/booking-availability";
 
 // Monday in the clinic so Tuesday and Wednesday are valid booking days.
 const now = new Date("2026-11-09T16:00:00Z");
@@ -95,10 +95,13 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
             { date: "2026-12-01", status: "Available", slots: [{ startUtc: "2026-12-01T15:00:00Z", endUtc: "2026-12-01T15:30:00Z" }] },
           ] } });
         }
-        if (method === "GET" && path === availabilityPath) {
-          const date = url.searchParams.get("date");
-          const slots = date === originalDate ? [originalSlot] : [];
-          return route.fulfill({ json: { date, slots, timeZoneId: timeZone } });
+        if (method === "GET" && path === availabilityPath && url.searchParams.get("providerPublicId") === providerId) {
+          return route.fulfill({ json: { timeZoneId: timeZone, days: [
+            { date: originalDate, status: "Available", slots: [originalSlot] },
+            { date: rescheduleDate, status: "DayOff", slots: [] },
+            { date: "2026-11-14", status: "OutsideWorkingHours", slots: [] },
+            { date: "2026-11-15", status: "OutsideWorkingHours", slots: [] },
+          ] } });
         }
         if (method === "POST" && path === referralPath + "/appointments" && status === "ReadyToSchedule" && !appointment) {
           writes.push({ method, path, body: request.postDataJSON() });
@@ -177,15 +180,20 @@ test("clinician review hands off to front-desk booking, rescheduling, and cancel
     const book = bookingPage.getByRole("region", { name: "Book an appointment" });
     await expect(bookingPage.getByRole("button", { name: "Edit referral" })).toHaveCount(0);
     const openBooking = book.getByRole("button", { name: "Book appointment", exact: true });
-    await expect(book.getByLabel("Appointment date")).toBeHidden();
+    const calendar = book.getByRole("region", { name: "Appointment date", exact: true });
+    await expect(calendar).toBeHidden();
     await openBooking.press("Enter");
-    await expect(book.getByLabel("Appointment date")).toBeFocused();
+    await expect(book.getByRole("form", { name: "Choose appointment date and time" })).toBeFocused();
+    await expect(calendar).toBeVisible();
     await book.getByRole("button", { name: "Cancel booking", exact: true }).click();
-    await expect(book.getByLabel("Appointment date")).toBeHidden();
+    await expect(calendar).toBeHidden();
     await expect(openBooking).toBeFocused();
     await openBooking.click();
-    await expect(book.getByLabel("Appointment date")).toHaveAttribute("min", originalDate);
-    await book.getByLabel("Appointment date").fill(originalDate);
+    await expect(calendar.getByRole("button", { name: /November 9, 2026, Outside booking window/ })).toBeDisabled();
+    await expect(calendar.getByRole("button", { name: /November 11, 2026, Day off/ })).toBeDisabled();
+    await expect(calendar.getByRole("button", { name: /November 14, 2026, Outside working hours/ })).toBeDisabled();
+    await expect(calendar.getByRole("button", { name: /November 15, 2026, Outside working hours/ })).toBeDisabled();
+    await calendar.getByRole("button", { name: /November 10, 2026, Available/ }).press("Enter");
     await book.getByLabel("Available time").selectOption(originalSlot.startUtc);
     await book.getByRole("button", { name: "Confirm booking", exact: true }).click();
     const scheduled = bookingPage.getByRole("region", { name: "Scheduled appointment" });

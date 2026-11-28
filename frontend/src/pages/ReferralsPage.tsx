@@ -224,7 +224,7 @@ function ReferralsContent({ userId }: { userId: string }) {
   }, [showCreated]);
 
   return (
-    <section className="workspace-panel workspace-list-panel space-y-4" aria-labelledby="referrals-heading">
+    <section className="workspace-panel workspace-list-panel referral-queue-panel space-y-4" aria-labelledby="referrals-heading">
       {query.isSuccess
         ? <StaffQueue userId={userId} account={query.data.account} />
         : <ReferralAccountFeedback query={query} />}

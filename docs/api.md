@@ -10,7 +10,7 @@ appointment ownership as appropriate to each route.
 | Health and session | `GET /api/health`, `GET /api/me`. The web container's internal listener serves `GET /api/health/ready` for database readiness. |
 | Patient records | `GET /api/me/appointments`, `GET /api/me/referrals`. Append the record's public ID to open a detail. |
 | Clinic directories | `/api/clinics`, `/api/patients`, and the provider and service routes under each clinic. |
-| Referrals | `/api/referrals` for referral review and intake. `POST /api/referrals/{referralPublicId}/appointments` books an eligible referral. |
+| Referrals | `/api/referrals` for referral review and intake. `GET /api/referrals/{referralPublicId}/booking-availability?providerPublicId={providerPublicId}` lists dates and slots for the assigned provider. `POST /api/referrals/{referralPublicId}/appointments` books an eligible referral. |
 | Direct booking | `GET /api/appointments/booking-options` and `GET /api/appointments/booking-availability` prepare `POST /api/appointments`. |
 | Appointment actions | The `/api/appointments/{publicId}` routes expose details, reschedule availability, rescheduling, cancellation, and completion. |
 | My schedule | `GET /api/me/calendar` returns the linked clinician's calendar. Weekly hours and time off use `/api/me/weekly-hours` and `/api/me/time-off`. |

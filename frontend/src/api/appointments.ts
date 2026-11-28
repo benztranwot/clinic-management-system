@@ -124,7 +124,7 @@ export type BookingDay = {
   slots: Array<{ startUtc: string; endUtc: string }>;
 };
 
-type BookingAvailability = { timeZoneId: string; days: BookingDay[] };
+export type BookingAvailability = { timeZoneId: string; days: BookingDay[] };
 
 export async function getDirectBookingAvailability(
   option: BookingOption, accessToken: string, signal: AbortSignal,
